@@ -1,0 +1,6 @@
+python-dotenv
+keyring
+opencc-python-reimplemented
+matplotlib
+numpy
+pyinstaller

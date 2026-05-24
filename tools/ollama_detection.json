@@ -1,0 +1,12 @@
+{
+  "commands": [
+    {
+      "name": "configured_path",
+      "cmd": ["{path}", "--version"]
+    },
+    {
+      "name": "system_path",
+      "cmd": ["ollama", "--version"]
+    }
+  ]
+}

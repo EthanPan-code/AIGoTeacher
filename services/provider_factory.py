@@ -1,0 +1,96 @@
+from providers.github_provider import GITHUB_MODELS, GithubProvider
+from providers.nvidia_provider import NVIDIA_MODELS, NvidiaProvider
+from providers.ollama_provider import OLLAMA_MODELS, OllamaProvider
+
+
+class ProviderFactory:
+    _providers = {
+        "ollama": {
+            "class": OllamaProvider,
+            "display_name": "Ollama",
+            "setting_key": "ollama_model",
+            "default_model": OLLAMA_MODELS[0],
+            "models": OLLAMA_MODELS,
+        },
+        "nvidia": {
+            "class": NvidiaProvider,
+            "display_name": "NVIDIA NIM",
+            "setting_key": "nvidia_model",
+            "default_model": NVIDIA_MODELS[0],
+            "models": NVIDIA_MODELS,
+        },
+        "github": {
+            "class": GithubProvider,
+            "display_name": "GitHub Models",
+            "setting_key": "github_model",
+            "default_model": GITHUB_MODELS[0],
+            "models": GITHUB_MODELS,
+        },
+    }
+
+    @classmethod
+    def create_provider(
+        cls,
+        provider_name,
+        ui_callback,
+        status_callback=None,
+        model_name=None,
+        translator=None,
+        language_getter=None,
+        **kwargs,
+    ):
+        provider_info = cls._providers.get(provider_name)
+        if provider_info is None:
+            provider_name = "ollama"
+            provider_info = cls._providers[provider_name]
+
+        return provider_info["class"](
+            ui_callback=ui_callback,
+            status_callback=status_callback,
+            model_name=model_name or provider_info["default_model"],
+            translator=translator,
+            language_getter=language_getter,
+            **kwargs,
+        )
+
+    @classmethod
+    def create_from_config(cls, config_service, ui_callback, status_callback=None, translator=None, language_getter=None, **kwargs):
+        provider_name = config_service.get_setting("llm_provider", "ollama")
+        model_name = cls.get_configured_model(config_service, provider_name)
+        return cls.create_provider(
+            provider_name,
+            ui_callback=ui_callback,
+            status_callback=status_callback,
+            model_name=model_name,
+            translator=translator,
+            language_getter=language_getter,
+            **kwargs,
+        )
+
+    @classmethod
+    def get_available_providers(cls):
+        return tuple(cls._providers.keys())
+
+    @classmethod
+    def get_display_name(cls, provider_name):
+        return cls._providers.get(provider_name, cls._providers["ollama"])["display_name"]
+
+    @classmethod
+    def get_model_setting_key(cls, provider_name):
+        return cls._providers.get(provider_name, cls._providers["ollama"])["setting_key"]
+
+    @classmethod
+    def get_default_model(cls, provider_name):
+        return cls._providers.get(provider_name, cls._providers["ollama"])["default_model"]
+
+    @classmethod
+    def get_configured_model(cls, config_service, provider_name):
+        return config_service.get_setting(
+            cls.get_model_setting_key(provider_name),
+            cls.get_default_model(provider_name),
+        )
+
+    @classmethod
+    def get_available_models(cls, provider_name):
+        provider = cls._providers.get(provider_name, cls._providers["ollama"])
+        return provider["models"]

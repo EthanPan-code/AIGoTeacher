@@ -1,0 +1,3433 @@
+﻿import tkinter as tk
+from tkinter import ttk  
+from tkinter import filedialog
+from tkinter import messagebox
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io  # 【Phase 1】確保 threading 已匯入
+import webbrowser
+from collections import OrderedDict
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib as mpl
+from dotenv import load_dotenv
+from i18n import I18n
+mpl.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial'] 
+mpl.rcParams['axes.unicode_minus'] = False 
+
+BOARD_SIZE = 19
+CELL_SIZE = 30
+MARGIN = 40
+COORD_MARGIN = 25  # 座標額外空間
+BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
+CANVAS_SIZE = BOARD_PIXEL 
+ANALYSIS_CACHE_LIMIT = 300
+UI_POLL_INTERVAL_MS = 200
+COMMENTARY_CACHE_LIMIT = 200  # 【Phase 1】解說快取上限（無限制，改為存儲全部）
+
+UI_BG = "#f5f0e8"
+PANEL_BG = "#fffaf2"
+PANEL_BORDER = "#d7c8ad"
+TEACHER_TEXT_BG = "#fff6e8"
+BOARD_BG = "#d9a95f"
+BOARD_LINE = "#5b4228"
+TEXT_MAIN = "#2f271f"
+TEXT_MUTED = "#786858"
+ACCENT = "#1f6f78"
+ACCENT_DARK = "#15565d"
+STONE_BLACK = "#171717"
+STONE_WHITE = "#f7f3eb"
+BEST_MOVE_BLUE = "#1967d2"
+RECOMMENDATION_LIMIT = 5
+RECOMMENDATION_GREENS = ["#0b6b3a", "#198754", "#2ea66a", "#55bf7f"]
+RECOMMENDATION_RADIUS = 15
+VARIATION_HOVER_DELAY_MS = 1000
+VARIATION_PREVIEW_LIMIT = 12
+VARIATION_BLACK = "#222222"
+VARIATION_WHITE = "#f4f0e8"
+VARIATION_LABEL_BLACK = "#111111"
+VARIATION_LABEL_WHITE = "#ffffff"
+
+
+def resource_path(relative_path):
+    """取得打包後或開發環境的正確資源路徑"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+is_full_analyzing = False  # 【已棄用】已改用 analyzer.full_analyze_event（threading.Event），保留此行用於向後相容性
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOTENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+load_dotenv(DOTENV_PATH)
+
+
+
+from services.config_service import ConfigService
+from services.keyring_service import (
+    get_github_token,
+    get_nvidia_api_key,
+    normalize_api_key,
+    set_github_token,
+    set_nvidia_api_key,
+)
+from services.provider_factory import ProviderFactory
+import threading  # 【Phase 1】確保 threading 已匯入（已在 import 中，此為確認）
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+i18n = I18n(
+    base_dir="i18n",
+    settings_path=os.path.join(PROJECT_ROOT, "ui_settings.json")
+)
+config_service = ConfigService(i18n)
+
+
+def t(key, **kwargs):
+    return i18n.t(key, **kwargs)
+
+
+winrate_display_state = {"key": "analysis.not_analyzed", "kwargs": {}}
+
+# 【Phase 1】解說快取 — 儲存 LLM 生成的解說
+# Key 格式: (turn, player_move_str) → Value: 解說文本
+commentary_cache = {}  # {(turn, player_move): "解說文本", ...}
+commentary_cache_lock = threading.Lock()  # 執行緒安全保護
+full_game_commentary_cache = OrderedDict()
+full_game_commentary_lock = threading.Lock()
+FULL_GAME_COMMENTARY_CACHE_LIMIT = 50
+
+def get_commentary_from_cache(turn, player_move):
+    """從快取中取得該手數的解說 (執行緒安全)"""
+    with commentary_cache_lock:
+        key = (turn, str(player_move) if player_move else "Pass")
+        return commentary_cache.get(key)
+
+def add_to_commentary_cache(turn, player_move, text):
+    """將解說文本新增到快取 (執行緒安全，儲存全部手數)"""
+    with commentary_cache_lock:
+        key = (turn, str(player_move) if player_move else "Pass")
+        commentary_cache[key] = text
+        logger.debug(f"已快取第 {turn} 手解說 (快取大小: {len(commentary_cache)})")
+
+def get_full_game_commentary_from_cache(cache_key):
+    with full_game_commentary_lock:
+        cached = full_game_commentary_cache.get(cache_key)
+        if cached:
+            full_game_commentary_cache.move_to_end(cache_key)
+        return cached
+
+def add_full_game_commentary_to_cache(cache_key, text):
+    if not text:
+        return
+    with full_game_commentary_lock:
+        full_game_commentary_cache[cache_key] = text
+        full_game_commentary_cache.move_to_end(cache_key)
+        while len(full_game_commentary_cache) > FULL_GAME_COMMENTARY_CACHE_LIMIT:
+            full_game_commentary_cache.popitem(last=False)
+
+# 【Phase 1】全域狀態追蹤 — 追蹤當前正在生成的解說
+current_critical_event = None  # 當前正在生成解說的 critical_event
+current_generated_commentary = ""  # 累積生成的解說文本
+
+def render_winrate_text(key, kwargs):
+    render_kwargs = dict(kwargs)
+    if "to_move_key" in render_kwargs:
+        render_kwargs["to_move"] = t(render_kwargs.pop("to_move_key"))
+    return t(key, **render_kwargs)
+
+
+def set_winrate_text(key, **kwargs):
+    winrate_display_state["key"] = key
+    winrate_display_state["kwargs"] = kwargs
+    winrate_label.config(text=render_winrate_text(key, kwargs))
+
+class KataGoAnalyzer:
+    def __init__(self, katago_path, model_path, config_path):
+        self.cmd = [katago_path, "analysis", "-model", model_path, "-config", config_path]
+        self.process = subprocess.Popen(
+            self.cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=1,
+            universal_newlines=True,
+            encoding="utf-8"
+        )
+        self.response_queue = queue.Queue()
+        self.analysis_cache = OrderedDict() # LRU：存儲已經分析過的局面
+        self.pending_queries = {} # query_id -> {"board_hash": ..., "turn": ...}
+        self.query_counter = itertools.count(1)
+        self.cache_hits = 0
+        self.cache_misses = 0
+        
+        # 【Phase 1】線程安全機制
+        self.lock = threading.Lock()  # 保護 response_queue 和 analysis_cache
+        self.full_analyze_event = threading.Event()  # 原子操作替代 is_full_analyzing 全局標誌
+        
+        # 啟動讀取執行緒，避免阻塞 UI
+        threading.Thread(target=self._reader_thread, daemon=True).start()
+
+    def get_board_hash(self, stones):
+        """將當前棋譜轉換成唯一的字串，作為快取的 Key"""
+        moves = [["B" if c == "black" else "W", self.to_gtp(x, y)] for x, y, c in stones]
+        return self.get_board_hash_from_moves(moves)
+
+    def get_board_hash_from_moves(self, moves):
+        """用一致的 KataGo moves 格式生成快取 key，避免 stones/list 格式不一致造成 miss。"""
+        return json.dumps(moves, ensure_ascii=False, separators=(",", ":"))
+
+    def _store_cache(self, board_hash, data):
+        self.analysis_cache[board_hash] = data
+        self.analysis_cache.move_to_end(board_hash)
+        while len(self.analysis_cache) > ANALYSIS_CACHE_LIMIT:
+            evicted_key, _ = self.analysis_cache.popitem(last=False)
+            logger.debug("LRU 快取已移除最舊局面: key=%s cache_size=%s", evicted_key, len(self.analysis_cache))
+
+    def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="live", use_cache=True):
+        moves = [["B" if c == "black" else "W", self.to_gtp(x, y)] for x, y, c in stones]
+        turn_num = len(stones)
+        if analyze_turns is None:
+            analyze_turns = [turn_num]
+        analyze_turns = list(analyze_turns)
+        target_queue = response_queue or self.response_queue
+        board_hash = self.get_board_hash_from_moves(moves)
+        
+        # 【關鍵檢查】如果這個局面以前算過，直接把舊結果塞回 Queue，不用發請求給 KataGo
+        # 【Phase 1】使用鎖保護快取讀取和 queue 操作
+        if use_cache and len(analyze_turns) == 1 and analyze_turns[0] == turn_num:
+            with self.lock:
+                cached = self.analysis_cache.get(board_hash)
+                if cached:
+                    self.analysis_cache.move_to_end(board_hash)
+                    self.cache_hits += 1
+                    total = self.cache_hits + self.cache_misses
+                    hit_rate = (self.cache_hits / total) * 100 if total else 0
+                    print(f"DEBUG: 命中快取！直接讀取第 {len(stones)} 手分析結果")
+                    logger.info("KataGo 快取命中: turn=%s hit_rate=%.1f%% (%s/%s)", len(stones), hit_rate, self.cache_hits, total)
+                    target_queue.put(cached)
+                    return None
+                self.cache_misses += 1
+        else:
+            with self.lock:
+                self.cache_misses += 1
+
+        query_id = f"{query_kind}_{turn_num}_{int(time.time() * 1000)}_{next(self.query_counter)}"
+        query = {
+            "id": query_id,
+            "moves": moves,
+            "rules": "japanese",
+            "komi": 6.5,
+            "boardXSize": 19,
+            "boardYSize": 19,
+            "analyzeTurns": analyze_turns
+        }
+
+        with self.lock:
+            self.pending_queries[query_id] = {
+                "moves": moves,
+                "pending_turns": set(analyze_turns),
+                "response_queue": target_queue,
+                "kind": query_kind,
+            }
+
+        try:
+            self.process.stdin.write(json.dumps(query) + "\n")
+            self.process.stdin.flush()
+            return query_id
+        except (BrokenPipeError, OSError) as e:
+            with self.lock:
+                self.pending_queries.pop(query_id, None)
+            logger.error("KataGo 查詢送出失敗: id=%s turns=%s error=%s", query_id, analyze_turns, e)
+            return None
+
+    def _reader_thread(self):
+        while True:
+            line = self.process.stdout.readline()
+            if not line: break
+            if line.startswith("{"):
+                try:
+                    data = json.loads(line)
+                    query_id = data["id"]
+                    # 【Phase 1】使用鎖保護 queue 和快取的寫入
+                    with self.lock:
+                        pending = self.pending_queries.get(query_id)
+                        if pending is None:
+                            logger.warning("收到未知或已處理的 KataGo 回應，丟棄: id=%s", query_id)
+                            continue
+
+                        result_turn = data["turnNumber"]
+                        if result_turn not in pending["pending_turns"]:
+                            logger.warning(
+                                "KataGo 回應手數與查詢不一致: id=%s expected_turns=%s result_turn=%s",
+                                query_id, sorted(pending["pending_turns"]), result_turn
+                            )
+                            continue
+
+                        pending["pending_turns"].remove(result_turn)
+                        if not pending["pending_turns"]:
+                            self.pending_queries.pop(query_id, None)
+
+                        pending["response_queue"].put(data)
+                        
+                        # 只有完整的分析結果(含rootInfo)才存入快取
+                        if "rootInfo" in data:
+                            result_hash = self.get_board_hash_from_moves(pending["moves"][:result_turn])
+                            self._store_cache(result_hash, data)
+                except json.JSONDecodeError as e:
+                    # 【改進異常處理】詳細記錄 JSON 解析錯誤
+                    logger.warning("KataGo JSON 解析失敗: line=%r error=%s", line[:200], e)
+                    continue
+                except KeyError as e:
+                    logger.warning("KataGo 回應缺少必要欄位: missing=%s data=%s", e, data)
+                    continue
+                except (TypeError, ValueError) as e:
+                    logger.warning("KataGo 回應格式異常: error=%s data=%s", e, data)
+                    continue
+
+    def to_gtp(self, x, y):
+        col = chr(ord('A') + x)
+        if col >= 'I': col = chr(ord(col) + 1)
+        return f"{col}{19 - y}"
+
+    def get_result(self):
+        try:
+            # 【Phase 1】使用鎖保護 queue 的讀取
+            with self.lock:
+                return self.response_queue.get_nowait()
+        except queue.Empty:
+            return None
+
+    def cancel_query(self, query_id):
+        with self.lock:
+            self.pending_queries.pop(query_id, None)
+
+class GoDataFilter:
+    def __init__(self, winrate_threshold=0.05, score_threshold=2.0):
+        self.winrate_threshold = winrate_threshold
+        self.score_threshold = score_threshold
+        
+        # 永遠紀錄黑棋視角的基準
+        self.baseline_black_winrate = 0.5
+        self.baseline_black_scoreLead = 0.0
+        
+        self.current_turn = 0
+        self.latest_black_winrate = 0.5
+        self.latest_black_scoreLead = 0.0
+        self.has_triggered_this_turn = False
+    
+    def load_baseline_from_cache(self, turn, analyzer):
+        """【改進】從快取中查詢上一手 (turn-1) 的分析結果，取出勝率和目數作為基準
+        
+        Args:
+            turn: 當前手數
+            analyzer: KataGoAnalyzer 實例，包含 analysis_cache
+        
+        Returns:
+            (baseline_winrate, baseline_scoreLead) 或 None 如果快取中沒有上一手的結果
+        """
+        if turn <= 0:
+            return None
+        
+        prev_turn = turn - 1
+        # 取得棋局前 prev_turn 手的 hash（即上一手完成後的狀態）
+        moves = board.stones[:prev_turn]
+        moves_gtp = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in moves]
+        board_hash = analyzer.get_board_hash_from_moves(moves_gtp)
+        
+        # 從快取查詢
+        cached_result = analyzer.analysis_cache.get(board_hash)
+        if cached_result and "rootInfo" in cached_result:
+            root_info = cached_result["rootInfo"]
+            baseline_wr = root_info.get("winrate", None)
+            baseline_sl = root_info.get("scoreLead", 0.0)
+            logger.debug("【改進】從快取查詢到基準值: turn=%s prev_turn=%s winrate=%s scoreLead=%s", 
+                        turn, prev_turn, baseline_wr, baseline_sl)
+            return (baseline_wr, baseline_sl)
+        
+        logger.debug("【改進】快取中未找到上一手的分析: turn=%s prev_turn=%s hash=%s", 
+                    turn, prev_turn, board_hash[:50])
+        return None
+
+    def process_analysis(self, current_turn, raw_result, last_move_gtp):
+        root_info = raw_result.get("rootInfo", {})
+        
+        # 1. 取得原始數據 (永遠是黑棋勝率/領先目數)
+        current_black_winrate = root_info.get("winrate", 0.5)
+        current_black_scoreLead = root_info.get("scoreLead", 0.0)
+
+        # 2. 處理手數切換：當手數增加時，優先從快取查詢上一手的數據作為基準
+        if current_turn > self.current_turn:
+            # 【改進】先嘗試從快取查詢上一手 (current_turn - 1) 的分析結果
+            cache_result = self.load_baseline_from_cache(current_turn, analyzer)
+            if cache_result:
+                baseline_wr, baseline_sl = cache_result
+                if baseline_wr is not None:
+                    self.baseline_black_winrate = baseline_wr
+                    self.baseline_black_scoreLead = baseline_sl
+                    logger.info("基準值來自快取: turn=%s baseline_wr=%s baseline_sl=%s", 
+                               current_turn, baseline_wr, baseline_sl)
+                else:
+                    # 快取中有結果但 winrate 為 None，使用內存備選
+                    self.baseline_black_winrate = self.latest_black_winrate
+                    self.baseline_black_scoreLead = self.latest_black_scoreLead
+                    logger.info("快取中無有效 winrate，使用內存備選: turn=%s", current_turn)
+            else:
+                # 快取查詢失敗，使用內存備選（舊邏輯）
+                self.baseline_black_winrate = self.latest_black_winrate
+                self.baseline_black_scoreLead = self.latest_black_scoreLead
+                logger.info("快取查詢失敗，使用內存備選: turn=%s baseline_wr=%s baseline_sl=%s", 
+                           current_turn, self.latest_black_winrate, self.latest_black_scoreLead)
+            
+            self.current_turn = current_turn
+            self.has_triggered_this_turn = False
+
+        # 更新最新觀測值
+        self.latest_black_winrate = current_black_winrate
+        self.latest_black_scoreLead = current_black_scoreLead
+
+        if self.has_triggered_this_turn or current_turn == 0:
+            return None
+
+        # 3. 計算勝率變動 (Baseline 是下棋前的狀態，Latest 是下棋後的狀態)
+        # 如果剛才是「黑棋」下：黑棋勝率應該要升，若降了就是失誤
+        # 如果剛才是「白棋」下：黑棋勝率應該要降，若升了就是白棋失誤
+        
+        player_just_moved = "Black" if current_turn % 2 != 0 else "White"
+        
+        if player_just_moved == "Black":
+            # 黑棋下完，黑勝率跌了多少
+            winrate_drop = self.baseline_black_winrate - current_black_winrate
+            score_drop = self.baseline_black_scoreLead - current_black_scoreLead
+        else:
+            # 白棋下完，黑勝率反而漲了多少 (代表白棋虧了)
+            winrate_drop = current_black_winrate - self.baseline_black_winrate
+            score_drop = current_black_scoreLead - self.baseline_black_scoreLead
+
+        # 4. 判定是否觸發
+        if winrate_drop >= self.winrate_threshold or score_drop >= self.score_threshold:
+            self.has_triggered_this_turn = True
+            
+            # 準備給 Ollama 的數據
+            current_top_moves = []
+            if "moveInfos" in raw_result:
+                for info in raw_result["moveInfos"][:3]:
+                    current_top_moves.append({"move": info["move"], "winrate": info["winrate"]})
+
+            return {
+                "turn": current_turn,
+                "player": player_just_moved,
+                "user_move": last_move_gtp,
+                "winrate_drop": round(winrate_drop, 3),
+                "current_best_moves": current_top_moves
+            }
+
+        return None
+
+class GameNode:
+    def __init__(self, move=None, parent=None):
+        self.move = move  # 格式為 (x, y, color)，Root 為 None
+        self.parent = parent
+        self.children = []
+        self.active_child_idx = 0  # 紀錄目前正在看哪一個變化圖分支
+
+class BranchCanvas(tk.Canvas):
+    def __init__(self, master, board_ref, **kwargs):
+        super().__init__(master, **kwargs)
+        self.board_ref = board_ref
+        self.node_radius = 15
+        self.bind("<Button-1>", self.on_click)
+
+    def draw_branches(self):
+        self.delete("all")
+        curr = self.board_ref.current_node
+        if not curr.parent:
+            self.create_text(100, 42, text=t("branch.opening"), fill=TEXT_MUTED, font=("Microsoft JhengHei", 10))
+            return
+
+        parent = curr.parent
+        branches = parent.children
+        active_idx = parent.active_child_idx
+
+        self.create_text(100, 15, text=t("branch.turn_branches", move_count=len(self.board_ref.stones)), font=("Microsoft JhengHei", 10), fill=TEXT_MAIN)
+
+        # 橫向排列分支
+        for i, node in enumerate(branches):
+            x = 30 + i * 45
+            y = 50
+            color = STONE_WHITE if i == active_idx else "#d8d0c5"
+            outline = ACCENT if i == active_idx else "#9d8f7f"
+            width = 3 if i == active_idx else 1
+            
+            # 畫圓圈代表分支
+            self.create_oval(x-self.node_radius, y-self.node_radius, 
+                             x+self.node_radius, y+self.node_radius, 
+                             fill=color, outline=outline, width=width, tags=f"branch_{i}")
+            
+            # 顯示座標縮寫 (如 R16)
+            move = node.move
+            txt = f"{self.board_ref.to_gtp_coord(move[0], move[1])}" if move else "Pass"
+            self.create_text(x, y, text=txt, font=("Arial", 7, "bold"), fill=TEXT_MAIN, tags=f"branch_{i}")
+
+    def on_click(self, event):
+        item = self.find_closest(event.x, event.y)
+        tags = self.gettags(item)
+        for tag in tags:
+            if tag.startswith("branch_"):
+                idx = int(tag.split("_")[1])
+                self.board_ref.jump_to_branch(idx)
+                break
+
+def auto_analyze():
+    # 如果正在整盤分析，直接跳過自動分析
+    # 【Phase 1】用 analyzer.full_analyze_event.is_set() 代改 is_full_analyzing
+    if analyzer.full_analyze_event.is_set():
+        return
+        
+    board.clear_blue_point()
+    set_winrate_text("analysis.thinking")
+    analyzer.send_query(board.stones)
+
+
+
+def run_full_game_analysis(progress_callback, cancel_state):
+    """分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報)"""
+    stones_snapshot = copy.deepcopy(board.stones)
+    total_moves = len(stones_snapshot)
+    analyze_turns = list(range(total_moves + 1))
+    full_response_queue = queue.Queue()
+
+    winrates = {}
+    scoreLeads = {}
+
+    query_id = analyzer.send_query(
+        stones_snapshot,
+        analyze_turns=analyze_turns,
+        response_queue=full_response_queue,
+        query_kind="full",
+        use_cache=False
+    )
+    if not query_id:
+        return None, None
+
+    while len(winrates) < len(analyze_turns):
+        if cancel_state["cancel"]:  # 檢查是否按下取消
+            analyzer.cancel_query(query_id)
+            logger.info("全盤分析已被使用者取消: id=%s", query_id)
+            break
+
+        try:
+            data = full_response_queue.get(timeout=0.2)
+        except queue.Empty:
+            continue
+
+        try:
+            turn = data["turnNumber"]
+            root_info = data["rootInfo"]
+            winrates[turn] = root_info["winrate"]
+            scoreLeads[turn] = root_info.get("scoreLead", 0.0)
+            # 呼叫回傳函數更新 UI 進度
+            progress_callback(len(winrates), len(analyze_turns))
+        except KeyError as e:
+            logger.warning("全盤分析結果缺少欄位: missing=%s data=%s", e, data)
+        except (TypeError, ValueError) as e:
+            logger.warning("全盤分析結果格式異常: error=%s data=%s", e, data)
+
+    if cancel_state["cancel"]:
+        return None, None # 取消的話回傳 None
+    
+    sorted_turns = sorted(winrates.keys())
+    wr_list = [winrates[i] for i in sorted_turns]
+    sl_list = [scoreLeads[i] for i in sorted_turns]
+    return wr_list, sl_list
+
+def show_winrate_chart():
+    # 【Phase 1】用 analyzer.full_analyze_event 代改 is_full_analyzing
+    if not board.stones or analyzer.full_analyze_event.is_set():
+        return
+
+    analyzer.full_analyze_event.set()  # 策設事件（原子操作） 
+    btn_full_analysis.config(state="disabled")
+    
+    # ====== 1. 建立彈出進度視窗 ======
+    progress_popup = tk.Toplevel(root)
+    progress_popup.title(t("analysis.progress_title"))
+    progress_popup.geometry("300x150")
+    progress_popup.resizable(False, False)
+    progress_popup.transient(root) # 讓視窗保持在主視窗之上
+    progress_popup.grab_set()      # 【關鍵】鎖定主視窗，無法點擊棋盤或其他按鈕
+    
+    # 置中顯示
+    progress_popup.geometry("+%d+%d" % (root.winfo_rootx() + 50, root.winfo_rooty() + 50))
+
+    lbl_status = tk.Label(progress_popup, text=t("analysis.start_engine"), font=("Microsoft JhengHei", 10))
+    lbl_status.pack(pady=(20, 10))
+
+    progress_bar = ttk.Progressbar(progress_popup, length=250, mode='determinate')
+    progress_bar.pack(pady=5)
+
+    cancel_state = {"cancel": False} # 用字典傳遞狀態，讓執行緒可以修改
+
+    def on_cancel():
+        cancel_state["cancel"] = True
+        lbl_status.config(text=t("analysis.cancelling"))
+        btn_cancel.config(state="disabled")
+
+    btn_cancel = tk.Button(progress_popup, text=t("button.cancel_analysis"), command=on_cancel, width=10)
+    btn_cancel.pack(pady=10)
+    
+    # 防止使用者按右上角 X 關閉視窗而沒有正確取消
+    progress_popup.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    # ====== 2. UI 更新回呼函數 (從背景執行緒呼叫) ======
+    def update_progress(current, total):
+        percentage = int((current / total) * 100)
+        # 確保透過 root.after 在主執行緒更新 UI
+        root.after(0, lambda: lbl_status.config(text=t("analysis.progress", percentage=percentage, current=current, total=total)))
+        root.after(0, lambda: progress_bar.config(value=percentage))
+
+    # ====== 3. 背景執行分析任務 ======
+    def task():
+        try:
+            wr_data, sl_data = run_full_game_analysis(update_progress, cancel_state)
+            
+            # 如果沒有取消，且有回傳資料，才畫圖
+            if not cancel_state["cancel"] and wr_data and sl_data:
+                root.after(0, lambda: plot_window(wr_data, sl_data))
+                
+        except Exception as e:
+            print(f"分析失敗: {e}")
+        finally:
+            # 【Phase 1】用 analyzer.full_analyze_event.clear() 代改全局 is_full_analyzing = False
+            analyzer.full_analyze_event.clear()
+            
+            # 解除鎖定並銷毀進度視窗
+            root.after(0, progress_popup.grab_release)
+            root.after(0, progress_popup.destroy)
+            
+            # 恢復主介面按鈕
+            root.after(0, lambda: btn_full_analysis.config(state="normal"))
+            if cancel_state["cancel"]:
+                root.after(0, lambda: set_winrate_text("analysis.cancelled"))
+            else:
+                root.after(0, lambda: set_winrate_text("analysis.completed"))
+
+    threading.Thread(target=task, daemon=True).start()
+    
+
+def plot_window(winrates, scoreLeads):
+    top = tk.Toplevel(root)
+    top.title(t("analysis.chart_title_window"))
+    top.geometry("1100x800")
+    top.minsize(900, 680)
+    chart_window_state = {"closed": False}
+
+    def on_chart_window_close():
+        chart_window_state["closed"] = True
+        top.destroy()
+
+    def widget_exists(widget):
+        try:
+            return widget.winfo_exists()
+        except tk.TclError:
+            return False
+
+    top.protocol("WM_DELETE_WINDOW", on_chart_window_close)
+
+    controls_frame = ttk.Frame(top, padding=(10, 8, 10, 0))
+    controls_frame.pack(fill=tk.X)
+    ttk.Label(controls_frame, text=t("analysis.chart_mode_label")).pack(side=tk.LEFT, padx=(0, 8))
+
+    chart_mode = tk.StringVar(value="black")
+    mode_options = [
+        (t("analysis.chart_mode_black"), "black"),
+        (t("analysis.chart_mode_white"), "white"),
+        (t("analysis.chart_mode_winrate"), "winrate"),
+        (t("analysis.chart_mode_score"), "score"),
+    ]
+    for label, value in mode_options:
+        ttk.Radiobutton(
+            controls_frame,
+            text=label,
+            value=value,
+            variable=chart_mode,
+            command=lambda: apply_chart_mode(chart_mode.get()),
+        ).pack(side=tk.LEFT, padx=(0, 10))
+    
+    fig = Figure(figsize=(10, 6), dpi=100)
+    grid = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.18)
+    ax1 = fig.add_subplot(grid[0])
+    
+    chart_stones = list(board.stones)
+    chart_board_hash = analyzer.get_board_hash(chart_stones)
+    x_data = list(range(len(winrates)))
+    black_winrates = [w * 100 for w in winrates]
+    white_winrates = [(1.0 - w) * 100 for w in winrates]
+    black_score_leads = [max(-15, min(15, sl)) for sl in scoreLeads]
+    white_score_leads = [max(-15, min(15, -sl)) for sl in scoreLeads]
+    move_losses = [0.0] * len(winrates)
+    mistake_threshold = 30.0
+    for move_idx in range(1, len(winrates)):
+        move_color = chart_stones[move_idx - 1][2] if move_idx - 1 < len(chart_stones) else ("black" if move_idx % 2 == 1 else "white")
+        black_delta = (winrates[move_idx - 1] - winrates[move_idx]) * 100
+        loss = black_delta if move_color == "black" else -black_delta
+        move_losses[move_idx] = max(0.0, loss)
+
+    mistake_indices = [idx for idx, loss in enumerate(move_losses) if loss > mistake_threshold]
+    blunder_idx = mistake_indices[-1] if mistake_indices else None
+    
+    # 在左側 Y 軸繪製勝率線
+    line1, = ax1.plot(x_data, black_winrates, color='#2c3e50', picker=True, label=t("analysis.chart_winrate_label"), linewidth=2.5)
+    
+    # 建立右側 Y 軸用於目差
+    ax2 = ax1.twinx()
+
+    # 在右側 Y 軸繪製目差線
+    line2, = ax2.plot(x_data, black_score_leads, color='#e74c3c', picker=True, label=t("analysis.chart_score_label"), linewidth=2.2, alpha=0.85)
+    
+    # 建立一條垂直的橘色指示線，代表當前手數
+    current_line = ax1.axvline(x=len(board.stones), color='orange', alpha=0.8, linewidth=2)
+
+    ax_diag = fig.add_subplot(grid[1], sharex=ax1)
+    ax_diag.set_facecolor('#eeeeee')
+    ax_diag.axhspan(0, mistake_threshold, color='#d9d9d9', alpha=0.7)
+    mistake_losses = [move_losses[idx] for idx in mistake_indices]
+    mistake_bars = ax_diag.bar(
+        mistake_indices,
+        mistake_losses,
+        width=0.72,
+        color='#f1c40f',
+        edgecolor='#b7950b',
+        linewidth=0.8,
+        alpha=0.9,
+        picker=True,
+        label=t("analysis.chart_mistake_label"),
+    )
+    blunder_point = None
+    if blunder_idx is not None:
+        blunder_point = ax_diag.scatter(
+            [blunder_idx],
+            [move_losses[blunder_idx]],
+            s=95,
+            color='#d62728',
+            edgecolor='white',
+            linewidth=1.2,
+            zorder=5,
+            picker=True,
+            label=t("analysis.chart_blunder_label"),
+        )
+    diag_current_line = ax_diag.axvline(x=len(board.stones), color='orange', alpha=0.8, linewidth=2)
+    tooltip = ax_diag.annotate(
+        "",
+        xy=(0, 0),
+        xytext=(10, 12),
+        textcoords="offset points",
+        bbox=dict(boxstyle="round,pad=0.35", fc="#fffaf2", ec="#9b8a70", alpha=0.95),
+        arrowprops=dict(arrowstyle="->", color="#9b8a70"),
+    )
+    tooltip.set_visible(False)
+
+    def set_current_move(move_idx):
+        move_idx = max(0, min(move_idx, len(winrates) - 1))
+        print(f"圖表觸發：跳轉至第 {move_idx} 手")
+        board.jump_to_specific_move(move_idx)
+        actual_move = len(board.stones)
+        current_line.set_xdata([actual_move, actual_move])
+        diag_current_line.set_xdata([actual_move, actual_move])
+        canvas.draw_idle()
+
+    # 點擊事件處理
+    def on_click_chart(event):
+        if event.inaxes not in [ax1, ax2, ax_diag] or event.xdata is None:
+            return # 點在圖表外不處理
+        
+        move_idx = int(round(event.xdata))
+        if event.inaxes == ax_diag and move_idx not in mistake_indices:
+            return
+        if 0 <= move_idx < len(winrates):
+            set_current_move(move_idx)
+
+    def on_key_chart(event):
+        if event.key == "right":
+            set_current_move(len(board.stones) + 1)
+        elif event.key == "left":
+            set_current_move(len(board.stones) - 1)
+
+    def on_motion_chart(event):
+        if event.inaxes != ax_diag:
+            if tooltip.get_visible():
+                tooltip.set_visible(False)
+                canvas.draw_idle()
+            return
+
+        for move_idx in mistake_indices:
+            if event.xdata is not None and abs(event.xdata - move_idx) <= 0.45:
+                loss = move_losses[move_idx]
+                if event.ydata is not None and -5 <= event.ydata <= loss + 8:
+                    tooltip.xy = (move_idx, loss)
+                    tooltip.set_text(t("analysis.chart_loss_tooltip", move=move_idx, loss=loss))
+                    tooltip.set_visible(True)
+                    canvas.draw_idle()
+                    return
+
+        if tooltip.get_visible():
+            tooltip.set_visible(False)
+            canvas.draw_idle()
+
+    # 左側 Y 軸：勝率 (0-100%)
+    winrate_midline = ax1.axhline(y=50, color='#95a5a6', linestyle='--', alpha=0.5, linewidth=1)  # 50% 中線
+    ax1.set_ylim(-5, 105)
+    ax1.set_ylabel(t("analysis.chart_y_winrate"), color='#2c3e50', fontsize=11)
+    ax1.tick_params(axis='y', labelcolor='#2c3e50')
+    
+    # 右側 Y 軸：目差 (-15 ~ +15)
+    # 設定右側坐標刻度：-15以下、-10、-5、±0、+5、+10、+15以上
+    ax2.set_ylim(-20, 20)
+    ax2.set_yticks([-15, -10, -5, 0, 5, 10, 15])
+    score_labels = [t("analysis.score_below"), '-10', '-5', '0', '+5', '+10', t("analysis.score_above")]
+    ax2.set_yticklabels(score_labels, fontsize=9)
+    ax2.set_ylabel(t("analysis.chart_y_score"), color='#e74c3c', fontsize=11)
+    ax2.tick_params(axis='y', labelcolor='#e74c3c')
+    
+    ax1.set_title(t("analysis.chart_title"), fontsize=12, fontweight='bold')
+    ax1.grid(True, alpha=0.3, linestyle=':')
+    ax1.tick_params(axis='x', labelbottom=False)
+
+    ax_diag.axhline(y=mistake_threshold, color='#b7950b', linestyle='--', linewidth=1, alpha=0.7)
+    diag_top = max([mistake_threshold + 10] + mistake_losses)
+    ax_diag.set_ylim(0, min(100, diag_top + 8))
+    ax_diag.set_ylabel(t("analysis.chart_y_loss"), color='#6f5f45', fontsize=10)
+    ax_diag.set_xlabel(t("analysis.chart_x"))
+    ax_diag.tick_params(axis='y', labelcolor='#6f5f45')
+    ax_diag.grid(True, axis='y', alpha=0.25, linestyle=':')
+    diag_lines = []
+    diag_labels = []
+    if mistake_indices:
+        diag_lines.append(mistake_bars)
+        diag_labels.append(t("analysis.chart_mistake_label"))
+    if blunder_point is not None:
+        diag_lines.append(blunder_point)
+        diag_labels.append(t("analysis.chart_blunder_label"))
+    if diag_lines:
+        ax_diag.legend(diag_lines, diag_labels, loc='upper right', fontsize=9)
+
+    canvas = FigureCanvasTkAgg(fig, master=top)
+    chart_widget = canvas.get_tk_widget()
+    chart_widget.configure(height=470)
+    chart_widget.pack(fill=tk.BOTH, expand=False)
+
+    teacher_panel = ttk.LabelFrame(top, text=t("analysis.teacher_panel_title"), padding=(10, 8))
+    teacher_panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+    teacher_controls = ttk.Frame(teacher_panel)
+    teacher_controls.pack(fill=tk.X)
+    summary_language = tk.StringVar(value=i18n.language if i18n.language in i18n.available_languages else "zh_TW")
+    ttk.Label(teacher_controls, text=t("analysis.teacher_language_label")).pack(side=tk.LEFT, padx=(0, 6))
+    language_combo = ttk.Combobox(
+        teacher_controls,
+        textvariable=summary_language,
+        values=list(i18n.available_languages),
+        state="readonly",
+        width=8,
+    )
+    language_combo.pack(side=tk.LEFT, padx=(0, 8))
+    btn_regenerate = ttk.Button(teacher_controls, text=t("button.regenerate"))
+    btn_regenerate.pack(side=tk.LEFT, padx=(0, 8))
+    btn_copy = ttk.Button(teacher_controls, text=t("button.copy_text"))
+    btn_copy.pack(side=tk.LEFT)
+    summary_status = ttk.Label(teacher_controls, text="", foreground=TEXT_MUTED)
+    summary_status.pack(side=tk.RIGHT)
+    summary_text = tk.Text(
+        teacher_panel,
+        height=7,
+        font=("Microsoft JhengHei", 10),
+        wrap="word",
+        bg=TEACHER_TEXT_BG,
+        fg=TEXT_MAIN,
+        relief="solid",
+        bd=1,
+        padx=8,
+        pady=8,
+        state="disabled",
+    )
+    summary_scrollbar = ttk.Scrollbar(teacher_panel, orient=tk.VERTICAL, command=summary_text.yview)
+    summary_text.configure(yscrollcommand=summary_scrollbar.set)
+    summary_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=(8, 0))
+    summary_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(8, 0))
+
+    def set_summary_text(message):
+        if threading.current_thread() is not threading.main_thread():
+            root.after(0, set_summary_text, message)
+            return
+        if chart_window_state["closed"] or not widget_exists(summary_text):
+            return
+        summary_text.config(state="normal")
+        summary_text.delete("1.0", tk.END)
+        summary_text.insert(tk.END, message)
+        summary_text.config(state="disabled")
+
+    def set_summary_status(message):
+        if threading.current_thread() is not threading.main_thread():
+            root.after(0, set_summary_status, message)
+            return
+        if chart_window_state["closed"] or not widget_exists(summary_status):
+            return
+        summary_status.config(text=message)
+
+    def get_turn_analysis(turn):
+        moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in chart_stones[:turn]]
+        board_hash = analyzer.get_board_hash_from_moves(moves)
+        with analyzer.lock:
+            return analyzer.analysis_cache.get(board_hash)
+
+    def format_move_summary(move_idx):
+        if move_idx <= 0 or move_idx - 1 >= len(chart_stones):
+            return t("teacher.best_unknown")
+        x, y, color = chart_stones[move_idx - 1]
+        return f"{move_idx}. {'B' if color == 'black' else 'W'} {board.to_gtp_coord(x, y)}"
+
+    def collect_top_moves(turn):
+        analysis = get_turn_analysis(turn)
+        move_infos = (analysis or {}).get("moveInfos", [])
+        top_moves = []
+        for info in move_infos[:3]:
+            move = info.get("move", t("teacher.best_unknown"))
+            winrate = info.get("winrate")
+            score = info.get("scoreLead")
+            parts = [str(move)]
+            if winrate is not None:
+                parts.append(f"{winrate * 100:.1f}%")
+            if score is not None:
+                parts.append(f"{score:+.1f}")
+            top_moves.append(" ".join(parts))
+        return ", ".join(top_moves) if top_moves else t("teacher.best_unknown")
+
+    def build_full_game_summary_data():
+        opening_wr = black_winrates[0] if black_winrates else 50.0
+        final_wr = black_winrates[-1] if black_winrates else 50.0
+        peak_idx = max(range(len(black_winrates)), key=lambda idx: black_winrates[idx], default=0)
+        low_idx = min(range(len(black_winrates)), key=lambda idx: black_winrates[idx], default=0)
+        sharp_turns = []
+        for idx in range(1, len(black_winrates)):
+            delta = black_winrates[idx] - black_winrates[idx - 1]
+            if abs(delta) >= 20:
+                sharp_turns.append((idx, delta))
+
+        mistakes = []
+        for idx in mistake_indices:
+            before = black_winrates[idx - 1] if idx > 0 else black_winrates[idx]
+            after = black_winrates[idx]
+            mistakes.append({
+                "move": format_move_summary(idx),
+                "loss": move_losses[idx],
+                "before": before,
+                "after": after,
+                "suggestions": collect_top_moves(idx - 1),
+            })
+
+        blunder = None
+        if blunder_idx is not None:
+            blunder = {
+                "move": format_move_summary(blunder_idx),
+                "loss": move_losses[blunder_idx],
+                "before": black_winrates[blunder_idx - 1] if blunder_idx > 0 else black_winrates[blunder_idx],
+                "after": black_winrates[blunder_idx],
+                "suggestions": collect_top_moves(blunder_idx - 1),
+            }
+
+        return {
+            "opening_wr": opening_wr,
+            "final_wr": final_wr,
+            "peak": (peak_idx, black_winrates[peak_idx] if black_winrates else 50.0),
+            "low": (low_idx, black_winrates[low_idx] if black_winrates else 50.0),
+            "sharp_turns": sharp_turns[:5],
+            "mistakes": mistakes,
+            "blunder": blunder,
+        }
+
+    def build_summary_prompt(language):
+        data = build_full_game_summary_data()
+        mistake_lines = []
+        for item in data["mistakes"]:
+            mistake_lines.append(
+                f"- {item['move']}: loss {item['loss']:.1f}%, black winrate {item['before']:.1f}% -> {item['after']:.1f}%, KataGo: {item['suggestions']}"
+            )
+        if not mistake_lines:
+            mistake_lines.append("- No move exceeded the 30% mistake threshold.")
+
+        sharp_lines = [
+            f"- Move {idx}: black winrate changed {delta:+.1f}%"
+            for idx, delta in data["sharp_turns"]
+        ] or ["- No sharp winrate swing above 20% was detected."]
+
+        blunder_text = "None"
+        if data["blunder"]:
+            b = data["blunder"]
+            blunder_text = (
+                f"{b['move']}, loss {b['loss']:.1f}%, black winrate {b['before']:.1f}% -> {b['after']:.1f}%, "
+                f"KataGo: {b['suggestions']}"
+            )
+
+        if language == "en":
+            system_prompt = "You are a calm, practical Go teacher. Give concise teaching feedback based on KataGo analysis."
+            user_prompt = (
+                "Summarize this full Go game in 3-5 short teaching sentences.\n"
+                "Focus on the overall trend, the decisive mistake, turning points, and one practical study suggestion.\n\n"
+                f"Overall trend: opening black winrate {data['opening_wr']:.1f}%, peak move {data['peak'][0]} at {data['peak'][1]:.1f}%, "
+                f"low move {data['low'][0]} at {data['low'][1]:.1f}%, final black winrate {data['final_wr']:.1f}%.\n"
+                f"Mistakes over 30%:\n{chr(10).join(mistake_lines)}\n"
+                f"Worst mistake: {blunder_text}\n"
+                f"Sharp turning points:\n{chr(10).join(sharp_lines)}"
+            )
+        else:
+            system_prompt = "你是一位溫和、專業、重視學習效果的圍棋老師。請用繁體中文，根據 KataGo 數據做精簡教學評論。"
+            user_prompt = (
+                "請用 3-5 句話總結這盤棋，語氣像人類圍棋老師。\n"
+                "重點包含：棋局整體走勢、敗著與轉折點、KataGo 建議方向，以及一個可執行的練習建議。不要列長清單。\n\n"
+                f"整體走勢：開局黑勝率 {data['opening_wr']:.1f}%，峰值第 {data['peak'][0]} 手 {data['peak'][1]:.1f}%，"
+                f"低谷第 {data['low'][0]} 手 {data['low'][1]:.1f}%，終局黑勝率 {data['final_wr']:.1f}%。\n"
+                f"超過 30% 的失誤：\n{chr(10).join(mistake_lines)}\n"
+                f"敗著：{blunder_text}\n"
+                f"勝率急劇變化的轉折點：\n{chr(10).join(sharp_lines)}"
+            )
+
+        fallback_text = (
+            t("analysis.teacher_fallback_none")
+            if not data["mistakes"]
+            else t(
+                "analysis.teacher_fallback",
+                final_wr=data["final_wr"],
+                blunder=blunder_text,
+            )
+        )
+        return system_prompt, user_prompt, fallback_text
+
+    def get_summary_cache_key(language):
+        provider_name = config_service.get_setting("llm_provider", "ollama")
+        model_name = ProviderFactory.get_configured_model(config_service, provider_name)
+        return chart_board_hash + f"|{language}|{provider_name}|{model_name}"
+
+    def generate_teacher_summary(force=False):
+        language = summary_language.get()
+        cache_key = get_summary_cache_key(language)
+        if not force:
+            cached = get_full_game_commentary_from_cache(cache_key)
+            if cached:
+                set_summary_text(cached)
+                set_summary_status(t("analysis.teacher_cached"))
+                return
+
+        provider_name = config_service.get_setting("llm_provider", "ollama")
+        provider_display = ProviderFactory.get_display_name(provider_name)
+        model_name = ProviderFactory.get_configured_model(config_service, provider_name)
+        system_prompt, user_prompt, fallback_text = build_summary_prompt(language)
+        generated = {"text": ""}
+        thinking_text = t("analysis.teacher_generating", provider=provider_display)
+
+        def on_summary_chunk(message):
+            if threading.current_thread() is not threading.main_thread():
+                root.after(0, on_summary_chunk, message)
+                return
+            if chart_window_state["closed"] or not widget_exists(summary_text):
+                return
+            if message != thinking_text:
+                generated["text"] = message
+            set_summary_text(message)
+
+        def on_summary_complete():
+            if threading.current_thread() is not threading.main_thread():
+                root.after(0, on_summary_complete)
+                return
+            if chart_window_state["closed"] or not widget_exists(btn_regenerate):
+                return
+            text = generated["text"].strip()
+            if text:
+                add_full_game_commentary_to_cache(cache_key, text)
+                set_summary_status(t("analysis.teacher_ready"))
+            btn_regenerate.config(state="normal")
+
+        summary_provider = ProviderFactory.create_provider(
+            provider_name,
+            ui_callback=on_summary_chunk,
+            status_callback=update_status,
+            model_name=model_name,
+            translator=t,
+            language_getter=lambda: language,
+            on_complete_callback=on_summary_complete,
+        )
+        is_valid, error_message = summary_provider.validate_config()
+        if not is_valid:
+            set_summary_text(error_message or t("analysis.teacher_error"))
+            set_summary_status(t("analysis.teacher_error"))
+            return
+
+        btn_regenerate.config(state="disabled")
+        set_summary_status(t("analysis.teacher_generating", provider=provider_display))
+        summary_provider.start_commentary({
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "thinking_text": thinking_text,
+            "fallback_text": fallback_text,
+        })
+
+    def copy_summary_text():
+        if chart_window_state["closed"] or not widget_exists(summary_text):
+            return
+        text = summary_text.get("1.0", tk.END).strip()
+        if text:
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            set_summary_status(t("analysis.teacher_copied"))
+
+    btn_regenerate.config(command=lambda: generate_teacher_summary(force=True))
+    btn_copy.config(command=copy_summary_text)
+    language_combo.bind("<<ComboboxSelected>>", lambda _event: generate_teacher_summary(force=False))
+
+    def apply_chart_mode(mode):
+        show_winrate = mode in ("black", "white", "winrate")
+        show_score = mode in ("black", "white", "score")
+        white_view = mode == "white"
+
+        line1.set_ydata(white_winrates if white_view else black_winrates)
+        line2.set_ydata(white_score_leads if white_view else black_score_leads)
+        line1.set_visible(show_winrate)
+        line2.set_visible(show_score)
+        winrate_midline.set_visible(show_winrate)
+
+        ax1.yaxis.set_visible(show_winrate)
+        ax1.spines["left"].set_visible(show_winrate)
+        ax2.yaxis.set_visible(show_score)
+        ax2.spines["right"].set_visible(show_score)
+
+        if white_view:
+            line1.set_label(t("analysis.chart_white_winrate_label"))
+            line2.set_label(t("analysis.chart_white_score_label"))
+            ax1.set_ylabel(t("analysis.chart_y_white_winrate"), color='#2c3e50', fontsize=11)
+            ax2.set_ylabel(t("analysis.chart_y_white_score"), color='#e74c3c', fontsize=11)
+        else:
+            line1.set_label(t("analysis.chart_winrate_label"))
+            line2.set_label(t("analysis.chart_score_label"))
+            ax1.set_ylabel(t("analysis.chart_y_winrate"), color='#2c3e50', fontsize=11)
+            ax2.set_ylabel(t("analysis.chart_y_score"), color='#e74c3c', fontsize=11)
+
+        visible_lines = [line for line in (line1, line2) if line.get_visible()]
+        ax1.legend(visible_lines, [line.get_label() for line in visible_lines], loc='upper left', fontsize=10)
+        fig.tight_layout()
+        canvas.draw_idle()
+        canvas.get_tk_widget().focus_set()
+    
+    apply_chart_mode(chart_mode.get())
+    canvas.draw()
+    canvas.get_tk_widget().focus_set()
+
+    fig.canvas.mpl_connect('button_press_event', on_click_chart)
+    fig.canvas.mpl_connect('key_press_event', on_key_chart)
+    fig.canvas.mpl_connect('motion_notify_event', on_motion_chart)
+    root.after(100, generate_teacher_summary)
+
+
+def update_ui_with_data(result):
+    """直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用"""
+    try:
+        current_turn = len(board.stones)
+        result_turn = result["turnNumber"]
+        
+        # 檢查資料是否完整
+        if "rootInfo" not in result:
+            logger.debug("分析結果尚未包含 rootInfo，略過: id=%s turn=%s", result.get("id"), result_turn)
+            return
+        
+        # 【改進】無論手數是否匹配，都將結果保存到快取
+        # 這樣即使棋局推進，舊手數的分析結果仍可被查詢，用於判定失誤時的比較
+        moves = result.get("moves", [])
+        if moves:
+            board_hash = analyzer.get_board_hash_from_moves(moves[:result_turn])
+            analyzer._store_cache(board_hash, result)
+            logger.debug("分析結果已快取: turn=%s cache_size=%s", result_turn, len(analyzer.analysis_cache))
+        
+        # 只有當是當前手數時，才更新 UI（藍圈、勝率標籤等）
+        if result_turn != current_turn:
+            logger.debug("結果已快取，但非當前手數，暫不更新 UI: result_turn=%s current_turn=%s", result_turn, current_turn)
+            return
+
+        raw_winrate = result["rootInfo"]["winrate"]
+        is_black_turn = (current_turn % 2 == 0)
+        black_wr = raw_winrate 
+        white_wr = 1.0 - black_wr
+        to_move_key = "stone.black" if is_black_turn else "stone.white"
+        
+        # 更新勝率標籤
+        set_winrate_text("analysis.winrate_summary", to_move_key=to_move_key, black_wr=black_wr*100, white_wr=white_wr*100)
+
+        # 繪製 AI 建議點：第一推薦藍點，其餘推薦綠點
+        if "moveInfos" in result and len(result["moveInfos"]) > 0:
+            board.draw_recommendation_points(result["moveInfos"], is_black_turn)
+        else:
+            board.clear_blue_point()
+
+        # ====== 教學觸發邏輯 (原本的邏輯搬過來) ======
+        last_move_gtp = "Pass"
+        if board.stones:
+            last_x, last_y, _ = board.stones[-1]
+            last_move_gtp = board.to_gtp_coord(last_x, last_y)
+
+        # 檢查是否需要叫老師出來說話
+        critical_event = data_filter.process_analysis(current_turn, result, last_move_gtp)
+        if critical_event:
+            # 【Phase 1】檢查是否已有快取的解說，若有則直接顯示，否則呼叫 LLM 生成新的
+            cached_commentary = get_commentary_from_cache(critical_event["turn"], critical_event["user_move"])
+            if cached_commentary:
+                logger.debug(f"快取命中：第 {critical_event['turn']} 手 ({critical_event['user_move']}) 已有解說，直接顯示")
+                update_teacher_ui(cached_commentary)
+            else:
+                logger.debug(f"快取未命中：第 {critical_event['turn']} 手 ({critical_event['user_move']})，呼叫 LLM 生成")
+                # 【Phase 1】設置全域狀態，準備快取生成的解說
+                global current_critical_event, current_generated_commentary
+                current_critical_event = critical_event
+                current_generated_commentary = ""
+                # 呼叫 LLM 生成解說
+                current_llm_worker.start_commentary(critical_event)
+
+    except KeyError as e:
+        logger.warning("UI 更新失敗，分析結果缺少必要欄位: missing=%s result=%s", e, result)
+    except (TypeError, ValueError, IndexError) as e:
+        logger.warning("UI 更新失敗，分析結果格式或座標異常: error=%s result=%s", e, result)
+
+def on_analyze_button_click():
+    # 不再需要 threading.Thread(target=task)，因為發送請求是瞬間的
+    board.clear_blue_point()
+    set_winrate_text("analysis.ai_thinking")
+    # 直接叫 analyzer 傳送當前棋局
+    analyzer.send_query(board.stones)
+
+
+
+# --- 棋盤邏輯 ---
+class GoBoard(tk.Canvas):
+    def __init__(self, master=None):
+        super().__init__(
+            master,
+            width=CANVAS_SIZE,
+            height=CANVAS_SIZE,
+            bg=BOARD_BG,
+            highlightthickness=1,
+            highlightbackground=PANEL_BORDER
+        )
+        self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        self.current_color = "black"
+        self.margin = MARGIN 
+        self.preview_id = None
+        self.blue_point_ids = []
+        self.recommendation_points = {}
+        self.variation_timer = None
+        self.variation_hover_coord = None
+        
+        # --- 分支系統核心 ---
+        self.root_node = GameNode()
+        self.current_node = self.root_node
+        self.analyze_timer = None
+
+        self.draw_board()
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Motion>", self.preview)
+        self.bind("<Leave>", self.on_leave)
+
+    @property
+    def stones(self):
+        """動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確"""
+        path = []
+        curr = self.current_node
+        while curr and curr.move is not None:
+            path.append(curr.move)
+            curr = curr.parent
+        return path[::-1] # 反轉成從頭到尾的順序
+
+    def _current_node_path(self):
+        path = []
+        curr = self.current_node
+        while curr and curr.move is not None:
+            path.append(curr)
+            curr = curr.parent
+        return path[::-1]
+
+    def _branch_display_start_index(self):
+        """Return 1-based move index where the current branch starts, or None on main line."""
+        for idx, node in enumerate(self._current_node_path(), start=1):
+            if node.parent and node.parent.children and node.parent.children[0] is not node:
+                return idx
+        return None
+
+    def _build_live_move_numbers(self):
+        history = self.stones
+        branch_start = self._branch_display_start_index()
+        board_state = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        move_numbers = {}
+
+        for move_idx, (x, y, color) in enumerate(history, start=1):
+            board_state[y][x] = color
+            if branch_start is None:
+                move_numbers[(x, y)] = move_idx
+            elif move_idx >= branch_start:
+                move_numbers[(x, y)] = move_idx - branch_start + 1
+            else:
+                move_numbers.pop((x, y), None)
+
+            opponent = self._next_color(color)
+            for nx, ny in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]:
+                if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE and board_state[ny][nx] == opponent:
+                    group, libs = self._get_group_and_liberties_on_board(board_state, nx, ny)
+                    if not libs:
+                        self._remove_group_on_board(board_state, group)
+                        for gx, gy in group:
+                            move_numbers.pop((gx, gy), None)
+
+        return {
+            (x, y): number
+            for (x, y), number in move_numbers.items()
+            if self.board[y][x] is not None
+        }
+
+    def _draw_move_numbers(self):
+        self.delete("move_number")
+        if not show_move_numbers_var.get():
+            return
+
+        margin = self.margin
+        for (x, y), move_number in self._build_live_move_numbers().items():
+            color = self.board[y][x]
+            label_fill = "#ffffff" if color == "black" else "#111111"
+            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+            self.create_text(
+                px,
+                py,
+                text=str(move_number),
+                fill=label_fill,
+                font=("Arial", 8, "bold"),
+                tags="move_number",
+            )
+
+    def _format_move_winrate(self, winrate, is_black_turn):
+        if winrate is None:
+            winrate = 0.5
+        display_winrate = winrate if is_black_turn else 1.0 - winrate
+        return f"{display_winrate * 100:.1f}%"
+
+    def _draw_recommendation_point(self, x, y, winrate, is_black_turn, fill, text_fill):
+        margin = self.margin
+        px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+        ov = self.create_oval(
+            px - RECOMMENDATION_RADIUS,
+            py - RECOMMENDATION_RADIUS,
+            px + RECOMMENDATION_RADIUS,
+            py + RECOMMENDATION_RADIUS,
+            fill=fill,
+            outline="#ffffff" if fill == BEST_MOVE_BLUE else "#174b2a",
+            width=1,
+            tags="blue_point",
+        )
+        label_text = self._format_move_winrate(winrate, is_black_turn)
+        label = self.create_text(
+            px,
+            py,
+            text=label_text,
+            fill=text_fill,
+            font=("Arial", 7, "bold"),
+            tags="blue_point",
+        )
+        return [ov, label]
+
+    def draw_recommendation_points(self, move_infos, is_black_turn):
+        self.clear_blue_point()
+        drawn_coords = set()
+        drawn_count = 0
+        self.recommendation_points = {}
+
+        for move_info in move_infos:
+            if drawn_count >= RECOMMENDATION_LIMIT:
+                break
+
+            gtp_coord = move_info.get("move", "")
+            if not gtp_coord or gtp_coord.lower() == "pass":
+                continue
+
+            try:
+                x, y = self.from_gtp_coord(gtp_coord)
+            except (ValueError, IndexError):
+                logger.debug("略過無法解析的 AI 推薦座標: %s", gtp_coord)
+                continue
+
+            if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE):
+                continue
+            if self.board[y][x] is not None or (x, y) in drawn_coords:
+                continue
+
+            if drawn_count == 0:
+                fill = BEST_MOVE_BLUE
+                text_fill = "#ffffff"
+            else:
+                fill = RECOMMENDATION_GREENS[min(drawn_count - 1, len(RECOMMENDATION_GREENS) - 1)]
+                text_fill = "#000000"
+
+            self.blue_point_ids.extend(
+                self._draw_recommendation_point(
+                    x,
+                    y,
+                    move_info.get("winrate", 0.5),
+                    is_black_turn,
+                    fill,
+                    text_fill,
+                )
+            )
+            self.recommendation_points[(x, y)] = {
+                "move_info": move_info,
+                "is_black_turn": is_black_turn,
+            }
+            drawn_coords.add((x, y))
+            drawn_count += 1
+
+    def draw_blue_point(self, x, y, winrate, is_black_turn):
+        self.clear_blue_point()
+        self.blue_point_ids.extend(
+            self._draw_recommendation_point(x, y, winrate, is_black_turn, BEST_MOVE_BLUE, "#ffffff")
+        )
+
+    def clear_blue_point(self):
+        self._cancel_variation_timer()
+        self.clear_variation_preview()
+        self.recommendation_points = {}
+        self.delete("blue_point")
+
+    def _cancel_variation_timer(self):
+        if self.variation_timer:
+            root.after_cancel(self.variation_timer)
+            self.variation_timer = None
+        self.variation_hover_coord = None
+
+    def clear_variation_preview(self):
+        self.delete("variation_preview")
+        if show_move_numbers_var.get():
+            self._draw_move_numbers()
+
+    def _handle_recommendation_hover(self, coord):
+        if coord not in self.recommendation_points:
+            self._cancel_variation_timer()
+            self.clear_variation_preview()
+            return
+
+        if coord == self.variation_hover_coord:
+            return
+
+        self._cancel_variation_timer()
+        self.clear_variation_preview()
+        self.variation_hover_coord = coord
+        self.variation_timer = root.after(VARIATION_HOVER_DELAY_MS, lambda c=coord: self.show_variation_preview(c))
+
+    def _next_color(self, color):
+        return "white" if color == "black" else "black"
+
+    def _remove_group_on_board(self, board_state, group):
+        for gx, gy in group:
+            board_state[gy][gx] = None
+
+    def _get_group_and_liberties_on_board(self, board_state, x, y):
+        color = board_state[y][x]
+        visited, to_visit = set(), [(x, y)]
+        group, liberties = [], set()
+        while to_visit:
+            cx, cy = to_visit.pop()
+            if (cx, cy) in visited:
+                continue
+            visited.add((cx, cy))
+            group.append((cx, cy))
+            for nx, ny in [(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)]:
+                if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE:
+                    if board_state[ny][nx] is None:
+                        liberties.add((nx, ny))
+                    elif board_state[ny][nx] == color:
+                        to_visit.append((nx, ny))
+        return group, liberties
+
+    def _play_preview_move(self, board_state, x, y, color):
+        if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or board_state[y][x] is not None:
+            return False
+
+        board_state[y][x] = color
+        opponent = self._next_color(color)
+        captured_any = False
+        for nx, ny in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]:
+            if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE and board_state[ny][nx] == opponent:
+                group, libs = self._get_group_and_liberties_on_board(board_state, nx, ny)
+                if not libs:
+                    self._remove_group_on_board(board_state, group)
+                    captured_any = True
+
+        group, libs = self._get_group_and_liberties_on_board(board_state, x, y)
+        if not libs and not captured_any:
+            board_state[y][x] = None
+            return False
+        return True
+
+    def _draw_variation_stone(self, x, y, color, move_number):
+        margin = self.margin
+        px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+        fill = VARIATION_BLACK if color == "black" else VARIATION_WHITE
+        outline = "#000000" if color == "black" else "#6f6252"
+        label_fill = VARIATION_LABEL_WHITE if color == "black" else VARIATION_LABEL_BLACK
+        self.create_oval(
+            px - 12,
+            py - 12,
+            px + 12,
+            py + 12,
+            fill=fill,
+            outline=outline,
+            width=2,
+            tags="variation_preview",
+        )
+        self.create_text(
+            px,
+            py,
+            text=str(move_number),
+            fill=label_fill,
+            font=("Arial", 8, "bold"),
+            tags="variation_preview",
+        )
+
+    def show_variation_preview(self, coord):
+        self.variation_timer = None
+        if coord != self.variation_hover_coord or coord not in self.recommendation_points:
+            return
+
+        point_data = self.recommendation_points[coord]
+        move_info = point_data["move_info"]
+        candidate_move = move_info.get("move", "")
+        pv_moves = list(move_info.get("pv", []))
+        if candidate_move and (not pv_moves or pv_moves[0].lower() != candidate_move.lower()):
+            pv_moves.insert(0, candidate_move)
+
+        self.clear_variation_preview()
+        self.delete("move_number")
+        board_state = copy.deepcopy(self.board)
+        color = "black" if point_data["is_black_turn"] else "white"
+        move_number = 1
+
+        for gtp_coord in pv_moves[:VARIATION_PREVIEW_LIMIT]:
+            if not gtp_coord or gtp_coord.lower() == "pass":
+                color = self._next_color(color)
+                continue
+
+            try:
+                x, y = self.from_gtp_coord(gtp_coord)
+            except (ValueError, IndexError):
+                logger.debug("略過無法解析的變化圖座標: %s", gtp_coord)
+                color = self._next_color(color)
+                continue
+
+            if self._play_preview_move(board_state, x, y, color):
+                self._draw_variation_stone(x, y, color, move_number)
+                move_number += 1
+            color = self._next_color(color)
+
+    def save_state(self):
+        """將當前狀態存入歷史堆疊"""
+        state = (copy.deepcopy(self.stones), copy.deepcopy(self.board), self.current_color)
+        self.history_stack.append(state)
+        # 注意：正常落子時會清空 redo_stack，但在載入 SGF 或 Redo 操作時不應清空，
+        # 這裡為了簡化，標準落子邏輯在 play_move 裡處理 redo_stack 的清空。
+    def undo(self, event=None):
+        if self.current_node.parent is not None:
+            self.current_node = self.current_node.parent
+            self.rebuild_board()
+            self.on_state_change()
+
+    def redo(self, event=None):
+        if self.current_node.children:
+            idx = self.current_node.active_child_idx
+            self.current_node = self.current_node.children[idx]
+            self.rebuild_board()
+            self.on_state_change()
+
+    def switch_branch(self, direction):
+        """切換同一手棋的不同變化圖 (direction: 1 或 -1)"""
+        if self.current_node.parent and len(self.current_node.parent.children) > 1:
+            parent = self.current_node.parent
+            new_idx = (parent.active_child_idx + direction) % len(parent.children)
+            parent.active_child_idx = new_idx
+            self.current_node = parent.children[new_idx]
+            self.rebuild_board()
+            self.on_state_change()
+
+    def on_state_change(self):
+        self.clear_blue_point()
+        
+        # 只有在非整盤分析狀態下才顯示「盤面更新中」
+        # 【Phase 1】用 analyzer.full_analyze_event.is_set() 代改 is_full_analyzing
+        if not analyzer.full_analyze_event.is_set():
+            set_winrate_text("analysis.board_updating")
+            
+        if hasattr(self, 'branch_ui'):
+            self.branch_ui.draw_branches()
+                
+        if self.analyze_timer:
+            root.after_cancel(self.analyze_timer)
+        
+        # 檢查鎖定，避免排程任務在 500ms 後偷跑
+        if not analyzer.full_analyze_event.is_set():
+            self.analyze_timer = root.after(500, auto_analyze)
+
+    def draw_board(self):
+        margin = MARGIN 
+
+        # 畫線
+        for i in range(BOARD_SIZE):
+            x = margin + i * CELL_SIZE
+            self.create_line(x, margin, x, margin + (BOARD_SIZE - 1) * CELL_SIZE, fill=BOARD_LINE)
+            self.create_line(margin, x, margin + (BOARD_SIZE - 1) * CELL_SIZE, x, fill=BOARD_LINE)
+
+        # 星位
+        stars = [3, 9, 15]
+        for r in stars:
+            for c in stars:
+                px, py = margin + r * CELL_SIZE, margin + c * CELL_SIZE
+                self.create_oval(px-3, py-3, px+3, py+3, fill=BOARD_LINE, outline=BOARD_LINE)
+
+
+        self.draw_coordinates(margin)
+
+    def draw_coordinates(self, margin):
+        font = ("Arial", 10)
+
+        # 欄標 (A-T，不含 I)
+        for i in range(BOARD_SIZE):
+            col = chr(ord('A') + i)
+            if col >= 'I':
+                col = chr(ord(col) + 1)
+
+            x = margin + i * CELL_SIZE
+
+            # 上
+            self.create_text(x, margin - 20, text=col, font=font, fill=TEXT_MUTED)
+            # 下
+            self.create_text(x, margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, text=col, font=font, fill=TEXT_MUTED)
+
+        # 列標 (1-19)
+        for i in range(BOARD_SIZE):
+            row = str(BOARD_SIZE - i)
+            y = margin + i * CELL_SIZE
+
+            # 左
+            self.create_text(margin - 20, y, text=row, font=font, fill=TEXT_MUTED)
+            # 右
+            self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, y, text=row, font=font, fill=TEXT_MUTED)
+
+    def preview(self, event):
+        margin = self.margin
+        x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
+        if self.preview_id:
+            self.delete(self.preview_id)
+            self.preview_id = None
+        if 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE and self.board[y][x] is None:
+            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+            self.preview_id = self.create_oval(px-12, py-12, px+12, py+12, fill=ACCENT, outline="", stipple="gray50")
+            if self.find_withtag("blue_point"):
+                self.tag_lower(self.preview_id, "blue_point")
+            self._handle_recommendation_hover((x, y))
+        else:
+            self._handle_recommendation_hover(None)
+
+    def on_leave(self, event=None):
+        if self.preview_id:
+            self.delete(self.preview_id)
+            self.preview_id = None
+        self._handle_recommendation_hover(None)
+
+
+    def play_move(self, x, y, forced_color=None):
+        if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or self.board[y][x]:
+            return False
+
+        color = forced_color if forced_color else self.current_color
+        
+        # 1. 檢查是否已經有這個分支 (如果有，直接走進該變化圖)
+        for idx, child in enumerate(self.current_node.children):
+            if child.move == (x, y, color):
+                self.current_node.parent.active_child_idx = idx if self.current_node.parent else 0
+                self.current_node = child
+                self.rebuild_board()
+                self.on_state_change()
+                return True
+
+        # 2. 嘗試落子與提子判斷
+        self.board[y][x] = color
+        opponent = "white" if color == "black" else "black"
+        captured_any = False
+        for nx, ny in [(x+1,y),(x-1,y),(x,y+1),(x,y-1)]:
+            if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE and self.board[ny][nx] == opponent:
+                group, libs = self.get_group_and_liberties(nx, ny)
+                if not libs:
+                    self.remove_group(group)
+                    captured_any = True
+
+        # 自殺檢查
+        group, libs = self.get_group_and_liberties(x, y)
+        if not libs and not captured_any:
+            self.board[y][x] = None # 退回
+            return False
+
+        # 3. 合法，建立新節點並連接
+        new_node = GameNode((x, y, color), self.current_node)
+        self.current_node.children.append(new_node)
+        self.current_node.active_child_idx = len(self.current_node.children) - 1
+        self.current_node = new_node
+        self.current_color = opponent
+        self.refresh_display()
+        self.on_state_change()
+        return True
+
+    def on_click(self, event):
+        margin = self.margin
+        x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
+        self._handle_recommendation_hover(None)
+        if self.play_move(x, y):
+            self.refresh_display()
+
+    def get_group_and_liberties(self, x, y):
+        color = self.board[y][x]
+        visited, to_visit = set(), [(x, y)]
+        group, liberties = [], set()
+        while to_visit:
+            cx, cy = to_visit.pop()
+            if (cx, cy) in visited: continue
+            visited.add((cx, cy))
+            group.append((cx, cy))
+            for nx, ny in [(cx+1,cy), (cx-1,cy), (cx,cy+1), (cx,cy-1)]:
+                if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE:
+                    if self.board[ny][nx] is None: liberties.add((nx, ny))
+                    elif self.board[ny][nx] == color: to_visit.append((nx, ny))
+        return group, liberties
+
+
+    def remove_group(self, group):
+        """修正：提子只清空視覺棋盤(board)，絕不能刪除歷史紀錄(stones)"""
+        for (gx, gy) in group: 
+            self.board[gy][gx] = None
+
+    def rebuild_board(self):
+        self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        history = self.stones  
+        
+        for x, y, color in history:
+            # 落子
+            self.board[y][x] = color
+            
+            # 執行提子邏輯 — 檢查相鄰所有對方棋子是否無氣
+            opponent = "white" if color == "black" else "black"
+            for nx, ny in [(x+1,y),(x-1,y),(x,y+1),(x,y-1)]:
+                if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE and self.board[ny][nx] == opponent:
+                    group, libs = self.get_group_and_liberties(nx, ny)
+                    if not libs:
+                        # 該對方群組無氣，提掉它
+                        self.remove_group(group)
+
+        # 強制修正下一步顏色：如果歷史最後一手是黑，下一步必為白
+        if history:
+            last_color = history[-1][2]
+            self.current_color = "white" if last_color == "black" else "black"
+        else:
+            self.current_color = "black"
+
+        self.refresh_display()
+        
+    def refresh_display(self):
+        self.delete("all")
+        self.draw_board()
+        margin = self.margin
+        
+        # 1. 繪製所有在棋盤上的棋子 (從 self.board 讀取，而非 history)
+        for y in range(BOARD_SIZE):
+            for x in range(BOARD_SIZE):
+                color = self.board[y][x]
+                if color:
+                    px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+                    fill = STONE_BLACK if color == "black" else STONE_WHITE
+                    outline = "#0f0f0f" if color == "black" else "#8e806f"
+                    self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
+        
+        # 2. 繪製最後一手標記 (紅色小方塊)
+        if self.current_node and self.current_node.move:
+            lx, ly, lcolor = self.current_node.move
+            px, py = margin + lx * CELL_SIZE, margin + ly * CELL_SIZE
+            # 標記在最後一手的中心
+            self.create_rectangle(px-5, py-5, px+5, py+5, outline="red", width=2)
+
+        self._draw_move_numbers()
+            
+        # 3. 顯示目前手數 (選擇性：顯示在標籤或標題)
+        total_moves = len(self.stones)
+        root.title(t("app.title_with_move", moves=total_moves))
+    # --- 座標與檔案處理 ---
+    def to_gtp_coord(self, x, y):
+        col = chr(ord('A') + x)
+        if col >= 'I': col = chr(ord(col) + 1)
+        return f"{col}{BOARD_SIZE - y}"
+
+    def from_gtp_coord(self, gtp):
+        col_str = gtp[0].upper()
+        row_str = gtp[1:]
+        x = ord(col_str) - ord('A')
+        if col_str > 'I': x -= 1
+        y = BOARD_SIZE - int(row_str)
+        return x, y
+
+    def to_sgf_coord(self, x, y):
+        return f"{chr(ord('a') + x)}{chr(ord('a') + y)}"
+        
+    def from_sgf_coord(self, sgf_c):
+        if not sgf_c or len(sgf_c) < 2: return None # Handle Pass or Empty
+        x = ord(sgf_c[0].lower()) - ord('a')
+        y = ord(sgf_c[1].lower()) - ord('a')
+        return x, y
+
+    def export_as_json(self, filename):
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        # 現在 stones 是一個 property，直接呼叫即可
+        current_path = self.stones 
+        moves = [["B" if c == "black" else "W", self.to_gtp_coord(x, y)] for x, y, c in current_path]
+        
+        data = {
+            "id": f"game_{int(time.time())}",
+            "initialStones": [],
+            "moves": moves,
+            "rules": "japanese",
+            "komi": 6.5,
+            "boardXSize": 19,
+            "boardYSize": 19,
+            "analyzeTurns": [len(moves)]
+        }
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+
+    def export_as_sgf(self, filename):
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        # SGF 定義頭部
+        sgf_content = "(;GM[1]FF[4]CA[UTF-8]AP[GoAI]KM[6.5]SZ[19]\n"
+        
+        # 【Phase 2】輔助函數：計算節點的轉換序號 (turn number)
+        def get_node_turn_number(node):
+            """計算節點在遊戲中的手數序號 (1-indexed)"""
+            turns = 0
+            current = node
+            # 從該節點往回追溯到根節點
+            while current.parent:
+                current = current.parent
+                turns += 1
+            return turns + 1
+        
+        # 從根節點的子節點開始遞迴
+        def write_node(node):
+            content = ""
+            if node.move:
+                x, y, color = node.move
+                bw = "B" if color == "black" else "W"
+                gtp_move = self.to_gtp_coord(x, y)
+                content += f";{bw}[{self.to_sgf_coord(x, y)}]"
+                
+                # 【Phase 2】新增註解：從快取中查詢該手數的解說
+                turn_num = get_node_turn_number(node)
+                cached_commentary = get_commentary_from_cache(turn_num, gtp_move)
+                if cached_commentary:
+                    # 轉義特殊字符，避免破壞 SGF 格式
+                    escaped_commentary = cached_commentary.replace("\\", "\\\\").replace("]", "\\]")
+                    content += f"C[{escaped_commentary}]"
+                    logger.debug(f"【SGF 匯出】第 {turn_num} 手已新增註解: {len(escaped_commentary)} 字")
+            
+            if not node.children:
+                return content
+            
+            if len(node.children) == 1:
+                # 只有一個子節點，直接串下去
+                return content + write_node(node.children[0])
+            else:
+                # 有多個分支，每個分支都要用 () 包起來
+                for child in node.children:
+                    content += "(" + write_node(child) + ")"
+                return content
+
+        sgf_content += write_node(self.root_node)
+        sgf_content += ")"
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(sgf_content)
+        print(f"分支 SGF 已儲存至: {filename}")
+
+    def load_sgf(self, filename):
+        """讀取 SGF 並正確建立分支樹狀結構，同時恢復註解到快取【Phase 3】修正版本"""
+        with open(filename, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+
+        # 1. 重置整棵樹
+        self.root_node = GameNode()
+        self.current_node = self.root_node
+        self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        self.current_color = "black"
+
+        # 【Phase 3】清空舊的快取，準備恢復註解
+        global commentary_cache
+        commentary_cache.clear()
+
+        # 2. 遞迴解析 SGF 分支結構 (修正：支持正確的分支)
+        def parse_sequence(content, pos, parent_node):
+            """
+            遞迴解析 SGF 序列（包括分支）
+            content: 完整 SGF 文本
+            pos: 當前解析位置
+            parent_node: 該序列的父節點
+            回傳：(最後的位置, 當前分支的最後節點)
+            """
+            turn_num = 0
+            current = parent_node
+            
+            while pos < len(content):
+                # 找下一個節點或分支標記
+                if content[pos] == ';':
+                    # 解析單個節點
+                    pos += 1
+                    match = re.match(r'([BW])\[([a-z]{0,2})\](?:C\[((?:[^\]]|\\\])*)\])?', content[pos:])
+                    if match:
+                        color_code = match.group(1)
+                        sgf_pos = match.group(2)
+                        comment = match.group(3)
+                        pos += match.end()
+                        
+                        if sgf_pos and sgf_pos != "tt":
+                            coords = self.from_sgf_coord(sgf_pos)
+                            if coords:
+                                x, y = coords
+                                gtp_move = self.to_gtp_coord(x, y)
+                                
+                                # 建立新節點
+                                color = "black" if color_code == "B" else "white"
+                                new_node = GameNode((x, y, color), current)
+                                current.children.append(new_node)
+                                current = new_node
+                                
+                                # 恢復註解快取
+                                turn_num += 1
+                                if comment:
+                                    unescaped_comment = comment.replace("\\]", "]").replace("\\\\", "\\")
+                                    add_to_commentary_cache(turn_num, gtp_move, unescaped_comment)
+                                    logger.debug(f"【SGF 載入】第 {turn_num} 手恢復註解: {len(unescaped_comment)} 字")
+                elif content[pos] == '(':
+                    # 開始分支，遞迴處理
+                    pos += 1
+                    pos, _ = parse_sequence(content, pos, current)
+                elif content[pos] == ')':
+                    # 分支結束
+                    return pos + 1, current
+                else:
+                    pos += 1
+            
+            return pos, current
+        
+        # 3. 找到第一個 ; 開始解析
+        start_pos = content.find('(;')
+        if start_pos >= 0:
+            parse_sequence(content, start_pos + 1, self.root_node)
+            # 跳轉到主支的最後一手（最深的第一個子節點）
+            node = self.root_node
+            while node.children:
+                node = node.children[0]
+                self.current_node = node
+        
+        self.rebuild_board()
+        logger.info(f"SGF 已載入並重建節點，恢復了 {len(commentary_cache)} 條註解")
+        print("SGF 已載入並重建節點")
+
+    def jump_to_specific_move(self, target_idx):
+        """跳轉到當前分支的指定手數"""
+        current_idx = len(self.stones)
+        if target_idx == current_idx:
+            return
+
+        if target_idx < current_idx:
+            # 目標在過去：不斷往回退 (Undo 邏輯)
+            steps = current_idx - target_idx
+            for _ in range(steps):
+                if self.current_node.parent is not None:
+                    self.current_node = self.current_node.parent
+        else:
+            # 目標在未來：不斷往前走 (Redo 邏輯)
+            steps = target_idx - current_idx
+            for _ in range(steps):
+                if self.current_node.children:
+                    # 預設走目前啟用的分支
+                    idx = self.current_node.active_child_idx
+                    self.current_node = self.current_node.children[idx]
+                else:
+                    break # 已經到底了
+
+        # 重建盤面並觸發更新
+        self.rebuild_board()
+        self.on_state_change()
+        
+        # 【Phase 4】遊戲回放時，優先從快取查詢並顯示該手的解說
+        if target_idx > 0 and self.current_node.move:
+            x, y, color = self.current_node.move
+            last_move_gtp = self.to_gtp_coord(x, y)
+            cached_commentary = get_commentary_from_cache(target_idx, last_move_gtp)
+            if cached_commentary:
+                update_teacher_ui(cached_commentary)
+            else:
+                # 若沒有解說，清空 teacher_text
+                update_teacher_ui("")
+
+    def jump_to_branch(self, idx):
+        """點擊分支圖時跳轉"""
+        if self.current_node.parent:
+            parent = self.current_node.parent
+            if 0 <= idx < len(parent.children):
+                parent.active_child_idx = idx
+                self.current_node = parent.children[idx]
+                self.rebuild_board()
+                self.on_state_change()
+
+# --- 主介面與事件綁定 ---
+def save_game_as_json():
+    filename = "gameinfo/game.json"
+    board.export_as_json(filename)
+    status_var.set(t("status.saved_json", path=filename))
+
+def save_game_as_sgf():
+    filename = "gameinfo/game.sgf"
+    board.export_as_sgf(filename)
+    status_var.set(t("status.saved_sgf", path=filename))
+
+def save_game_as_json_dialog():
+    filename = filedialog.asksaveasfilename(
+        title=t("dialog.save_json_title"),
+        defaultextension=".json",
+        filetypes=[(t("filetype.json"), "*.json"), (t("filetype.all"), "*.*")]
+    )
+    if filename:
+        board.export_as_json(filename)
+        status_var.set(t("status.saved_json", path=filename))
+
+def save_game_as_sgf_dialog():
+    filename = filedialog.asksaveasfilename(
+        title=t("dialog.save_sgf_title"),
+        defaultextension=".sgf",
+        filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
+    )
+    if filename:
+        board.export_as_sgf(filename)
+        status_var.set(t("status.saved_sgf", path=filename))
+
+def on_load_sgf_click():
+    file_path = filedialog.askopenfilename(
+        title=t("dialog.load_sgf_title"),
+        filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
+    )
+    if file_path:
+        board.load_sgf(file_path)
+        status_var.set(t("status.loaded_sgf", path=file_path))
+
+def new_game():
+    if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
+        return
+    board.root_node = GameNode()
+    board.current_node = board.root_node
+    board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+    board.current_color = "black"
+    board.clear_blue_point()
+    board.refresh_display()
+    board.on_state_change()
+    update_teacher_ui(t("teacher.default_message"))
+    status_var.set(t("status.new_game"))
+
+def show_about():
+    messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message"))
+
+def change_katago_path():
+    """選擇 KataGo 執行檔路徑"""
+    file_path = filedialog.askopenfilename(
+        title=t("dialog.katago_title"),
+        filetypes=[(t("filetype.exe"), "*.exe"), (t("filetype.all"), "*.*")]
+    )
+    if file_path:
+        katago_path_var.set(file_path)
+        reinitialize_analyzer()
+
+def change_model_path():
+    """選擇模型檔案路徑"""
+    file_path = filedialog.askopenfilename(
+        title=t("dialog.model_title"),
+        filetypes=[(t("filetype.gz"), "*.gz"), (t("filetype.all"), "*.*")]
+    )
+    if file_path:
+        model_path_var.set(file_path)
+        reinitialize_analyzer()
+
+def change_config_path():
+    """選擇配置檔案路徑"""
+    file_path = filedialog.askopenfilename(
+        title=t("dialog.config_title"),
+        filetypes=[(t("filetype.cfg"), "*.cfg"), (t("filetype.all"), "*.*")]
+    )
+    if file_path:
+        config_path_var.set(file_path)
+        reinitialize_analyzer()
+
+def reinitialize_analyzer():
+    """重新初始化分析器（關閉舊進程，建立新進程）"""
+    global analyzer
+    try:
+        if hasattr(analyzer, 'process') and analyzer.process:
+            analyzer.process.terminate()
+            analyzer.process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        logger.warning("舊 KataGo 進程未能在 2 秒內結束，將繼續重新初始化")
+    except (AttributeError, OSError) as e:
+        logger.warning("關閉舊 KataGo 進程時發生問題: %s", e)
+    
+    try:
+        analyzer = KataGoAnalyzer(katago_path_var.get(), model_path_var.get(), config_path_var.get())
+        status_var.set(t("status.reinitialized", model=model_path_var.get()))
+        messagebox.showinfo(t("dialog.success_title"), t("dialog.reinit_success", model=model_path_var.get(), config=config_path_var.get()))
+    except (OSError, ValueError) as e:
+        status_var.set(t("status.reinit_failed"))
+        logger.error("KataGo 重新初始化失敗: %s", e)
+        messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(e)))
+
+
+def update_llm_model_label(provider=None, model=None):
+    provider = provider or config_service.get_setting("llm_provider", "ollama")
+    if model is None:
+        model = ProviderFactory.get_configured_model(config_service, provider)
+    provider_name = ProviderFactory.get_display_name(provider)
+    llm_model_var.set(f"{provider_name}: {model}")
+
+
+# ============== Ollama 模型管理輔助函數 ==============
+_ollama_icon_cache = {}
+
+
+def _load_ollama_icon(icon_name, size=18):
+    """直接加載 PNG 圖示（支援快取）"""
+    cache_key = (icon_name, size)
+    if cache_key in _ollama_icon_cache:
+        return _ollama_icon_cache[cache_key]
+
+    icon_path = resource_path(f"image/{icon_name}")
+    if not os.path.exists(icon_path):
+        _ollama_icon_cache[cache_key] = None
+        return None
+
+    try:
+        from PIL import Image, ImageTk
+
+        image = Image.open(icon_path)
+        # 調整大小
+        image = image.resize((size, size), Image.Resampling.LANCZOS)
+        photo = ImageTk.PhotoImage(image)
+    except Exception as e:
+        logger.error(f"圖示載入失敗 ({icon_name}): {e}")
+        photo = None
+
+    _ollama_icon_cache[cache_key] = photo
+    return photo
+
+
+def detect_ollama_installed(timeout=2):
+    """檢查系統是否能執行 `ollama --version`，回傳 (installed: bool, version_or_none)"""
+    detection_json = resource_path("tools/ollama_detection.json")
+    commands = []
+    if os.path.exists(detection_json):
+        try:
+            with open(detection_json, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+                commands = data.get("commands", []) or []
+        except Exception:
+            commands = []
+
+    # 嘗試使用 JSON 中的命令
+    configured_path = config_service.get_setting("ollama_executable_path", None)
+    for cmd_spec in commands:
+        cmd = list(cmd_spec.get("cmd", []))
+        if not cmd:
+            continue
+        # 若命令包含 {path}，但尚未設定 path，跳過
+        cmd_str = " ".join(cmd)
+        if "{path}" in cmd_str:
+            if not configured_path:
+                continue
+            cmd = [p.replace("{path}", configured_path) for p in cmd]
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if proc.returncode == 0:
+                out = (proc.stdout or proc.stderr or "").strip()
+                first_line = out.splitlines()[0] if out else ""
+                return True, first_line
+        except Exception:
+            continue
+
+    # 若 JSON 未成功或不存在，再 fallback 嘗試 PATH 中的 ollama
+    try:
+        proc = subprocess.run(["ollama", "--version"], capture_output=True, text=True, timeout=timeout)
+        if proc.returncode == 0:
+            out = (proc.stdout or proc.stderr or "").strip()
+            first_line = out.splitlines()[0] if out else ""
+            return True, first_line
+    except Exception:
+        pass
+    return False, None
+
+
+def show_ollama_install_dialog(parent):
+    """顯示簡單的 Ollama 安裝引導對話框（包含開啟下載頁與重新檢測）。"""
+    win = tk.Toplevel(parent)
+    win.title(t("dialog.ollama_install_title") if hasattr(t, '__call__') else "Ollama 安裝指南")
+    win.geometry("540x420")
+    win.transient(parent)
+    win.grab_set()
+    frame = tk.Frame(win, bg=PANEL_BG)
+    frame.pack(fill="both", expand=True, padx=12, pady=12)
+
+    tk.Label(frame, text=t("dialog.ollama_install_intro") if hasattr(t, '__call__') else "未偵測到 Ollama，請依下列方式安裝：", bg=PANEL_BG, fg=TEXT_MAIN, font=("Microsoft JhengHei", 11, "bold")).pack(anchor="w")
+
+    instructions = (
+        "Windows:\n"
+        "1) 前往官方下載： https://ollama.com/download\n"
+        "2) 下載並執行安裝程式，完成後重新開啟終端或把安裝目錄加入 PATH\n\n"
+        "macOS / Linux:\n"
+        "請參考官方文件或使用 Docker 映像。\n\n"
+        "安裝完成後請按「重新檢測」。"
+    )
+
+    txt = tk.Text(frame, height=12, wrap="word", bg="#f8f8f8", fg=TEXT_MAIN)
+    txt.pack(fill="both", expand=True, pady=(8, 8))
+    txt.insert("end", instructions)
+    txt.config(state="disabled")
+
+    btn_frame = tk.Frame(frame, bg=PANEL_BG)
+    btn_frame.pack(fill="x", pady=(8, 0))
+
+    def open_download():
+        webbrowser.open("https://ollama.com/download")
+
+    def recheck():
+        installed, ver = detect_ollama_installed()
+        if installed:
+            messagebox.showinfo(t("dialog.success_title"), t("dialog.ollama_detected", version=ver) if hasattr(t, '__call__') else f"Ollama 已安裝：{ver}", parent=win)
+            win.destroy()
+        else:
+            messagebox.showwarning(t("dialog.warning_title"), t("dialog.ollama_not_detected") if hasattr(t, '__call__') else "尚未偵測到 Ollama，請完成安裝後再重試。", parent=win)
+
+    ttk.Button(btn_frame, text=t("button.open_download") if hasattr(t, '__call__') else "打開下載頁面", command=open_download).pack(side="left", padx=4)
+    ttk.Button(btn_frame, text=t("button.recheck") if hasattr(t, '__call__') else "重新檢測", command=recheck).pack(side="left", padx=4)
+    ttk.Button(btn_frame, text=t("button.close") if hasattr(t, '__call__') else "關閉", command=win.destroy).pack(side="right", padx=4)
+
+
+
+def _create_ollama_model_row(parent, model_name, provider, model_status, selected_var, refresh_callback, download_success_callback=None):
+    """
+    為 Ollama 模型創建一個選擇行。
+    - 已下載（available）：點擊直接選中
+    - 未下載（pending）：點擊彈出下載確認
+    
+    Args:
+        parent: 父 Frame
+        model_name: 模型名稱
+        provider: OllamaProvider 實例
+        model_status: 模型狀態 ('available' 或 'pending')
+        selected_var: 選中模型的 StringVar
+        refresh_callback: 刷新 UI 的回調函數
+    """
+    row_frame = tk.Frame(parent, bg=PANEL_BG, relief="flat", bd=0)
+    row_frame.pack(fill="x", pady=3)
+    
+    # 整行的點擊邏輯
+    def on_row_click():
+        if model_status == "available":
+            # 已下載：直接選中
+            selected_var.set(model_name)
+        else:
+            # 未下載：彈出下載確認
+            dialog_parent = parent.winfo_toplevel()
+            _confirm_and_download_ollama_model(
+                dialog_parent,
+                model_name,
+                provider,
+                refresh_callback,
+                on_success=download_success_callback,
+            )
+    
+    # 模型名稱標籤
+    model_label = tk.Label(
+        row_frame,
+        text=model_name,
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        cursor="hand2",
+        padx=5,
+        pady=5,
+    )
+    model_label.pack(side="left", fill="x", expand=True)
+    model_label.bind("<Button-1>", lambda e: on_row_click())
+    
+    # 狀態圖示：直接使用 PNG 格式
+    status_icon = _load_ollama_icon("available.png" if model_status == "available" else "download.png")
+    status_text = "" if status_icon else ("✓" if model_status == "available" else "⬇")
+    status_color = "#4CAF50" if model_status == "available" else "#FF9800"
+    
+    status_label = tk.Label(
+        row_frame,
+        text=status_text,
+        image=status_icon,
+        bg=PANEL_BG,
+        fg=status_color,
+        font=("Microsoft JhengHei", 12, "bold"),
+        width=24,
+        cursor="hand2"
+    )
+    status_label.image = status_icon
+    status_label.pack(side="left", padx=(5, 5))
+    status_label.bind("<Button-1>", lambda e: on_row_click())
+
+
+def _download_ollama_model(parent, model_name, provider, refresh_callback, on_success=None):
+    model_size = provider.get_model_size(model_name)
+    size_text = f" ({model_size})" if model_size else ""
+
+    progress_win = tk.Toplevel(parent)
+    progress_win.title(t("dialog.ollama_model_downloading"))
+    progress_win.geometry("440x220")
+    try:
+        progress_win.iconbitmap(resource_path("image/logo.ico"))
+    except Exception:
+        pass
+    progress_win.transient(parent)
+    progress_win.configure(bg=PANEL_BG)
+
+    frame = tk.Frame(progress_win, bg=PANEL_BG)
+    frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+    tk.Label(
+        frame,
+        text=t("dialog.ollama_model_downloading_model", model=model_name, size=size_text),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 11, "bold")
+    ).pack(anchor="w", pady=(0, 10))
+
+    progress_bar = ttk.Progressbar(frame, mode="indeterminate")
+    progress_bar.pack(fill="x", pady=(0, 10))
+    progress_bar.start(10)
+
+    status_text = tk.Text(
+        frame,
+        height=5,
+        width=54,
+        bg="#f5f5f5",
+        fg=TEXT_MAIN,
+        font=("Courier New", 9),
+        relief="solid",
+        bd=1,
+        padx=5,
+        pady=5
+    )
+    status_text.pack(fill="both", expand=True, pady=(0, 10))
+    status_text.config(state="disabled")
+
+    ttk.Button(
+        frame,
+        text=t("button.close"),
+        command=progress_win.destroy,
+        width=12
+    ).pack(anchor="e")
+
+    def update_progress(message):
+        if not progress_win.winfo_exists():
+            return
+        status_text.config(state="normal")
+        status_text.insert("end", message + "\n")
+        status_text.see("end")
+        status_text.config(state="disabled")
+
+    def on_download_complete(success, message):
+        if not progress_win.winfo_exists():
+            if success and on_success:
+                on_success(model_name)
+            return
+
+        progress_bar.stop()
+        update_progress("")
+        update_progress(message)
+
+        if success:
+            messagebox.showinfo(
+                t("dialog.success_title"),
+                t("dialog.ollama_model_download_success", model=model_name),
+                parent=parent,
+            )
+            refresh_callback(model_name)
+            if on_success:
+                on_success(model_name)
+            progress_win.destroy()
+        else:
+            messagebox.showerror(
+                t("dialog.error_title"),
+                t("dialog.ollama_model_download_failed", model=model_name, error=message),
+                parent=parent,
+            )
+
+    def schedule_ui(callback, *args):
+        try:
+            if parent.winfo_exists():
+                parent.after(0, callback, *args)
+            elif root.winfo_exists():
+                root.after(0, callback, *args)
+        except tk.TclError:
+            pass
+
+    started = provider.start_model_download(
+        model_name,
+        progress_callback=lambda message: schedule_ui(update_progress, message),
+        complete_callback=lambda success, message: schedule_ui(on_download_complete, success, message),
+    )
+    if not started:
+        progress_bar.stop()
+        update_progress(t("dialog.ollama_model_download_busy"))
+
+
+def _confirm_and_download_ollama_model(parent, model_name, provider, refresh_callback, on_success=None):
+    """
+    顯示下載確認對話框並開始下載
+    
+    Args:
+        parent: 父窗口
+        model_name: 要下載的模型名稱
+        provider: OllamaProvider 實例
+        refresh_callback: 下載完成後的刷新回調
+    """
+    model_size = provider.get_model_size(model_name)
+    size_text = f" ({model_size})" if model_size else ""
+    
+    if not messagebox.askyesno(
+        t("dialog.confirm_title"),
+        t("dialog.ollama_model_confirm_download", model=model_name + size_text),
+        parent=parent,
+    ):
+        return
+
+    _download_ollama_model(parent, model_name, provider, refresh_callback, on_success=on_success)
+
+
+# ============== LLM 選擇對話框 ==============
+def _show_llm_selection_dialog(parent):
+    """建立 LLM 提供商選擇對話框內容。"""
+    dialog_win = tk.Toplevel(parent)
+    dialog_win.title(t("dialog.llm_selection_title"))
+    dialog_win.geometry("540x540")
+    dialog_win.minsize(500, 480)
+    dialog_win.iconbitmap(resource_path("image/logo.ico"))
+    dialog_win.configure(bg=PANEL_BG)
+    dialog_win.transient(parent)
+    dialog_win.grab_set()
+    
+    # ===== 讀取當前配置 =====
+    current_provider = config_service.get_setting("llm_provider", "ollama")
+    current_ollama_model = config_service.get_setting("ollama_model", ProviderFactory.get_default_model("ollama"))
+    current_nvidia_model = config_service.get_setting("nvidia_model", ProviderFactory.get_default_model("nvidia"))
+    current_github_model = config_service.get_setting("github_model", ProviderFactory.get_default_model("github"))
+    current_nvidia_api_key = get_nvidia_api_key()
+    current_github_token = get_github_token()
+    
+    # ===== 狀態變數 =====
+    provider_var = tk.StringVar(value=current_provider)
+    ollama_model_var_local = tk.StringVar(value=current_ollama_model)
+    nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
+    github_model_var_local = tk.StringVar(value=current_github_model)
+    nvidia_api_key_var = tk.StringVar(value=current_nvidia_api_key)
+    github_token_var = tk.StringVar(value=current_github_token)
+    api_key_visible = tk.BooleanVar(value=False)
+    github_token_visible = tk.BooleanVar(value=False)
+    
+    # ===== 主框架 =====
+    main_frame = tk.Frame(dialog_win, bg=PANEL_BG)
+    main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+    
+    # ===== 標題 =====
+    tk.Label(
+        main_frame,
+        text=t("dialog.provider_type"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 13, "bold"),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 10))
+    
+    # ===== 提供商選擇 =====
+    provider_frame = tk.Frame(main_frame, bg=PANEL_BG)
+    provider_frame.pack(fill="x", pady=(0, 20))
+    
+    radio_style = {
+        "bg": PANEL_BG,
+        "fg": TEXT_MAIN,
+        "activebackground": PANEL_BG,
+        "activeforeground": TEXT_MAIN,
+        "selectcolor": PANEL_BG,
+        "font": ("Microsoft JhengHei", 10),
+        "bd": 0,
+        "highlightthickness": 0,
+    }
+    tk.Radiobutton(provider_frame, text=t("dialog.provider_ollama"), variable=provider_var, value="ollama",
+                   command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
+    tk.Radiobutton(provider_frame, text=t("dialog.provider_nvidia"), variable=provider_var, value="nvidia",
+                   command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
+    tk.Radiobutton(provider_frame, text=t("dialog.provider_github"), variable=provider_var, value="github",
+                   command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
+    
+    # ===== Ollama 配置區塊 =====
+    ollama_frame = tk.LabelFrame(
+        main_frame,
+        text="Ollama",
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=10,
+        pady=10
+    )
+    ollama_frame.pack(fill="x", pady=(0, 10))
+    
+    tk.Label(
+        ollama_frame,
+        text=t("dialog.provider_ollama_model"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 8))
+
+    # note: ollama executable path entry removed (use tools/ollama_detection.json or ui_settings.json)
+    
+    # Ollama 模型列表框（自定義 UI）
+    ollama_provider = ProviderFactory.create_provider(
+        "ollama",
+        ui_callback=lambda x: None,
+        translator=t,
+        language_getter=lambda: i18n.language
+    )
+    
+    available_models = ProviderFactory.get_available_models("ollama")
+    
+    # 創建固定高度、可捲動的模型列表，避免只顯示第一列。
+    models_list_outer = tk.Frame(ollama_frame, bg=PANEL_BG, relief="solid", bd=1, height=190)
+    models_list_outer.pack(fill="x", pady=(0, 8))
+    models_list_outer.pack_propagate(False)
+
+    models_canvas = tk.Canvas(
+        models_list_outer,
+        bg=PANEL_BG,
+        bd=0,
+        highlightthickness=0,
+        height=188,
+    )
+    models_scrollbar = ttk.Scrollbar(models_list_outer, orient="vertical", command=models_canvas.yview)
+    models_list_frame = tk.Frame(models_canvas, bg=PANEL_BG)
+    models_window_id = models_canvas.create_window((0, 0), window=models_list_frame, anchor="nw")
+    models_canvas.configure(yscrollcommand=models_scrollbar.set)
+    models_canvas.pack(side="left", fill="both", expand=True)
+    models_scrollbar.pack(side="right", fill="y")
+
+    def update_models_scroll_region(event=None):
+        models_canvas.configure(scrollregion=models_canvas.bbox("all"))
+        models_canvas.itemconfigure(models_window_id, width=models_canvas.winfo_width())
+
+    models_list_frame.bind("<Configure>", update_models_scroll_region)
+    models_canvas.bind("<Configure>", update_models_scroll_region)
+    
+    def refresh_ollama_models(auto_select_model=None):
+        """刷新 Ollama 模型列表"""
+        # 清空舊的模型行
+        for widget in models_list_frame.winfo_children():
+            widget.destroy()
+        
+        # 重新創建模型行
+        updated_status = ollama_provider.get_model_status()
+        for model in available_models:
+            _create_ollama_model_row(
+                models_list_frame,
+                model,
+                ollama_provider,
+                updated_status.get(model, "pending"),
+                ollama_model_var_local,
+                refresh_ollama_models,
+                download_success_callback=lambda downloaded_model: save_and_apply_settings("ollama", downloaded_model)
+            )
+        
+        # 如果提供了自動選擇的模型，則選中它
+        if auto_select_model:
+            ollama_model_var_local.set(auto_select_model)
+        update_models_scroll_region()
+    
+    # 初始創建模型行
+    refresh_ollama_models()
+    
+    # 添加重新掃描按鈕
+    rescan_frame = tk.Frame(ollama_frame, bg=PANEL_BG)
+    rescan_frame.pack(fill="x", pady=(0, 0))
+    
+    ttk.Button(
+        rescan_frame,
+        text=t("button.rescan_models"),
+        command=refresh_ollama_models,
+        width=15
+    ).pack(side="left", padx=(0, 5))
+
+    # 模型選擇指示（顯示目前被選中的模型）
+    try:
+        selected_indicator = tk.Label(
+            rescan_frame,
+            text=t("status.ollama_model_selected", model=current_ollama_model),
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Microsoft JhengHei", 9)
+        )
+
+        def update_selected_indicator(*args):
+            try:
+                selected_indicator.config(text=t("status.ollama_model_selected", model=ollama_model_var_local.get()))
+            except Exception:
+                pass
+
+        ollama_model_var_local.trace("w", update_selected_indicator)
+    except Exception:
+        # 如果變數或元件不存在，忽略以避免啟動錯誤
+        pass
+    
+    # Ollama 安裝狀態顯示與安裝指南按鈕
+    try:
+        ollama_install_status_label = tk.Label(
+            rescan_frame,
+            text="",
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Microsoft JhengHei", 9)
+        )
+
+        def update_ollama_install_status_label():
+            installed, ver = detect_ollama_installed()
+            ver = ver.replace("ollama version is", "").strip() if ver else ""
+            if installed:
+                ollama_install_status_label.config(text=f"Ollama: {ver}", fg="#1f6f78")
+            else:
+                ollama_install_status_label.config(text=t("status.ollama_not_found") if hasattr(t, '__call__') else "Ollama: 未偵測", fg="#FF5722")
+
+        # 把安裝按鈕放在左側，狀態標籤填滿剩餘空間
+        ollama_install_button = ttk.Button(rescan_frame, text=t("button.install_guide") if hasattr(t, '__call__') else "安裝指南", width=12, command=lambda: show_ollama_install_dialog(rescan_frame))
+        ollama_install_button.pack(side="left", padx=(6, 5))
+
+        # 現在把先前建立但未 pack 的 selected_indicator 放到左側並擴展
+        try:
+            selected_indicator.pack(side="left", fill="x", expand=True)
+        except Exception:
+            pass
+
+        ollama_install_status_label.pack(side="left", padx=(8, 0))
+
+        # 立即檢測一次並更新狀態
+        try:
+            update_ollama_install_status_label()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    
+    # ===== NVIDIA 配置區塊 =====
+    nvidia_frame = tk.LabelFrame(
+        main_frame,
+        text="NVIDIA",
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=10,
+        pady=10
+    )
+    
+    # API Key 部分
+    tk.Label(
+        nvidia_frame,
+        text=t("dialog.provider_nvidia_api_key"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 5))
+    api_key_frame = tk.Frame(nvidia_frame, bg=PANEL_BG)
+    api_key_frame.pack(fill="x", pady=(0, 10))
+    
+    nvidia_api_key_entry = ttk.Entry(
+        api_key_frame,
+        textvariable=nvidia_api_key_var,
+        show="●",
+        width=35
+    )
+    nvidia_api_key_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+    
+    def toggle_api_key_visibility():
+        api_key_visible.set(not api_key_visible.get())
+        if api_key_visible.get():
+            nvidia_api_key_entry.config(show="")
+            toggle_btn.config(text="◉")
+        else:
+            nvidia_api_key_entry.config(show="●")
+            toggle_btn.config(text="◌")
+    
+    toggle_btn = ttk.Button(api_key_frame, text="◌", width=3, command=toggle_api_key_visibility)
+    toggle_btn.pack(side="left")
+    
+    tk.Label(
+        nvidia_frame,
+        text=t("dialog.provider_api_key_env_hint"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        wraplength=400,
+        justify="left",
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 10))
+    
+    # 模型選擇部分
+    tk.Label(
+        nvidia_frame,
+        text=t("dialog.provider_nvidia_model"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 5))
+    nvidia_model_combo = ttk.Combobox(
+        nvidia_frame,
+        textvariable=nvidia_model_var_local,
+        values=ProviderFactory.get_available_models("nvidia"),
+        state="readonly",
+        width=40
+    )
+    nvidia_model_combo.pack(fill="x", pady=(0, 10))
+
+    # ===== GitHub Models 配置區塊 =====
+    github_frame = tk.LabelFrame(
+        main_frame,
+        text="GitHub Models",
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=10,
+        pady=10
+    )
+
+    tk.Label(
+        github_frame,
+        text=t("dialog.provider_github_token"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 5))
+    github_token_frame = tk.Frame(github_frame, bg=PANEL_BG)
+    github_token_frame.pack(fill="x", pady=(0, 10))
+
+    github_token_entry = ttk.Entry(
+        github_token_frame,
+        textvariable=github_token_var,
+        show="●",
+        width=35
+    )
+    github_token_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+    def toggle_github_token_visibility():
+        github_token_visible.set(not github_token_visible.get())
+        if github_token_visible.get():
+            github_token_entry.config(show="")
+            github_toggle_btn.config(text="◉")
+        else:
+            github_token_entry.config(show="●")
+            github_toggle_btn.config(text="◌")
+
+    github_toggle_btn = ttk.Button(github_token_frame, text="◌", width=3, command=toggle_github_token_visibility)
+    github_toggle_btn.pack(side="left")
+
+    tk.Label(
+        github_frame,
+        text=t("dialog.provider_github_token_env_hint"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        wraplength=420,
+        justify="left",
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 10))
+
+    tk.Label(
+        github_frame,
+        text=t("dialog.provider_github_model"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 5))
+    github_model_combo = ttk.Combobox(
+        github_frame,
+        textvariable=github_model_var_local,
+        values=ProviderFactory.get_available_models("github"),
+        state="readonly",
+        width=40
+    )
+    github_model_combo.pack(fill="x", pady=(0, 10))
+    
+    # ===== 更新對話框可見性 =====
+    def update_dialog_visibility():
+        if provider_var.get() == "ollama":
+            ollama_frame.pack(fill="x", pady=(0, 10))
+            nvidia_frame.pack_forget()
+            github_frame.pack_forget()
+        elif provider_var.get() == "nvidia":
+            ollama_frame.pack_forget()
+            nvidia_frame.pack(fill="x", pady=(0, 10))
+            github_frame.pack_forget()
+        else:
+            ollama_frame.pack_forget()
+            nvidia_frame.pack_forget()
+            github_frame.pack(fill="x", pady=(0, 10))
+    
+    update_dialog_visibility()
+    
+    # ===== 按鈕 =====
+    button_frame = tk.Frame(main_frame, bg=PANEL_BG)
+    button_frame.pack(fill="x", pady=(20, 0))
+    
+    def save_and_apply_settings(provider, selected_model, api_key=None, github_token=None):
+        config_service.set_setting("llm_provider", provider)
+        if provider == "ollama":
+            config_service.set_setting("ollama_model", selected_model)
+        elif provider == "nvidia":
+            config_service.set_setting("nvidia_model", selected_model)
+            try:
+                set_nvidia_api_key(api_key)
+            except Exception as e:
+                logger.error("NVIDIA API Key 寫入 keyring 失敗: %s", e)
+                messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
+                return False
+        else:
+            config_service.set_setting("github_model", selected_model)
+            try:
+                set_github_token(github_token)
+            except Exception as e:
+                logger.error("GitHub token 寫入 keyring 失敗: %s", e)
+                messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
+                return False
+
+        config_service.save()
+
+        global current_llm_worker, ollama_worker
+        current_llm_worker = ProviderFactory.create_provider(
+            provider,
+            ui_callback=update_teacher_ui,
+            status_callback=update_status,
+            model_name=selected_model,
+            translator=t,
+            language_getter=lambda: i18n.language,
+        )
+        provider_name = ProviderFactory.get_display_name(provider)
+        status_var.set(t("status.llm_provider_switched", provider=provider_name, model=selected_model))
+        update_llm_model_label(provider, selected_model)
+        ollama_worker = current_llm_worker
+        update_teacher_ui(t("teacher.default_message"))
+        return True
+
+    def apply_settings():
+        provider = provider_var.get()
+        api_key = None
+        github_token = None
+        selected_model = None
+        
+        if provider == "nvidia":
+            api_key = normalize_api_key(nvidia_api_key_var.get())
+            if not api_key:
+                messagebox.showerror(t("dialog.error_title"), t("error.nvidia_api_key_empty"), parent=dialog_win)
+                return
+            validator = ProviderFactory.create_provider(
+                "nvidia",
+                ui_callback=update_teacher_ui,
+                model_name=nvidia_model_var_local.get(),
+                translator=t,
+                language_getter=lambda: i18n.language,
+                api_key=api_key
+            )
+            is_valid, error_message = validator.validate_config()
+            if not is_valid:
+                messagebox.showwarning(t("dialog.error_title"), error_message or t("error.nvidia_api_key_invalid"), parent=dialog_win)
+                return
+            selected_model = nvidia_model_var_local.get()
+        elif provider == "github":
+            github_token = normalize_api_key(github_token_var.get())
+            if not github_token:
+                messagebox.showerror(t("dialog.error_title"), t("error.github_token_empty"), parent=dialog_win)
+                return
+            validator = ProviderFactory.create_provider(
+                "github",
+                ui_callback=update_teacher_ui,
+                model_name=github_model_var_local.get(),
+                translator=t,
+                language_getter=lambda: i18n.language,
+                api_key=github_token
+            )
+            is_valid, error_message = validator.validate_config()
+            if not is_valid:
+                messagebox.showwarning(t("dialog.error_title"), error_message or t("error.github_token_invalid"), parent=dialog_win)
+                return
+            selected_model = github_model_var_local.get()
+        else:
+            selected_model = ollama_model_var_local.get()
+            if not ollama_provider.is_model_available(selected_model):
+                choice = messagebox.askyesnocancel(
+                    t("dialog.confirm_title"),
+                    t("dialog.ollama_model_missing_prompt", model=selected_model),
+                    parent=dialog_win,
+                )
+                if choice is None:
+                    return
+                if choice:
+                    _download_ollama_model(
+                        dialog_win,
+                        selected_model,
+                        ollama_provider,
+                        refresh_ollama_models,
+                        on_success=lambda downloaded_model: (
+                            save_and_apply_settings("ollama", downloaded_model) and dialog_win.destroy()
+                        ),
+                    )
+                    return
+                # If the user chooses No, keep the old behavior: save anyway.
+
+        if save_and_apply_settings(provider, selected_model, api_key=api_key, github_token=github_token):
+            dialog_win.destroy()
+    
+    ttk.Button(button_frame, text=t("button.apply"), command=apply_settings, width=12).pack(side="right", padx=(5, 0))
+    ttk.Button(button_frame, text=t("button.cancel"), command=dialog_win.destroy, width=12).pack(side="right")
+
+
+class LLMSelectionDialog:
+    """通用 LLM 提供商與模型選擇對話框。"""
+    def __init__(self, parent):
+        self.parent = parent
+        _show_llm_selection_dialog(parent)
+
+
+def show_llm_selection_dialog():
+    """顯示 LLM 提供商選擇對話框"""
+    LLMSelectionDialog(root)
+
+
+def show_settings_dialog():
+    """顯示設定對話框"""
+    settings_win = tk.Toplevel(root)
+    settings_win.title(t("dialog.settings_title"))
+    settings_win.geometry("500x300")
+    settings_win.iconbitmap(resource_path("image/logo.ico"))  # Set the icon for the settings window
+    settings_win.transient(root)
+    settings_win.grab_set()
+
+    # 主框架
+    main_frame = ttk.Frame(settings_win, padding=(16, 16, 16, 16))
+    main_frame.pack(fill="both", expand=True)
+    main_frame.columnconfigure(1, weight=1)
+
+    # KataGo 執行檔
+    ttk.Label(main_frame, text=t("label.katago_path"), font=("Microsoft JhengHei", 10)).grid(row=0, column=0, sticky="w", pady=(0, 8))
+    katago_entry = ttk.Entry(main_frame, textvariable=katago_path_var)
+    katago_entry.grid(row=0, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
+    ttk.Button(main_frame, text=t("button.browse"), command=change_katago_path, width=10).grid(row=0, column=2, padx=(0, 0), pady=(0, 8))
+
+    # 模型檔案
+    ttk.Label(main_frame, text=t("label.model_path"), font=("Microsoft JhengHei", 10)).grid(row=1, column=0, sticky="w", pady=(0, 8))
+    model_entry = ttk.Entry(main_frame, textvariable=model_path_var)
+    model_entry.grid(row=1, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
+    ttk.Button(main_frame, text=t("button.browse"), command=change_model_path, width=10).grid(row=1, column=2, padx=(0, 0), pady=(0, 8))
+
+    # 配置檔案
+    ttk.Label(main_frame, text=t("label.config_path"), font=("Microsoft JhengHei", 10)).grid(row=2, column=0, sticky="w", pady=(0, 8))
+    config_entry = ttk.Entry(main_frame, textvariable=config_path_var)
+    config_entry.grid(row=2, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
+    ttk.Button(main_frame, text=t("button.browse"), command=change_config_path, width=10).grid(row=2, column=2, padx=(0, 0), pady=(0, 8))
+
+    # 提示文字
+    tip_frame = ttk.Frame(main_frame)
+    tip_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(16, 0))
+    ttk.Label(tip_frame, text=t("label.settings_tip"), 
+              font=("Microsoft JhengHei", 9), foreground="#666").pack(anchor="w")
+
+    # 按鈕框架
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(24, 0))
+    
+    ttk.Button(btn_frame, text=t("button.apply"), command=lambda: [reinitialize_analyzer(), settings_win.destroy()], width=12).pack(side="right", padx=(8, 0))
+    ttk.Button(btn_frame, text=t("button.cancel"), command=settings_win.destroy, width=12).pack(side="right")
+
+
+# 滾輪事件處理
+def on_mouse_wheel(event):
+    # Windows: event.delta, Linux/Mac: event.num
+    if event.delta > 0 or event.num == 4: # 滾輪向上 -> 上一步
+        board.undo()
+    elif event.delta < 0 or event.num == 5: # 滾輪向下 -> 下一步
+        board.redo()
+
+root = tk.Tk()
+root.title(t("app.title"))
+root.configure(bg=UI_BG)
+root.minsize(930, 720)
+root.iconbitmap(resource_path("image/logo.ico"))  
+
+style = ttk.Style(root)
+style.theme_use("clam")
+style.configure(".", font=("Microsoft JhengHei", 10))
+style.configure("TFrame", background=UI_BG)
+style.configure("Panel.TFrame", background=PANEL_BG, relief="solid", borderwidth=1)
+style.configure("TLabel", background=UI_BG, foreground=TEXT_MAIN)
+style.configure("Panel.TLabel", background=PANEL_BG, foreground=TEXT_MAIN)
+style.configure("Muted.TLabel", background=PANEL_BG, foreground=TEXT_MUTED)
+style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN, font=("Microsoft JhengHei", 13, "bold"))
+style.configure("Primary.TButton", background=ACCENT, foreground="white", padding=(14, 8), borderwidth=0)
+style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", "#9eb9bd")])
+style.configure("Tool.TButton", padding=(10, 7))
+
+status_var = tk.StringVar(value=t("status.starting"))
+llm_model_var = tk.StringVar(value="")
+language_var = tk.StringVar(value=i18n.language)
+
+# 模型和配置文件路徑設定
+katago_path_var = tk.StringVar(value=resource_path("katago.exe"))
+model_path_var = tk.StringVar(value=resource_path("models\\kata.bin.gz"))
+config_path_var = tk.StringVar(value=resource_path("analysis_example.cfg"))
+
+analyzer = KataGoAnalyzer(katago_path_var.get(), model_path_var.get(), config_path_var.get())
+data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)
+status_var.set(t("status.ready"))
+
+
+def on_closing():
+    if hasattr(analyzer, 'process'):
+        analyzer.process.terminate()
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_closing)
+
+menu_bar = tk.Menu(root)
+file_menu = tk.Menu(menu_bar, tearoff=0)
+file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
+file_menu.add_separator()
+file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
+file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
+file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
+file_menu.add_command(label=t("menu.save_sgf"), command=save_game_as_sgf)
+file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+S", command=save_game_as_sgf_dialog)
+file_menu.add_separator()
+file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
+menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
+
+edit_menu = tk.Menu(menu_bar, tearoff=0)
+edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
+edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
+edit_menu.add_separator()
+edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
+edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
+menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
+
+analysis_menu = tk.Menu(menu_bar, tearoff=0)
+analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
+analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
+menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
+
+settings_menu = tk.Menu(menu_bar, tearoff=0)
+settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
+language_menu = tk.Menu(settings_menu, tearoff=0)
+
+def set_language(language):
+    i18n.set_language(language)
+    language_var.set(language)
+    refresh_language()
+    status_var.set(t("status.language_changed", language=t(f"language.{language}")))
+
+for language in i18n.available_languages:
+    language_menu.add_radiobutton(
+        label=t(f"language.{language}"),
+        value=language,
+        variable=language_var,
+        command=lambda lang=language: set_language(lang)
+    )
+
+settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
+settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
+settings_menu.add_separator()
+settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
+menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
+
+view_menu = tk.Menu(menu_bar, tearoff=0)
+show_teacher_var = tk.BooleanVar(value=True)
+show_branch_var = tk.BooleanVar(value=True)
+show_move_numbers_var = tk.BooleanVar(value=False)
+
+def toggle_teacher_panel():
+    if show_teacher_var.get():
+        teacher_section.grid()
+    else:
+        teacher_section.grid_remove()
+
+def toggle_branch_panel():
+    if show_branch_var.get():
+        branch_section.grid()
+    else:
+        branch_section.grid_remove()
+
+def toggle_move_numbers():
+    board._handle_recommendation_hover(None)
+    board._draw_move_numbers()
+
+view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
+view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
+view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
+menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
+
+help_menu = tk.Menu(menu_bar, tearoff=0)
+help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
+    t("dialog.shortcuts_title"),
+    t("dialog.shortcuts_message")
+))
+help_menu.add_command(label=t("menu.about"), command=show_about)
+menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
+root.config(menu=menu_bar)
+
+# 綁定方向鍵
+root.bind("<Up>", lambda e: board.undo())
+root.bind("<Down>", lambda e: board.redo())
+root.bind("<Left>", lambda e: board.switch_branch(-1))  # 上一個變化圖
+root.bind("<Right>", lambda e: board.switch_branch(1))  # 下一個變化圖
+
+
+
+# 綁定滑鼠滾輪
+root.bind("<MouseWheel>", on_mouse_wheel)
+root.bind("<Button-4>", on_mouse_wheel)
+root.bind("<Button-5>", on_mouse_wheel)
+
+# 綁定一般快捷鍵
+root.bind("<Control-z>", lambda e: board.undo())
+root.bind("<Control-y>", lambda e: board.redo())
+
+root.bind("<Control-n>", lambda e: new_game())
+root.bind("<Control-o>", lambda e: on_load_sgf_click())
+root.bind("<Control-s>", lambda e: save_game_as_sgf_dialog())
+root.bind("<Control-r>", lambda e: on_analyze_button_click())
+root.bind("<Control-Shift-R>", lambda e: show_winrate_chart())
+
+main_frame = ttk.Frame(root, padding=(16, 14, 16, 8))
+main_frame.pack(fill="both", expand=True)
+main_frame.columnconfigure(0, weight=1)
+main_frame.columnconfigure(1, weight=0)
+main_frame.rowconfigure(0, weight=1)
+
+board_shell = tk.Frame(main_frame, bg=PANEL_BG, highlightbackground=PANEL_BORDER, highlightthickness=1, padx=14, pady=14)
+board_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+
+board = GoBoard(board_shell)
+board.pack(anchor="center")
+
+info_frame = ttk.Frame(main_frame, style="Panel.TFrame", padding=(14, 14, 14, 14))
+info_frame.grid(row=0, column=1, sticky="ns")
+info_frame.columnconfigure(0, weight=1)
+info_frame.columnconfigure(1, weight=1)
+
+ai_analysis_label = ttk.Label(info_frame, text=t("label.ai_analysis"), style="Title.TLabel")
+ai_analysis_label.grid(row=0, column=0, columnspan=2, sticky="w")
+winrate_label = ttk.Label(info_frame, text=t("analysis.not_analyzed"), style="Panel.TLabel", justify="left", anchor="w")
+winrate_label.grid(row=1, column=0, columnspan=2, pady=(8, 14), sticky="ew")
+
+btn_analyze = ttk.Button(info_frame, text=t("button.analyze"), command=on_analyze_button_click, style="Primary.TButton")
+btn_analyze.grid(row=2, column=0, columnspan=2, pady=(0, 8), sticky="ew")
+
+btn_full_analysis = ttk.Button(info_frame, text=t("button.full_analysis"), command=show_winrate_chart, style="Tool.TButton")
+btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 12), sticky="ew")
+
+btn_undo = ttk.Button(info_frame, text=t("button.undo"), command=board.undo, style="Tool.TButton")
+btn_undo.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
+btn_redo = ttk.Button(info_frame, text=t("button.redo"), command=board.redo, style="Tool.TButton")
+btn_redo.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
+
+btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
+btn_load_sgf.grid(row=5, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
+btn_save_sgf_as = ttk.Button(info_frame, text=t("button.save_sgf_as"), command=save_game_as_sgf_dialog, style="Tool.TButton")
+btn_save_sgf_as.grid(row=5, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
+btn_save_json = ttk.Button(info_frame, text=t("button.save_json"), command=save_game_as_json, style="Tool.TButton")
+btn_save_json.grid(row=6, column=0, padx=(0, 4), pady=(0, 14), sticky="ew")
+btn_save_json_as = ttk.Button(info_frame, text=t("button.save_json_as"), command=save_game_as_json_dialog, style="Tool.TButton")
+btn_save_json_as.grid(row=6, column=1, padx=(4, 0), pady=(0, 14), sticky="ew")
+
+branch_section = tk.Frame(info_frame, bg=PANEL_BG)
+branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+branch_title_label = tk.Label(
+    branch_section,
+    text=t("label.branch_switch"),
+    bg=PANEL_BG,
+    fg=TEXT_MAIN,
+    font=("Microsoft JhengHei", 10, "bold"),
+    bd=0,
+    padx=0,
+    pady=0
+)
+branch_title_label.pack(anchor="w")
+branch_ui = BranchCanvas(branch_section, board_ref=board, width=220, height=96, bg=PANEL_BG, highlightbackground=PANEL_BORDER, highlightthickness=1)
+branch_ui.pack(fill="x", pady=(6, 0))
+
+board.branch_ui = branch_ui
+
+teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
+teacher_section.grid(row=8, column=0, columnspan=2, sticky="nsew")
+teacher_header = tk.Frame(teacher_section, bg=PANEL_BG)
+teacher_header.pack(fill="x")
+teacher_title_label = tk.Label(
+    teacher_header,
+    text=t("label.teacher"),
+    bg=PANEL_BG,
+    fg=TEXT_MAIN,
+    font=("Microsoft JhengHei", 10, "bold"),
+    bd=0,
+    padx=0,
+    pady=0
+)
+teacher_title_label.pack(side="left")
+teacher_model_label = tk.Label(
+    teacher_header,
+    textvariable=llm_model_var,
+    bg=PANEL_BG,
+    fg=TEXT_MUTED,
+    font=("Microsoft JhengHei", 10),
+    bd=0,
+    padx=0,
+    pady=0
+)
+teacher_model_label.pack(side="right")
+teacher_text = tk.Text(
+    teacher_section,
+    width=30,
+    height=9,
+    font=("Microsoft JhengHei", 10),
+    wrap="word",
+    bg=TEACHER_TEXT_BG,
+    fg=TEXT_MAIN,
+    insertbackground=TEXT_MAIN,
+    selectbackground="#ead7b8",
+    selectforeground=TEXT_MAIN,
+    relief="solid",
+    bd=1,
+    padx=8,
+    pady=8,
+    state="disabled"
+)
+teacher_text.pack(fill="both", expand=True, pady=(6, 0))
+
+status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 5), background="#e8dfd2", foreground=TEXT_MUTED)
+status_bar.pack(side="bottom", fill="x")
+
+def update_status(message):
+    if threading.current_thread() is threading.main_thread():
+        status_var.set(message)
+    else:
+        root.after(0, status_var.set, message)
+
+def update_teacher_ui(message):
+    """給 LLM Provider 呼叫的回呼函數，用來更新文字框"""
+    if threading.current_thread() is not threading.main_thread():
+        root.after(0, update_teacher_ui, message)
+        return
+    
+    global current_generated_commentary
+    
+    # 【Phase 1】累積生成的解說文本（用於快取存儲）
+    if current_critical_event and message and not message.startswith(("思考", "thinking")):
+        current_generated_commentary += message
+    
+    teacher_text.config(state="normal")
+    teacher_text.delete("1.0", tk.END)
+    teacher_text.insert(tk.END, message)
+    teacher_text.config(state="disabled")
+
+
+def on_commentary_generation_complete():
+    """【Phase 1】LLM 生成完成後的回呼 — 將完整的解說存儲到快取"""
+    global current_critical_event, current_generated_commentary
+    if current_critical_event and current_generated_commentary:
+        try:
+            add_to_commentary_cache(
+                current_critical_event["turn"],
+                current_critical_event["user_move"],
+                current_generated_commentary
+            )
+            logger.info(f"已將第 {current_critical_event['turn']} 手的解說存儲到快取")
+        except Exception as e:
+            logger.warning(f"儲存解說到快取失敗: {e}")
+        finally:
+            current_critical_event = None
+            current_generated_commentary = ""
+
+
+def rebuild_menu_bar():
+    global menu_bar, file_menu, edit_menu, analysis_menu, ollama_model_menu
+    global settings_menu, language_menu, view_menu, help_menu
+
+    menu_bar = tk.Menu(root)
+
+    file_menu = tk.Menu(menu_bar, tearoff=0)
+    file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
+    file_menu.add_separator()
+    file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
+    file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
+    file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
+    file_menu.add_command(label=t("menu.save_sgf"), command=save_game_as_sgf)
+    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+S", command=save_game_as_sgf_dialog)
+    file_menu.add_separator()
+    file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
+    menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
+
+    edit_menu = tk.Menu(menu_bar, tearoff=0)
+    edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
+    edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
+    edit_menu.add_separator()
+    edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
+    edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
+    menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
+
+    analysis_menu = tk.Menu(menu_bar, tearoff=0)
+    analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
+    analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
+    analysis_menu.add_separator()
+    analysis_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
+    menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
+
+    settings_menu = tk.Menu(menu_bar, tearoff=0)
+    settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
+    language_menu = tk.Menu(settings_menu, tearoff=0)
+    for language in i18n.available_languages:
+        language_menu.add_radiobutton(
+            label=t(f"language.{language}"),
+            value=language,
+            variable=language_var,
+            command=lambda lang=language: set_language(lang)
+        )
+    settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
+    settings_menu.add_separator()
+    settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
+    menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
+
+    view_menu = tk.Menu(menu_bar, tearoff=0)
+    view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
+    view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
+    view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
+    menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
+
+    help_menu = tk.Menu(menu_bar, tearoff=0)
+    help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
+        t("dialog.shortcuts_title"),
+        t("dialog.shortcuts_message")
+    ))
+    help_menu.add_command(label=t("menu.about"), command=show_about)
+    menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
+    root.config(menu=menu_bar)
+
+
+def refresh_language():
+    root.title(t("app.title_with_move", moves=len(board.stones)) if board.stones else t("app.title"))
+
+    rebuild_menu_bar()
+
+    ai_analysis_label.config(text=t("label.ai_analysis"))
+    btn_analyze.config(text=t("button.analyze"))
+    btn_full_analysis.config(text=t("button.full_analysis"))
+    btn_undo.config(text=t("button.undo"))
+    btn_redo.config(text=t("button.redo"))
+    btn_load_sgf.config(text=t("button.load_sgf"))
+    btn_save_sgf_as.config(text=t("button.save_sgf_as"))
+    btn_save_json.config(text=t("button.save_json"))
+    btn_save_json_as.config(text=t("button.save_json_as"))
+    branch_title_label.config(text=t("label.branch_switch"))
+    teacher_title_label.config(text=t("label.teacher"))
+    update_llm_model_label()
+    winrate_label.config(text=render_winrate_text(winrate_display_state["key"], winrate_display_state["kwargs"]))
+    branch_ui.draw_branches()
+
+
+# 初始化 LLM Provider - 根據配置選擇提供商
+llm_provider = config_service.get_setting("llm_provider", "ollama")
+current_llm_worker = ProviderFactory.create_from_config(
+    config_service,
+    ui_callback=update_teacher_ui,
+    status_callback=update_status,
+    translator=t,
+    language_getter=lambda: i18n.language,
+    on_complete_callback=on_commentary_generation_complete,  # 【Phase 1】傳入完成回呼
+)
+
+if llm_provider == "nvidia" and not get_nvidia_api_key():
+    logger.warning("NVIDIA API Key 未設置，仍保留 NVIDIA 設定；請設定 NVIDIA_API_KEY、KATAGO_NVIDIA_API_KEY 或在 LLM 對話框設定")
+    root.after(0, lambda: messagebox.showwarning(
+        t("dialog.error_title"),
+        t("error.nvidia_api_key_missing_env")
+    ))
+elif llm_provider == "github" and not get_github_token():
+    logger.warning("GitHub token 未設置，仍保留 GitHub Models 設定；請設定 GITHUB_TOKEN、KATAGO_GITHUB_TOKEN 或在 LLM 對話框設定")
+    root.after(0, lambda: messagebox.showwarning(
+        t("dialog.error_title"),
+        t("error.github_token_missing_env")
+    ))
+
+# 向後相容性：ollama_worker 指向 current_llm_worker
+ollama_worker = current_llm_worker
+update_llm_model_label(llm_provider)
+
+update_teacher_ui(t("teacher.default_message"))
+branch_ui.draw_branches()
+
+def poll_ai():
+    result = analyzer.get_result()
+    # 【新增檢查】【Phase 1】如果正在整盤分析，就不要把結果畫到介面上
+    if result and not analyzer.full_analyze_event.is_set():
+        update_ui_with_data(result) 
+    
+    root.after(UI_POLL_INTERVAL_MS, poll_ai)
+
+
+poll_ai()
+
+root.mainloop()

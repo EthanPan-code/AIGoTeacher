@@ -1,0 +1,26 @@
+This project redistributes KataGo as a precompiled binary.
+
+KataGo is licensed under the MIT License:
+
+Copyright 2025 David J. Wu ("lightvector") and contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction...
+
+(Full MIT License text is included in this repository or available at:
+https://github.com/lightvector/KataGo)
+
+---
+
+KataGo includes third-party dependencies located in:
+cpp/external/
+
+Each dependency is licensed under its own respective license.
+Please refer to the LICENSE files within those directories.
+
+Additionally:
+- cpp/core/sha2.cpp contains its own embedded license.
+- Some Python files are modified from other open-source projects as noted in-source.
+
+This redistribution does not claim ownership of KataGo or its dependencies.

@@ -1,0 +1,6 @@
+{
+  "language": "zh_TW",
+  "llm_provider": "ollama",
+  "ollama_model": "qwen2.5:3b",
+  "nvidia_model": "meta/llama-3.1-8b-instruct"
+}
