@@ -46,6 +46,7 @@ VARIATION_BLACK = "#222222"
 VARIATION_WHITE = "#f4f0e8"
 VARIATION_LABEL_BLACK = "#111111"
 VARIATION_LABEL_WHITE = "#ffffff"
+FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 
 
 def resource_path(relative_path):
@@ -2045,6 +2046,85 @@ def new_game():
 def show_about():
     messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message"))
 
+def open_feedback_form():
+    try:
+        webbrowser.open(FEEDBACK_FORM_URL, new=2)
+        status_var.set(t("status.feedback_opened"))
+    except Exception as e:
+        logger.warning("無法開啟回饋表單: %s", e)
+        messagebox.showerror(t("dialog.error_title"), t("dialog.feedback_open_error"))
+
+def show_feedback():
+    feedback_win = tk.Toplevel(root)
+    feedback_win.title(t("dialog.feedback_title"))
+    feedback_win.configure(bg=UI_BG)
+    feedback_win.resizable(False, False)
+    feedback_win.transient(root)
+    feedback_win.grab_set()
+
+    outer = tk.Frame(feedback_win, bg=UI_BG, padx=18, pady=18)
+    outer.pack(fill="both", expand=True)
+
+    card = tk.Frame(
+        outer,
+        bg=PANEL_BG,
+        highlightbackground=PANEL_BORDER,
+        highlightthickness=1,
+        padx=18,
+        pady=16,
+    )
+    card.pack(fill="both", expand=True)
+
+    tk.Label(
+        card,
+        text=t("dialog.feedback_heading"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 14, "bold"),
+        anchor="w",
+    ).pack(fill="x")
+    tk.Label(
+        card,
+        text=t("dialog.feedback_message"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 10),
+        justify="left",
+        wraplength=360,
+        anchor="w",
+    ).pack(fill="x", pady=(8, 14))
+
+    link_box = tk.Frame(card, bg=TEACHER_TEXT_BG, highlightbackground="#ead7b8", highlightthickness=1, padx=10, pady=8)
+    link_box.pack(fill="x", pady=(0, 14))
+    tk.Label(
+        link_box,
+        text=FEEDBACK_FORM_URL,
+        bg=TEACHER_TEXT_BG,
+        fg=ACCENT_DARK,
+        font=("Consolas", 9),
+        anchor="w",
+    ).pack(fill="x")
+
+    buttons = tk.Frame(card, bg=PANEL_BG)
+    buttons.pack(fill="x")
+    ttk.Button(
+        buttons,
+        text=t("button.open_feedback_form"),
+        command=open_feedback_form,
+        style="Primary.TButton",
+    ).pack(side="left")
+    ttk.Button(
+        buttons,
+        text=t("button.close"),
+        command=feedback_win.destroy,
+        style="Tool.TButton",
+    ).pack(side="right")
+
+    feedback_win.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width() - feedback_win.winfo_width()) // 2
+    y = root.winfo_y() + (root.winfo_height() - feedback_win.winfo_height()) // 2
+    feedback_win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
 def change_katago_path():
     """選擇 KataGo 執行檔路徑"""
     file_path = filedialog.askopenfilename(
@@ -3023,6 +3103,7 @@ style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN, font=
 style.configure("Primary.TButton", background=ACCENT, foreground="white", padding=(14, 8), borderwidth=0)
 style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", "#9eb9bd")])
 style.configure("Tool.TButton", padding=(10, 7))
+style.configure("Feedback.TButton", padding=(10, 7))
 
 status_var = tk.StringVar(value=t("status.starting"))
 llm_model_var = tk.StringVar(value="")
@@ -3128,6 +3209,7 @@ help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.show
 ))
 help_menu.add_command(label=t("menu.about"), command=show_about)
 menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
+menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
 root.config(menu=menu_bar)
 
 # 綁定方向鍵
@@ -3169,6 +3251,7 @@ info_frame = ttk.Frame(main_frame, style="Panel.TFrame", padding=(14, 14, 14, 14
 info_frame.grid(row=0, column=1, sticky="ns")
 info_frame.columnconfigure(0, weight=1)
 info_frame.columnconfigure(1, weight=1)
+info_frame.rowconfigure(8, weight=1)
 
 ai_analysis_label = ttk.Label(info_frame, text=t("label.ai_analysis"), style="Title.TLabel")
 ai_analysis_label.grid(row=0, column=0, columnspan=2, sticky="w")
@@ -3364,6 +3447,9 @@ def rebuild_menu_bar():
     ))
     help_menu.add_command(label=t("menu.about"), command=show_about)
     menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
+    
+
+    menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
     root.config(menu=menu_bar)
 
 
