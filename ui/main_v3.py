@@ -177,13 +177,18 @@ def set_winrate_text(key, **kwargs):
     winrate_label.config(text=render_winrate_text(key, kwargs))
 
 class KataGoAnalyzer:
-    def __init__(self, katago_path, model_path, config_path):
+    def __init__(self, katago_path, model_path, config_path, startup_callback=None):
         self.cmd = [katago_path, "analysis", "-model", model_path, "-config", config_path]
+        self.startup_callback = startup_callback
+        self.ready_event = threading.Event()
+        self.startup_lines = []
+        self.startup_error = None
+        self.closed = False
         self.process = subprocess.Popen(
             self.cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             bufsize=1,
             universal_newlines=True,
             encoding="utf-8"
@@ -201,6 +206,48 @@ class KataGoAnalyzer:
         
         # 啟動讀取執行緒，避免阻塞 UI
         threading.Thread(target=self._reader_thread, daemon=True).start()
+        threading.Thread(target=self._startup_log_thread, daemon=True).start()
+
+    def _notify_startup(self, key, **kwargs):
+        if self.startup_callback:
+            self.startup_callback(key, **kwargs)
+
+    def _handle_startup_line(self, line):
+        text = line.strip()
+        if not text:
+            return
+        self.startup_lines.append(text)
+        if len(self.startup_lines) > 80:
+            self.startup_lines = self.startup_lines[-80:]
+
+        if (
+            "Uncaught exception" in text
+            or "Could not" in text
+            or "does not exist" in text
+            or "invalid permissions" in text
+        ):
+            self.startup_error = text
+            self._notify_startup("status.katago_startup_failed")
+        elif "Performing autotuning" in text:
+            self._notify_startup("status.katago_autotuning")
+        elif "Done tuning" in text:
+            self._notify_startup("status.katago_tuning_done")
+        elif "Found OpenCL Device" in text or "Using OpenCL Device" in text:
+            self._notify_startup("status.katago_gpu_ready")
+        elif "Loaded model" in text:
+            self._notify_startup("status.katago_loading_model")
+        elif "Started, ready to begin handling requests" in text:
+            self.ready_event.set()
+            self._notify_startup("status.katago_ready")
+
+    def _startup_log_thread(self):
+        while True:
+            if not self.process.stderr:
+                return
+            line = self.process.stderr.readline()
+            if not line:
+                return
+            self._handle_startup_line(line)
 
     def get_board_hash(self, stones):
         """將當前棋譜轉換成唯一的字串，作為快取的 Key"""
@@ -318,6 +365,8 @@ class KataGoAnalyzer:
                 except (TypeError, ValueError) as e:
                     logger.warning("KataGo 回應格式異常: error=%s data=%s", e, data)
                     continue
+            else:
+                self._handle_startup_line(line)
 
     def to_gtp(self, x, y):
         col = chr(ord('A') + x)
@@ -335,6 +384,12 @@ class KataGoAnalyzer:
     def cancel_query(self, query_id):
         with self.lock:
             self.pending_queries.pop(query_id, None)
+
+    def close(self, timeout=2):
+        self.closed = True
+        if self.process:
+            self.process.terminate()
+            self.process.wait(timeout=timeout)
 
 class GoDataFilter:
     def __init__(self, winrate_threshold=0.05, score_threshold=2.0):
@@ -513,6 +568,11 @@ class BranchCanvas(tk.Canvas):
                 break
 
 def auto_analyze():
+    if not is_analyzer_ready():
+        set_winrate_text("analysis.engine_not_ready")
+        status_var.set(t("status.katago_initializing"))
+        return
+
     # 如果正在整盤分析，直接跳過自動分析
     # 【Phase 1】用 analyzer.full_analyze_event.is_set() 代改 is_full_analyzing
     if analyzer.full_analyze_event.is_set():
@@ -526,6 +586,9 @@ def auto_analyze():
 
 def run_full_game_analysis(progress_callback, cancel_state):
     """分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報)"""
+    if not is_analyzer_ready():
+        return None, None
+
     stones_snapshot = copy.deepcopy(board.stones)
     total_moves = len(stones_snapshot)
     analyze_turns = list(range(total_moves + 1))
@@ -576,6 +639,10 @@ def run_full_game_analysis(progress_callback, cancel_state):
     return wr_list, sl_list
 
 def show_winrate_chart():
+    if not is_analyzer_ready():
+        show_analyzer_not_ready()
+        return
+
     # 【Phase 1】用 analyzer.full_analyze_event 代改 is_full_analyzing
     if not board.stones or analyzer.full_analyze_event.is_set():
         return
@@ -1227,6 +1294,10 @@ def update_ui_with_data(result):
         logger.warning("UI 更新失敗，分析結果格式或座標異常: error=%s result=%s", e, result)
 
 def on_analyze_button_click():
+    if not is_analyzer_ready():
+        show_analyzer_not_ready()
+        return
+
     # 不再需要 threading.Thread(target=task)，因為發送請求是瞬間的
     board.clear_blue_point()
     set_winrate_text("analysis.ai_thinking")
@@ -1592,6 +1663,13 @@ class GoBoard(tk.Canvas):
     def on_state_change(self):
         self.clear_blue_point()
         
+        if not is_analyzer_ready():
+            set_winrate_text("analysis.engine_not_ready")
+            status_var.set(t("status.katago_initializing"))
+            if hasattr(self, 'branch_ui'):
+                self.branch_ui.draw_branches()
+            return
+
         # 只有在非整盤分析狀態下才顯示「盤面更新中」
         # 【Phase 1】用 analyzer.full_analyze_event.is_set() 代改 is_full_analyzing
         if not analyzer.full_analyze_event.is_set():
@@ -2193,7 +2271,6 @@ def change_config_path():
 
 def reinitialize_analyzer():
     """重新初始化分析器（關閉舊進程，建立新進程）"""
-    global analyzer
     for mode_var, path_var, label_key in [
         (katago_path_mode_var, katago_path_var, "label.katago_path"),
         (model_path_mode_var, model_path_var, "label.model_path"),
@@ -2206,25 +2283,8 @@ def reinitialize_analyzer():
             )
             return False
 
-    try:
-        if hasattr(analyzer, 'process') and analyzer.process:
-            analyzer.process.terminate()
-            analyzer.process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        logger.warning("舊 KataGo 進程未能在 2 秒內結束，將繼續重新初始化")
-    except (AttributeError, OSError) as e:
-        logger.warning("關閉舊 KataGo 進程時發生問題: %s", e)
-    
-    try:
-        analyzer = KataGoAnalyzer(get_katago_path(), get_model_path(), get_config_path())
-        status_var.set(t("status.reinitialized", model=get_model_display_name()))
-        messagebox.showinfo(t("dialog.success_title"), t("dialog.reinit_success", model=get_model_display_name(), config=get_config_display_name()))
-        return True
-    except (OSError, ValueError) as e:
-        status_var.set(t("status.reinit_failed"))
-        logger.error("KataGo 重新初始化失敗: %s", e)
-        messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(e)))
-        return False
+    start_analyzer_async(show_success=True, replacing=True)
+    return True
 
 
 def update_llm_model_label(provider=None, model=None):
@@ -3272,6 +3332,8 @@ style.configure("Feedback.TButton", padding=(10, 7))
 status_var = tk.StringVar(value=t("status.starting"))
 llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
+analyzer = None
+analyzer_initializing = False
 
 # 模型和配置文件路徑設定
 katago_path_mode_var = tk.StringVar(value="default")
@@ -3281,14 +3343,17 @@ katago_path_var = tk.StringVar(value="")
 model_path_var = tk.StringVar(value="")
 config_path_var = tk.StringVar(value="")
 
-analyzer = KataGoAnalyzer(get_katago_path(), get_model_path(), get_config_path())
 data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)
-status_var.set(t("status.ready"))
 
 
 def on_closing():
-    if hasattr(analyzer, 'process'):
-        analyzer.process.terminate()
+    if analyzer and hasattr(analyzer, 'process'):
+        try:
+            analyzer.close(timeout=2)
+        except subprocess.TimeoutExpired:
+            logger.warning("KataGo process did not exit within 2 seconds while closing")
+        except OSError as e:
+            logger.warning("Error closing KataGo process: %s", e)
     root.destroy()
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
@@ -3517,6 +3582,147 @@ def update_status(message):
     else:
         root.after(0, status_var.set, message)
 
+
+def is_analyzer_ready():
+    return analyzer is not None and getattr(analyzer, "ready_event", None) and analyzer.ready_event.is_set()
+
+
+def set_analysis_controls_state(enabled):
+    state = "normal" if enabled else "disabled"
+    for name in ("btn_analyze", "btn_full_analysis"):
+        widget = globals().get(name)
+        if widget is not None:
+            widget.config(state=state)
+
+
+def show_analyzer_not_ready():
+    status_var.set(t("status.katago_initializing"))
+    set_winrate_text("analysis.engine_not_ready")
+
+
+def create_katago_startup_popup():
+    popup = tk.Toplevel(root)
+    popup.title(t("startup.title"))
+    popup.geometry("420x170")
+    popup.resizable(False, False)
+    popup.transient(root)
+    popup.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    x = root.winfo_rootx() + max(40, (root.winfo_width() - 420) // 2)
+    y = root.winfo_rooty() + max(40, (root.winfo_height() - 170) // 2)
+    popup.geometry(f"+{x}+{y}")
+
+    frame = ttk.Frame(popup, padding=(18, 16, 18, 14))
+    frame.pack(fill="both", expand=True)
+
+    title_label = ttk.Label(frame, text=t("startup.heading"), font=("Microsoft JhengHei", 12, "bold"))
+    title_label.pack(anchor="w")
+
+    message_var = tk.StringVar(value=t("status.katago_initializing"))
+    message_label = ttk.Label(frame, textvariable=message_var, wraplength=370, justify="left")
+    message_label.pack(anchor="w", pady=(10, 8))
+
+    detail_label = ttk.Label(frame, text=t("startup.first_run_hint"), foreground=TEXT_MUTED, wraplength=370, justify="left")
+    detail_label.pack(anchor="w")
+
+    progress_bar = ttk.Progressbar(frame, mode="indeterminate", length=360)
+    progress_bar.pack(fill="x", pady=(14, 0))
+    progress_bar.start(12)
+
+    return {"window": popup, "message_var": message_var, "progress_bar": progress_bar}
+
+
+def start_analyzer_async(show_success=False, replacing=False):
+    global analyzer, analyzer_initializing
+
+    if analyzer_initializing:
+        status_var.set(t("status.katago_initializing"))
+        return
+
+    old_analyzer = analyzer
+    analyzer = None
+    analyzer_initializing = True
+    set_analysis_controls_state(False)
+    set_winrate_text("analysis.engine_not_ready")
+    status_var.set(t("status.katago_initializing"))
+    popup = create_katago_startup_popup()
+
+    def update_startup_message(key, **kwargs):
+        message = t(key, **kwargs)
+
+        def apply_message():
+            if popup["window"].winfo_exists():
+                popup["message_var"].set(message)
+            status_var.set(message)
+
+        root.after(0, apply_message)
+
+    def finish_success(new_analyzer):
+        global analyzer, analyzer_initializing
+        analyzer = new_analyzer
+        analyzer_initializing = False
+        set_analysis_controls_state(True)
+        status_var.set(t("status.ready"))
+        set_winrate_text("analysis.not_analyzed")
+        if popup["window"].winfo_exists():
+            popup["progress_bar"].stop()
+            popup["window"].destroy()
+        if show_success:
+            messagebox.showinfo(
+                t("dialog.success_title"),
+                t("dialog.reinit_success", model=get_model_display_name(), config=get_config_display_name())
+            )
+        if globals().get("board") is not None and board.stones:
+            root.after(100, auto_analyze)
+
+    def finish_failure(error):
+        global analyzer_initializing
+        analyzer_initializing = False
+        set_analysis_controls_state(False)
+        status_var.set(t("status.reinit_failed"))
+        if popup["window"].winfo_exists():
+            popup["progress_bar"].stop()
+            popup["window"].destroy()
+        logger.error("KataGo 初始化失敗: %s", error)
+        messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
+
+    def warn_if_slow():
+        if analyzer_initializing and popup["window"].winfo_exists():
+            message = t("status.katago_autotuning_slow")
+            popup["message_var"].set(message)
+            status_var.set(message)
+
+    root.after(30000, warn_if_slow)
+
+    def task():
+        if old_analyzer is not None:
+            try:
+                old_analyzer.close(timeout=2)
+            except subprocess.TimeoutExpired:
+                logger.warning("舊 KataGo 進程未能在 2 秒內結束，將繼續重新初始化")
+            except (AttributeError, OSError) as e:
+                logger.warning("關閉舊 KataGo 進程時發生問題: %s", e)
+
+        try:
+            new_analyzer = KataGoAnalyzer(
+                get_katago_path(),
+                get_model_path(),
+                get_config_path(),
+                startup_callback=update_startup_message
+            )
+
+            while not new_analyzer.ready_event.is_set():
+                if new_analyzer.process.poll() is not None:
+                    error = new_analyzer.startup_error or t("error.katago_process_exited")
+                    raise RuntimeError(error)
+                time.sleep(0.1)
+
+            root.after(0, finish_success, new_analyzer)
+        except (OSError, ValueError, RuntimeError) as e:
+            root.after(0, finish_failure, e)
+
+    threading.Thread(target=task, daemon=True).start()
+
 def update_teacher_ui(message):
     """給 LLM Provider 呼叫的回呼函數，用來更新文字框"""
     if threading.current_thread() is not threading.main_thread():
@@ -3671,8 +3877,13 @@ update_llm_model_label(llm_provider)
 
 update_teacher_ui(t("teacher.default_message"))
 branch_ui.draw_branches()
+start_analyzer_async()
 
 def poll_ai():
+    if not is_analyzer_ready():
+        root.after(UI_POLL_INTERVAL_MS, poll_ai)
+        return
+
     result = analyzer.get_result()
     # 【新增檢查】【Phase 1】如果正在整盤分析，就不要把結果畫到介面上
     if result and not analyzer.full_analyze_event.is_set():
