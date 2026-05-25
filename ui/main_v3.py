@@ -47,6 +47,9 @@ VARIATION_WHITE = "#f4f0e8"
 VARIATION_LABEL_BLACK = "#111111"
 VARIATION_LABEL_WHITE = "#ffffff"
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
+DEFAULT_KATAGO_PATH = "katago.exe"
+DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
+DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 
 
 def resource_path(relative_path):
@@ -86,6 +89,36 @@ config_service = ConfigService(i18n)
 
 def t(key, **kwargs):
     return i18n.t(key, **kwargs)
+
+
+def get_katago_path():
+    if katago_path_mode_var.get() == "default":
+        return resource_path(DEFAULT_KATAGO_PATH)
+    return katago_path_var.get().strip()
+
+
+def get_model_path():
+    if model_path_mode_var.get() == "default":
+        return resource_path(DEFAULT_MODEL_PATH)
+    return model_path_var.get().strip()
+
+
+def get_config_path():
+    if config_path_mode_var.get() == "default":
+        return resource_path(DEFAULT_CONFIG_PATH)
+    return config_path_var.get().strip()
+
+
+def get_model_display_name():
+    if model_path_mode_var.get() == "default":
+        return t("label.path_default")
+    return os.path.basename(model_path_var.get().strip()) or t("label.path_custom")
+
+
+def get_config_display_name():
+    if config_path_mode_var.get() == "default":
+        return t("label.path_default")
+    return os.path.basename(config_path_var.get().strip()) or t("label.path_custom")
 
 
 winrate_display_state = {"key": "analysis.not_analyzed", "kwargs": {}}
@@ -2132,6 +2165,7 @@ def change_katago_path():
         filetypes=[(t("filetype.exe"), "*.exe"), (t("filetype.all"), "*.*")]
     )
     if file_path:
+        katago_path_mode_var.set("custom")
         katago_path_var.set(file_path)
         reinitialize_analyzer()
 
@@ -2142,6 +2176,7 @@ def change_model_path():
         filetypes=[(t("filetype.gz"), "*.gz"), (t("filetype.all"), "*.*")]
     )
     if file_path:
+        model_path_mode_var.set("custom")
         model_path_var.set(file_path)
         reinitialize_analyzer()
 
@@ -2152,12 +2187,25 @@ def change_config_path():
         filetypes=[(t("filetype.cfg"), "*.cfg"), (t("filetype.all"), "*.*")]
     )
     if file_path:
+        config_path_mode_var.set("custom")
         config_path_var.set(file_path)
         reinitialize_analyzer()
 
 def reinitialize_analyzer():
     """重新初始化分析器（關閉舊進程，建立新進程）"""
     global analyzer
+    for mode_var, path_var, label_key in [
+        (katago_path_mode_var, katago_path_var, "label.katago_path"),
+        (model_path_mode_var, model_path_var, "label.model_path"),
+        (config_path_mode_var, config_path_var, "label.config_path"),
+    ]:
+        if mode_var.get() == "custom" and not path_var.get().strip():
+            messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.custom_path_required", field=t(label_key).rstrip(":")),
+            )
+            return False
+
     try:
         if hasattr(analyzer, 'process') and analyzer.process:
             analyzer.process.terminate()
@@ -2168,13 +2216,15 @@ def reinitialize_analyzer():
         logger.warning("關閉舊 KataGo 進程時發生問題: %s", e)
     
     try:
-        analyzer = KataGoAnalyzer(katago_path_var.get(), model_path_var.get(), config_path_var.get())
-        status_var.set(t("status.reinitialized", model=model_path_var.get()))
-        messagebox.showinfo(t("dialog.success_title"), t("dialog.reinit_success", model=model_path_var.get(), config=config_path_var.get()))
+        analyzer = KataGoAnalyzer(get_katago_path(), get_model_path(), get_config_path())
+        status_var.set(t("status.reinitialized", model=get_model_display_name()))
+        messagebox.showinfo(t("dialog.success_title"), t("dialog.reinit_success", model=get_model_display_name(), config=get_config_display_name()))
+        return True
     except (OSError, ValueError) as e:
         status_var.set(t("status.reinit_failed"))
         logger.error("KataGo 重新初始化失敗: %s", e)
         messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(e)))
+        return False
 
 
 def update_llm_model_label(provider=None, model=None):
@@ -3035,7 +3085,7 @@ def show_settings_dialog():
     """顯示設定對話框"""
     settings_win = tk.Toplevel(root)
     settings_win.title(t("dialog.settings_title"))
-    settings_win.geometry("500x300")
+    settings_win.geometry("560x430")
     settings_win.iconbitmap(resource_path("image/logo.ico"))  # Set the icon for the settings window
     settings_win.transient(root)
     settings_win.grab_set()
@@ -3045,35 +3095,149 @@ def show_settings_dialog():
     main_frame.pack(fill="both", expand=True)
     main_frame.columnconfigure(1, weight=1)
 
-    # KataGo 執行檔
-    ttk.Label(main_frame, text=t("label.katago_path"), font=("Microsoft JhengHei", 10)).grid(row=0, column=0, sticky="w", pady=(0, 8))
-    katago_entry = ttk.Entry(main_frame, textvariable=katago_path_var)
-    katago_entry.grid(row=0, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
-    ttk.Button(main_frame, text=t("button.browse"), command=change_katago_path, width=10).grid(row=0, column=2, padx=(0, 0), pady=(0, 8))
+    def create_path_row(row, label_key, mode_var, path_var, browse_title_key, filetypes, placeholder):
+        ttk.Label(main_frame, text=t(label_key), font=("Microsoft JhengHei", 10)).grid(
+            row=row, column=0, sticky="nw", pady=(0, 10)
+        )
 
-    # 模型檔案
-    ttk.Label(main_frame, text=t("label.model_path"), font=("Microsoft JhengHei", 10)).grid(row=1, column=0, sticky="w", pady=(0, 8))
-    model_entry = ttk.Entry(main_frame, textvariable=model_path_var)
-    model_entry.grid(row=1, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
-    ttk.Button(main_frame, text=t("button.browse"), command=change_model_path, width=10).grid(row=1, column=2, padx=(0, 0), pady=(0, 8))
+        selector_frame = ttk.Frame(main_frame)
+        selector_frame.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=(0, 6))
+        selector_frame.columnconfigure(2, weight=1)
 
-    # 配置檔案
-    ttk.Label(main_frame, text=t("label.config_path"), font=("Microsoft JhengHei", 10)).grid(row=2, column=0, sticky="w", pady=(0, 8))
-    config_entry = ttk.Entry(main_frame, textvariable=config_path_var)
-    config_entry.grid(row=2, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
-    ttk.Button(main_frame, text=t("button.browse"), command=change_config_path, width=10).grid(row=2, column=2, padx=(0, 0), pady=(0, 8))
+        path_frame = ttk.Frame(main_frame)
+        path_frame.grid(row=row + 1, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=(0, 12))
+        path_frame.columnconfigure(0, weight=1)
+
+        placeholder_state = {"active": False}
+        custom_entry = tk.Entry(
+            path_frame,
+            font=("Microsoft JhengHei", 10),
+            bg="white",
+            fg=TEXT_MAIN,
+            relief="solid",
+            bd=1,
+            insertbackground=TEXT_MAIN,
+        )
+        custom_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        def show_placeholder():
+            if not custom_entry.get():
+                placeholder_state["active"] = True
+                custom_entry.config(fg="#888888")
+                custom_entry.delete(0, "end")
+                custom_entry.insert(0, placeholder)
+
+        def hide_placeholder():
+            if placeholder_state["active"]:
+                placeholder_state["active"] = False
+                custom_entry.config(fg=TEXT_MAIN)
+                custom_entry.delete(0, "end")
+
+        def sync_var():
+            if not placeholder_state["active"]:
+                path_var.set(custom_entry.get().strip())
+
+        def set_entry_value(value):
+            placeholder_state["active"] = False
+            custom_entry.config(fg=TEXT_MAIN)
+            custom_entry.delete(0, "end")
+            custom_entry.insert(0, value)
+            show_placeholder()
+
+        def browse_path():
+            file_path = filedialog.askopenfilename(
+                title=t(browse_title_key),
+                filetypes=filetypes,
+                parent=settings_win,
+            )
+            if file_path:
+                mode_var.set("custom")
+                path_var.set(file_path)
+                set_entry_value(file_path)
+                update_mode()
+
+        ttk.Button(path_frame, text=t("button.browse"), command=browse_path, width=10).grid(row=0, column=1)
+        custom_entry.bind("<FocusIn>", lambda _event: hide_placeholder())
+        custom_entry.bind("<FocusOut>", lambda _event: (sync_var(), show_placeholder()))
+
+        ttk.Radiobutton(
+            selector_frame,
+            text=t("label.path_default"),
+            variable=mode_var,
+            value="default",
+            command=lambda: (sync_var(), update_mode()),
+        ).grid(row=0, column=0, sticky="w", padx=(0, 16))
+        ttk.Radiobutton(
+            selector_frame,
+            text=t("label.path_custom"),
+            variable=mode_var,
+            value="custom",
+            command=lambda: (sync_var(), update_mode()),
+        ).grid(row=0, column=1, sticky="w", padx=(0, 16))
+        default_label = ttk.Label(selector_frame, text=t("label.using_builtin_file"), foreground="#666")
+        default_label.grid(row=0, column=2, sticky="w")
+
+        def update_mode():
+            if mode_var.get() == "custom":
+                default_label.grid_remove()
+                path_frame.grid()
+                if not custom_entry.get():
+                    show_placeholder()
+            else:
+                default_label.grid()
+                path_frame.grid_remove()
+
+        set_entry_value(path_var.get().strip())
+        update_mode()
+        return sync_var
+
+    sync_path_entries = [
+        create_path_row(
+            0,
+            "label.katago_path",
+            katago_path_mode_var,
+            katago_path_var,
+            "dialog.katago_title",
+            [(t("filetype.exe"), "*.exe"), (t("filetype.all"), "*.*")],
+            t("placeholder.katago_path"),
+        ),
+        create_path_row(
+            2,
+            "label.model_path",
+            model_path_mode_var,
+            model_path_var,
+            "dialog.model_title",
+            [(t("filetype.gz"), "*.gz"), (t("filetype.all"), "*.*")],
+            t("placeholder.model_path"),
+        ),
+        create_path_row(
+            4,
+            "label.config_path",
+            config_path_mode_var,
+            config_path_var,
+            "dialog.config_title",
+            [(t("filetype.cfg"), "*.cfg"), (t("filetype.all"), "*.*")],
+            t("placeholder.config_path"),
+        ),
+    ]
 
     # 提示文字
     tip_frame = ttk.Frame(main_frame)
-    tip_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(16, 0))
+    tip_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
     ttk.Label(tip_frame, text=t("label.settings_tip"), 
               font=("Microsoft JhengHei", 9), foreground="#666").pack(anchor="w")
 
     # 按鈕框架
     btn_frame = ttk.Frame(main_frame)
-    btn_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(24, 0))
+    btn_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(24, 0))
     
-    ttk.Button(btn_frame, text=t("button.apply"), command=lambda: [reinitialize_analyzer(), settings_win.destroy()], width=12).pack(side="right", padx=(8, 0))
+    def apply_settings():
+        for sync_path_entry in sync_path_entries:
+            sync_path_entry()
+        if reinitialize_analyzer():
+            settings_win.destroy()
+
+    ttk.Button(btn_frame, text=t("button.apply"), command=apply_settings, width=12).pack(side="right", padx=(8, 0))
     ttk.Button(btn_frame, text=t("button.cancel"), command=settings_win.destroy, width=12).pack(side="right")
 
 
@@ -3110,11 +3274,14 @@ llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
 
 # 模型和配置文件路徑設定
-katago_path_var = tk.StringVar(value=resource_path("katago.exe"))
-model_path_var = tk.StringVar(value=resource_path("models\\kata.bin.gz"))
-config_path_var = tk.StringVar(value=resource_path("analysis_example.cfg"))
+katago_path_mode_var = tk.StringVar(value="default")
+model_path_mode_var = tk.StringVar(value="default")
+config_path_mode_var = tk.StringVar(value="default")
+katago_path_var = tk.StringVar(value="")
+model_path_var = tk.StringVar(value="")
+config_path_var = tk.StringVar(value="")
 
-analyzer = KataGoAnalyzer(katago_path_var.get(), model_path_var.get(), config_path_var.get())
+analyzer = KataGoAnalyzer(get_katago_path(), get_model_path(), get_config_path())
 data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)
 status_var.set(t("status.ready"))
 
