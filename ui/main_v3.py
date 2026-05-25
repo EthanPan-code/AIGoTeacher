@@ -2108,9 +2108,23 @@ def save_game_as_json():
     status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf():
-    filename = "gameinfo/game.sgf"
-    board.export_as_sgf(filename)
-    status_var.set(t("status.saved_sgf", path=filename))
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+
+    if not current_sgf_path:
+        save_game_as_sgf_dialog()
+        return
+
+    if not loaded_sgf_overwrite_confirmed:
+        should_overwrite = messagebox.askyesno(
+            t("dialog.confirm_title"),
+            t("dialog.confirm_overwrite_loaded_sgf", path=current_sgf_path),
+        )
+        if not should_overwrite:
+            return
+        loaded_sgf_overwrite_confirmed = True
+
+    board.export_as_sgf(current_sgf_path)
+    status_var.set(t("status.saved_sgf", path=current_sgf_path))
 
 def save_game_as_json_dialog():
     filename = filedialog.asksaveasfilename(
@@ -2123,6 +2137,8 @@ def save_game_as_json_dialog():
         status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf_dialog():
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+
     filename = filedialog.asksaveasfilename(
         title=t("dialog.save_sgf_title"),
         defaultextension=".sgf",
@@ -2130,20 +2146,30 @@ def save_game_as_sgf_dialog():
     )
     if filename:
         board.export_as_sgf(filename)
+        current_sgf_path = filename
+        loaded_sgf_overwrite_confirmed = True
         status_var.set(t("status.saved_sgf", path=filename))
 
 def on_load_sgf_click():
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+
     file_path = filedialog.askopenfilename(
         title=t("dialog.load_sgf_title"),
         filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
     )
     if file_path:
         board.load_sgf(file_path)
+        current_sgf_path = file_path
+        loaded_sgf_overwrite_confirmed = False
         status_var.set(t("status.loaded_sgf", path=file_path))
 
 def new_game():
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+
     if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
         return
+    current_sgf_path = None
+    loaded_sgf_overwrite_confirmed = False
     board.root_node = GameNode()
     board.current_node = board.root_node
     board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
@@ -3334,6 +3360,8 @@ llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
 analyzer = None
 analyzer_initializing = False
+current_sgf_path = None
+loaded_sgf_overwrite_confirmed = False
 
 # 模型和配置文件路徑設定
 katago_path_mode_var = tk.StringVar(value="default")
@@ -3365,8 +3393,8 @@ file_menu.add_separator()
 file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
 file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
 file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
-file_menu.add_command(label=t("menu.save_sgf"), command=save_game_as_sgf)
-file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+S", command=save_game_as_sgf_dialog)
+file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
+file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
 file_menu.add_separator()
 file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
 menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
@@ -3463,7 +3491,8 @@ root.bind("<Control-y>", lambda e: board.redo())
 
 root.bind("<Control-n>", lambda e: new_game())
 root.bind("<Control-o>", lambda e: on_load_sgf_click())
-root.bind("<Control-s>", lambda e: save_game_as_sgf_dialog())
+root.bind("<Control-s>", lambda e: save_game_as_sgf())
+root.bind("<Control-Shift-S>", lambda e: save_game_as_sgf_dialog())
 root.bind("<Control-r>", lambda e: on_analyze_button_click())
 root.bind("<Control-Shift-R>", lambda e: show_winrate_chart())
 
@@ -3771,8 +3800,8 @@ def rebuild_menu_bar():
     file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
     file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
     file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
-    file_menu.add_command(label=t("menu.save_sgf"), command=save_game_as_sgf)
-    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+S", command=save_game_as_sgf_dialog)
+    file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
+    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
     file_menu.add_separator()
     file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
     menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
