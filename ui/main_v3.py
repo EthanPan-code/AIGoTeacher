@@ -184,6 +184,8 @@ class KataGoAnalyzer:
         self.startup_lines = []
         self.startup_error = None
         self.closed = False
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self.process = subprocess.Popen(
             self.cmd,
             stdin=subprocess.PIPE,
@@ -191,7 +193,8 @@ class KataGoAnalyzer:
             stderr=subprocess.PIPE,
             bufsize=1,
             universal_newlines=True,
-            encoding="utf-8"
+            encoding="utf-8",
+            startupinfo=startupinfo,
         )
         self.response_queue = queue.Queue()
         self.analysis_cache = OrderedDict() # LRU：存儲已經分析過的局面
