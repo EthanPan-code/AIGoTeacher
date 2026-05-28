@@ -52,9 +52,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# =========================
-# 🚀 ONEFILE 正確寫法
-# =========================
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -82,4 +80,5 @@ exe = EXE(
     entitlements_file=None,
 
     icon='image/logo.ico',
+    version='version_info.txt',
 )

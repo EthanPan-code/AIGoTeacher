@@ -50,6 +50,7 @@ FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
 DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
+APP_DATA_DIR_NAME = "AIGoTeacher"
 
 
 def resource_path(relative_path):
@@ -60,6 +61,50 @@ def resource_path(relative_path):
 
 is_full_analyzing = False  # 【已棄用】已改用 analyzer.full_analyze_event（threading.Event），保留此行用於向後相容性
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def is_frozen_app():
+    return getattr(sys, "frozen", False)
+
+
+def get_runtime_data_root():
+    """Return the writable app data root.
+
+    PyInstaller onefile extracts bundled files to a temporary _MEI directory, so
+    writable runtime data must live elsewhere in packaged builds.
+    """
+    if is_frozen_app():
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            return os.path.join(local_app_data, APP_DATA_DIR_NAME)
+        return os.path.join(os.path.expanduser("~"), "AppData", "Local", APP_DATA_DIR_NAME)
+    return PROJECT_ROOT
+
+
+def ensure_runtime_dir(*parts):
+    path = os.path.join(get_runtime_data_root(), *parts)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_runtime_file_path(filename):
+    if is_frozen_app():
+        ensure_runtime_dir()
+    return os.path.join(get_runtime_data_root(), filename)
+
+
+def get_katago_runtime_overrides():
+    if not is_frozen_app():
+        return []
+
+    home_data_dir = ensure_runtime_dir("KataGoData")
+    analysis_log_dir = ensure_runtime_dir("logs", "analysis_logs")
+    return [
+        "-override-config",
+        f"homeDataDir={home_data_dir},logDir={analysis_log_dir}",
+    ]
+
+
 DOTENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -82,7 +127,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 i18n = I18n(
     base_dir="i18n",
-    settings_path=os.path.join(PROJECT_ROOT, "ui_settings.json")
+    settings_path=get_runtime_file_path("ui_settings.json")
 )
 config_service = ConfigService(i18n)
 
@@ -178,7 +223,15 @@ def set_winrate_text(key, **kwargs):
 
 class KataGoAnalyzer:
     def __init__(self, katago_path, model_path, config_path, startup_callback=None):
-        self.cmd = [katago_path, "analysis", "-model", model_path, "-config", config_path]
+        self.cmd = [
+            katago_path,
+            "analysis",
+            "-model",
+            model_path,
+            "-config",
+            config_path,
+            *get_katago_runtime_overrides(),
+        ]
         self.startup_callback = startup_callback
         self.ready_event = threading.Event()
         self.startup_lines = []

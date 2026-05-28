@@ -4,3 +4,5 @@ opencc-python-reimplemented
 matplotlib
 numpy
 pyinstaller
+ollama
+requests
