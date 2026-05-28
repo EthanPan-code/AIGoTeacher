@@ -655,6 +655,7 @@ def show_winrate_chart():
     progress_popup.title(t("analysis.progress_title"))
     progress_popup.geometry("300x150")
     progress_popup.resizable(False, False)
+    progress_popup.iconbitmap(resource_path("image/logo.ico"))
     progress_popup.transient(root) # 讓視窗保持在主視窗之上
     progress_popup.grab_set()      # 【關鍵】鎖定主視窗，無法點擊棋盤或其他按鈕
     
@@ -721,6 +722,7 @@ def plot_window(winrates, scoreLeads):
     top.title(t("analysis.chart_title_window"))
     top.geometry("1100x800")
     top.minsize(900, 680)
+    top.iconbitmap(resource_path("image/logo.ico"))
     chart_window_state = {"closed": False}
 
     def on_chart_window_close():
@@ -2197,6 +2199,7 @@ def show_feedback():
     feedback_win.configure(bg=UI_BG)
     feedback_win.resizable(False, False)
     feedback_win.transient(root)
+    feedback_win.iconbitmap(resource_path("image/logo.ico"))
     feedback_win.grab_set()
 
     outer = tk.Frame(feedback_win, bg=UI_BG, padx=18, pady=18)
@@ -2402,6 +2405,7 @@ def show_ollama_install_dialog(parent):
     win = tk.Toplevel(parent)
     win.title(t("dialog.ollama_install_title") if hasattr(t, '__call__') else "Ollama 安裝指南")
     win.geometry("540x420")
+    win.iconbitmap(resource_path("image/logo.ico"))
     win.transient(parent)
     win.grab_set()
     frame = tk.Frame(win, bg=PANEL_BG)
@@ -3633,6 +3637,7 @@ def create_katago_startup_popup():
     popup = tk.Toplevel(root)
     popup.title(t("startup.title"))
     popup.geometry("420x170")
+    popup.iconbitmap(resource_path("image/logo.ico"))
     popup.resizable(False, False)
     popup.transient(root)
     popup.protocol("WM_DELETE_WINDOW", lambda: None)
