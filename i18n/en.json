@@ -161,7 +161,7 @@
   "dialog.new_game_message": "The current game has not been saved separately. Clear the board?",
   "dialog.confirm_overwrite_loaded_sgf": "This game was loaded from an existing SGF. Overwrite the original file?\n\n{path}",
   "dialog.about_title": "About",
-  "dialog.about_message": "Version: Internal Test Build 0.3\nBased on KataGo v1.16.4\n\nFeatures:\n• Real-time game analysis\n• AI teaching commentary\n• Variation support\n• SGF / JSON export\n\nBuilt on:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
+  "dialog.about_message": "Version: 0.1.1-beta\nBased on KataGo v1.16.4\n\nFeatures:\n• Real-time game analysis\n• AI teaching commentary\n• Variation support\n• SGF / JSON export\n\nBuilt on:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
   "dialog.feedback_title": "Feedback",
   "dialog.feedback_heading": "Help Improve AI Go Teacher",
   "dialog.feedback_message": "Thank you for using this tool. If you found a bug, have a suggestion, or want a better teaching experience, please send feedback through the form.",
