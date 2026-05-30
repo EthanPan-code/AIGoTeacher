@@ -93,6 +93,35 @@ def get_runtime_file_path(filename):
     return os.path.join(get_runtime_data_root(), filename)
 
 
+def get_executable_dir():
+    if is_frozen_app():
+        return os.path.dirname(sys.executable)
+    return PROJECT_ROOT
+
+
+def iter_dotenv_paths():
+    if is_frozen_app():
+        yield os.path.join(get_executable_dir(), ".env")
+        yield os.path.join(get_runtime_data_root(), ".env")
+        yield os.path.join(os.getcwd(), ".env")
+    else:
+        yield os.path.join(PROJECT_ROOT, ".env")
+
+
+def load_runtime_dotenv():
+    loaded_paths = []
+    seen = set()
+    for path in iter_dotenv_paths():
+        normalized = os.path.abspath(path)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if os.path.exists(normalized):
+            load_dotenv(normalized)
+            loaded_paths.append(normalized)
+    return loaded_paths
+
+
 def get_katago_runtime_overrides():
     if not is_frozen_app():
         return []
@@ -105,10 +134,16 @@ def get_katago_runtime_overrides():
     ]
 
 
-DOTENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-load_dotenv(DOTENV_PATH)
+
+if is_frozen_app():
+    bundled_cacert_path = resource_path("cacert.pem")
+    if os.path.exists(bundled_cacert_path):
+        os.environ.setdefault("SSL_CERT_FILE", bundled_cacert_path)
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", bundled_cacert_path)
+
+LOADED_DOTENV_PATHS = load_runtime_dotenv()
 
 
 

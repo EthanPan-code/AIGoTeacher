@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -35,10 +35,29 @@ a = Analysis(
         # ===== 設定檔 =====
         ('analysis_example.cfg', '.'),
         ('default_gtp.cfg', '.'),
+        ('cacert.pem', '.'),
+
+        # ===== Package data required by dynamic LLM imports =====
+        *collect_data_files('certifi'),
+        *collect_data_files('opencc'),
     ],
 
     hiddenimports=[
         *collect_submodules('tkinter'),
+        *collect_submodules('requests'),
+        'ollama',
+        *collect_submodules('ollama'),
+        *collect_submodules('httpx'),
+        *collect_submodules('httpcore'),
+        *collect_submodules('pydantic'),
+        *collect_submodules('keyring.backends'),
+        *collect_submodules('jaraco'),
+        *collect_submodules('win32ctypes'),
+        *collect_submodules('opencc'),
+        'certifi',
+        'charset_normalizer',
+        'idna',
+        'urllib3',
     ],
 
     hookspath=[],

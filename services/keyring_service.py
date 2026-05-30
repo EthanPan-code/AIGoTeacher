@@ -19,7 +19,7 @@ def get_nvidia_api_key():
         keyring_value = normalize_api_key(keyring.get_password(SERVICE_NAME, NVIDIA_API_KEY_USERNAME))
         if keyring_value:
             return keyring_value
-    except keyring.errors.KeyringError:
+    except Exception:
         pass
 
     return normalize_api_key(
@@ -39,7 +39,7 @@ def get_github_token():
         keyring_value = normalize_api_key(keyring.get_password(SERVICE_NAME, GITHUB_TOKEN_USERNAME))
         if keyring_value:
             return keyring_value
-    except keyring.errors.KeyringError:
+    except Exception:
         pass
 
     return normalize_api_key(

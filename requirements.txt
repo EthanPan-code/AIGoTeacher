@@ -1,8 +1,12 @@
 python-dotenv
 keyring
+pywin32-ctypes
 opencc-python-reimplemented
 matplotlib
 numpy
 pyinstaller
 ollama
+httpx
+pydantic
 requests
+certifi
