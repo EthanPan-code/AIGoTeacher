@@ -162,7 +162,7 @@
   "dialog.new_game_message": "目前棋局尚未另存，確定要清空棋盤嗎？",
   "dialog.confirm_overwrite_loaded_sgf": "此棋譜是從既有 SGF 載入的。要覆寫原檔嗎？\n\n{path}",
   "dialog.about_title": "關於",
-  "dialog.about_message": "版本: 0.1.1-beta\n基於 KataGo v1.16.4\n\n功能:\n• 實時棋局分析\n• AI 教學解說\n• 變化圖支援\n• SGF / JSON 匯出\n\n開發基礎:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
+  "dialog.about_message": "版本: {version}\n基於 KataGo v1.16.4\n\n功能:\n• 實時棋局分析\n• AI 教學解說\n• 變化圖支援\n• SGF / JSON 匯出\n\n開發基礎:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
   "dialog.katago_title": "選擇 KataGo 執行檔",
   "dialog.model_title": "選擇 KataGo 模型檔案",
   "dialog.config_title": "選擇 KataGo 配置檔案",

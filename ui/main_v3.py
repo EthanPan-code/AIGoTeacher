@@ -11,6 +11,10 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib as mpl
 from dotenv import load_dotenv
 from i18n import I18n
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+from version import APP_VERSION
 mpl.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial'] 
 mpl.rcParams['axes.unicode_minus'] = False 
 
@@ -61,7 +65,6 @@ def resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 is_full_analyzing = False  # 【已棄用】已改用 analyzer.full_analyze_event（threading.Event），保留此行用於向後相容性
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def is_frozen_app():
@@ -2398,7 +2401,7 @@ def new_game():
     status_var.set(t("status.new_game"))
 
 def show_about():
-    messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message"))
+    messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message", version=APP_VERSION))
 
 def open_feedback_form():
     try:
