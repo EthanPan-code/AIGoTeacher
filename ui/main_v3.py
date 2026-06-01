@@ -2,7 +2,7 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io  # 【Phase 1】確保 threading 已匯入
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io, shutil, ctypes  # 【Phase 1】確保 threading 已匯入
 import webbrowser
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -51,6 +51,7 @@ DEFAULT_KATAGO_PATH = "katago.exe"
 DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
+RUNTIME_BUNDLE_DIR_NAME = "runtime"
 
 
 def resource_path(relative_path):
@@ -84,7 +85,22 @@ def get_runtime_data_root():
 def ensure_runtime_dir(*parts):
     path = os.path.join(get_runtime_data_root(), *parts)
     os.makedirs(path, exist_ok=True)
+    hide_path_on_windows(get_runtime_data_root())
+    if parts:
+        hide_path_on_windows(os.path.join(get_runtime_data_root(), parts[0]))
     return path
+
+
+def hide_path_on_windows(path):
+    if os.name != "nt" or not os.path.exists(path):
+        return
+    try:
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+        if attrs != -1 and not attrs & FILE_ATTRIBUTE_HIDDEN:
+            ctypes.windll.kernel32.SetFileAttributesW(str(path), attrs | FILE_ATTRIBUTE_HIDDEN)
+    except Exception:
+        pass
 
 
 def get_runtime_file_path(filename):
@@ -134,6 +150,34 @@ def get_katago_runtime_overrides():
     ]
 
 
+def materialize_bundled_runtime_file(relative_path):
+    """Copy bundled KataGo runtime files out of PyInstaller's _MEI directory.
+
+    The onefile bootloader removes _MEI on exit. Running katago.exe or loading a
+    large model directly from _MEI can keep file handles open long enough for
+    cleanup to fail, so packaged builds execute from hidden LocalAppData storage.
+    """
+    if not is_frozen_app():
+        return resource_path(relative_path)
+
+    src = resource_path(relative_path)
+    dest = os.path.join(ensure_runtime_dir(RUNTIME_BUNDLE_DIR_NAME), relative_path)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    needs_copy = True
+    if os.path.exists(dest):
+        try:
+            needs_copy = os.path.getsize(src) != os.path.getsize(dest)
+        except OSError:
+            needs_copy = True
+
+    if needs_copy:
+        shutil.copy2(src, dest)
+        hide_path_on_windows(dest)
+
+    return dest
+
+
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -173,19 +217,19 @@ def t(key, **kwargs):
 
 def get_katago_path():
     if katago_path_mode_var.get() == "default":
-        return resource_path(DEFAULT_KATAGO_PATH)
+        return materialize_bundled_runtime_file(DEFAULT_KATAGO_PATH)
     return katago_path_var.get().strip()
 
 
 def get_model_path():
     if model_path_mode_var.get() == "default":
-        return resource_path(DEFAULT_MODEL_PATH)
+        return materialize_bundled_runtime_file(DEFAULT_MODEL_PATH)
     return model_path_var.get().strip()
 
 
 def get_config_path():
     if config_path_mode_var.get() == "default":
-        return resource_path(DEFAULT_CONFIG_PATH)
+        return materialize_bundled_runtime_file(DEFAULT_CONFIG_PATH)
     return config_path_var.get().strip()
 
 
@@ -296,8 +340,10 @@ class KataGoAnalyzer:
         self.full_analyze_event = threading.Event()  # 原子操作替代 is_full_analyzing 全局標誌
         
         # 啟動讀取執行緒，避免阻塞 UI
-        threading.Thread(target=self._reader_thread, daemon=True).start()
-        threading.Thread(target=self._startup_log_thread, daemon=True).start()
+        self.reader_thread = threading.Thread(target=self._reader_thread, daemon=True)
+        self.startup_log_thread = threading.Thread(target=self._startup_log_thread, daemon=True)
+        self.reader_thread.start()
+        self.startup_log_thread.start()
 
     def _notify_startup(self, key, **kwargs):
         if self.startup_callback:
@@ -333,9 +379,12 @@ class KataGoAnalyzer:
 
     def _startup_log_thread(self):
         while True:
-            if not self.process.stderr:
+            if self.closed or not self.process.stderr:
                 return
-            line = self.process.stderr.readline()
+            try:
+                line = self.process.stderr.readline()
+            except (OSError, ValueError):
+                return
             if not line:
                 return
             self._handle_startup_line(line)
@@ -357,6 +406,9 @@ class KataGoAnalyzer:
             logger.debug("LRU 快取已移除最舊局面: key=%s cache_size=%s", evicted_key, len(self.analysis_cache))
 
     def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="live", use_cache=True):
+        if self.closed or self.process.poll() is not None:
+            return None
+
         moves = [["B" if c == "black" else "W", self.to_gtp(x, y)] for x, y, c in stones]
         turn_num = len(stones)
         if analyze_turns is None:
@@ -415,7 +467,12 @@ class KataGoAnalyzer:
 
     def _reader_thread(self):
         while True:
-            line = self.process.stdout.readline()
+            if self.closed or not self.process.stdout:
+                break
+            try:
+                line = self.process.stdout.readline()
+            except (OSError, ValueError):
+                break
             if not line: break
             if line.startswith("{"):
                 try:
@@ -478,9 +535,40 @@ class KataGoAnalyzer:
 
     def close(self, timeout=2):
         self.closed = True
-        if self.process:
-            self.process.terminate()
-            self.process.wait(timeout=timeout)
+        with self.lock:
+            self.pending_queries.clear()
+
+        if not self.process:
+            return
+
+        for stream_name in ("stdin",):
+            stream = getattr(self.process, stream_name, None)
+            if stream:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        if self.process.poll() is None:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                logger.warning("KataGo process did not exit within %s seconds; killing it", timeout)
+                self.process.kill()
+                self.process.wait(timeout=3)
+
+        for stream_name in ("stdout", "stderr"):
+            stream = getattr(self.process, stream_name, None)
+            if stream:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        for worker in (getattr(self, "reader_thread", None), getattr(self, "startup_log_thread", None)):
+            if worker and worker.is_alive():
+                worker.join(timeout=0.5)
 
 class GoDataFilter:
     def __init__(self, winrate_threshold=0.05, score_threshold=2.0):
@@ -1173,15 +1261,51 @@ def plot_window(winrates, scoreLeads):
                 f"Sharp turning points:\n{chr(10).join(sharp_lines)}"
             )
         else:
-            system_prompt = "你是一位溫和、專業、重視學習效果的圍棋老師。請用繁體中文，根據 KataGo 數據做精簡教學評論。"
+            system_prompt = """
+            你是一位有經驗的圍棋老師。
+
+            你看不到棋盤，只能根據 KataGo 的勝率變化與推薦著法進行教學回饋。
+
+            請避免分析具體局部戰鬥、死活、定石或形狀，
+            因為資料不足以支持這些判斷。
+
+            請專注於：
+
+            - 棋局整體走勢
+            - 優勢建立與流失的時機
+            - 關鍵失誤造成的影響
+            - 可執行的學習建議
+
+            請用自然、人類化的語氣，
+            不要逐條朗讀數據，
+            不要重複大量百分比。
+            """
             user_prompt = (
-                "請用 3-5 句話總結這盤棋，語氣像人類圍棋老師。\n"
-                "重點包含：棋局整體走勢、敗著與轉折點、KataGo 建議方向，以及一個可執行的練習建議。不要列長清單。\n\n"
-                f"整體走勢：開局黑勝率 {data['opening_wr']:.1f}%，峰值第 {data['peak'][0]} 手 {data['peak'][1]:.1f}%，"
-                f"低谷第 {data['low'][0]} 手 {data['low'][1]:.1f}%，終局黑勝率 {data['final_wr']:.1f}%。\n"
-                f"超過 30% 的失誤：\n{chr(10).join(mistake_lines)}\n"
-                f"敗著：{blunder_text}\n"
-                f"勝率急劇變化的轉折點：\n{chr(10).join(sharp_lines)}"
+                "請以圍棋老師的角度，用 4~6 句話總6結這盤棋。\n\n"
+
+                "要求：\n"
+                "- 不要逐條列出數據。\n"
+                "- 不要重複大量勝率百分比。\n"
+                "- 不要假裝看得到棋盤內容。\n"
+                "- 可以根據勝率變化判斷局勢起伏。\n"
+                "- 語氣自然，像老師下課後給學生的評語。\n\n"
+
+                "請依序涵蓋：\n"
+                "1. 棋局整體走勢\n"
+                "2. 關鍵轉折點\n"
+                "3. 最大失誤造成的影響\n"
+                "4. 一項最值得優先練習的方向\n\n"
+
+                f"開局黑勝率：{data['opening_wr']:.1f}%\n"
+                f"最高點：第 {data['peak'][0]} 手（{data['peak'][1]:.1f}%）\n"
+                f"最低點：第 {data['low'][0]} 手（{data['low'][1]:.1f}%）\n"
+                f"終局黑勝率：{data['final_wr']:.1f}%\n\n"
+
+                f"重大失誤：\n{chr(10).join(mistake_lines)}\n\n"
+
+                f"最大失誤：\n{blunder_text}\n\n"
+
+                f"主要轉折點：\n{chr(10).join(sharp_lines)}"
             )
 
         fallback_text = (
@@ -3455,6 +3579,7 @@ llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
 analyzer = None
 analyzer_initializing = False
+is_shutting_down = False
 current_sgf_path = None
 loaded_sgf_overwrite_confirmed = False
 
@@ -3470,14 +3595,35 @@ data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)
 
 
 def on_closing():
+    global is_shutting_down, analyzer_initializing
+    if is_shutting_down:
+        return
+    is_shutting_down = True
+    analyzer_initializing = False
+
+    try:
+        plt.close("all")
+    except Exception:
+        pass
+
     if analyzer and hasattr(analyzer, 'process'):
         try:
-            analyzer.close(timeout=2)
+            analyzer.close(timeout=3)
         except subprocess.TimeoutExpired:
-            logger.warning("KataGo process did not exit within 2 seconds while closing")
+            logger.warning("KataGo process did not exit while closing")
         except OSError as e:
             logger.warning("Error closing KataGo process: %s", e)
-    root.destroy()
+
+    try:
+        for child in root.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+        root.destroy()
+    except tk.TclError:
+        pass
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
@@ -3701,14 +3847,25 @@ status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 5
 status_bar.pack(side="bottom", fill="x")
 
 def update_status(message):
+    if is_shutting_down:
+        return
     if threading.current_thread() is threading.main_thread():
         status_var.set(message)
     else:
-        root.after(0, status_var.set, message)
+        try:
+            root.after(0, status_var.set, message)
+        except tk.TclError:
+            pass
 
 
 def is_analyzer_ready():
-    return analyzer is not None and getattr(analyzer, "ready_event", None) and analyzer.ready_event.is_set()
+    return (
+        not is_shutting_down
+        and analyzer is not None
+        and not getattr(analyzer, "closed", False)
+        and getattr(analyzer, "ready_event", None)
+        and analyzer.ready_event.is_set()
+    )
 
 
 def set_analysis_controls_state(enabled):
@@ -3773,17 +3930,27 @@ def start_analyzer_async(show_success=False, replacing=False):
     popup = create_katago_startup_popup()
 
     def update_startup_message(key, **kwargs):
+        if is_shutting_down:
+            return
         message = t(key, **kwargs)
 
         def apply_message():
+            if is_shutting_down:
+                return
             if popup["window"].winfo_exists():
                 popup["message_var"].set(message)
             status_var.set(message)
 
-        root.after(0, apply_message)
+        try:
+            root.after(0, apply_message)
+        except tk.TclError:
+            pass
 
     def finish_success(new_analyzer):
         global analyzer, analyzer_initializing
+        if is_shutting_down:
+            new_analyzer.close(timeout=1)
+            return
         analyzer = new_analyzer
         analyzer_initializing = False
         set_analysis_controls_state(True)
@@ -3802,6 +3969,8 @@ def start_analyzer_async(show_success=False, replacing=False):
 
     def finish_failure(error):
         global analyzer_initializing
+        if is_shutting_down:
+            return
         analyzer_initializing = False
         set_analysis_controls_state(False)
         status_var.set(t("status.reinit_failed"))
@@ -3812,14 +3981,21 @@ def start_analyzer_async(show_success=False, replacing=False):
         messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
 
     def warn_if_slow():
+        if is_shutting_down:
+            return
         if analyzer_initializing and popup["window"].winfo_exists():
             message = t("status.katago_autotuning_slow")
             popup["message_var"].set(message)
             status_var.set(message)
 
-    root.after(30000, warn_if_slow)
+    try:
+        root.after(30000, warn_if_slow)
+    except tk.TclError:
+        pass
 
     def task():
+        if is_shutting_down:
+            return
         if old_analyzer is not None:
             try:
                 old_analyzer.close(timeout=2)
@@ -3837,21 +4013,37 @@ def start_analyzer_async(show_success=False, replacing=False):
             )
 
             while not new_analyzer.ready_event.is_set():
+                if is_shutting_down:
+                    new_analyzer.close(timeout=1)
+                    return
                 if new_analyzer.process.poll() is not None:
                     error = new_analyzer.startup_error or t("error.katago_process_exited")
                     raise RuntimeError(error)
                 time.sleep(0.1)
 
-            root.after(0, finish_success, new_analyzer)
+            if not is_shutting_down:
+                try:
+                    root.after(0, finish_success, new_analyzer)
+                except tk.TclError:
+                    new_analyzer.close(timeout=1)
         except (OSError, ValueError, RuntimeError) as e:
-            root.after(0, finish_failure, e)
+            if not is_shutting_down:
+                try:
+                    root.after(0, finish_failure, e)
+                except tk.TclError:
+                    pass
 
     threading.Thread(target=task, daemon=True).start()
 
 def update_teacher_ui(message):
     """給 LLM Provider 呼叫的回呼函數，用來更新文字框"""
+    if is_shutting_down:
+        return
     if threading.current_thread() is not threading.main_thread():
-        root.after(0, update_teacher_ui, message)
+        try:
+            root.after(0, update_teacher_ui, message)
+        except tk.TclError:
+            pass
         return
     
     global current_generated_commentary
@@ -3869,6 +4061,10 @@ def update_teacher_ui(message):
 def on_commentary_generation_complete():
     """【Phase 1】LLM 生成完成後的回呼 — 將完整的解說存儲到快取"""
     global current_critical_event, current_generated_commentary
+    if is_shutting_down:
+        current_critical_event = None
+        current_generated_commentary = ""
+        return
     if current_critical_event and current_generated_commentary:
         try:
             add_to_commentary_cache(
@@ -4005,8 +4201,13 @@ branch_ui.draw_branches()
 start_analyzer_async()
 
 def poll_ai():
+    if is_shutting_down:
+        return
     if not is_analyzer_ready():
-        root.after(UI_POLL_INTERVAL_MS, poll_ai)
+        try:
+            root.after(UI_POLL_INTERVAL_MS, poll_ai)
+        except tk.TclError:
+            pass
         return
 
     result = analyzer.get_result()
@@ -4014,7 +4215,10 @@ def poll_ai():
     if result and not analyzer.full_analyze_event.is_set():
         update_ui_with_data(result) 
     
-    root.after(UI_POLL_INTERVAL_MS, poll_ai)
+    try:
+        root.after(UI_POLL_INTERVAL_MS, poll_ai)
+    except tk.TclError:
+        pass
 
 
 poll_ai()
