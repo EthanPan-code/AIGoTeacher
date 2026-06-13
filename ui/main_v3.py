@@ -318,6 +318,7 @@ class KataGoAnalyzer:
         self.ready_event = threading.Event()
         self.startup_lines = []
         self.startup_error = None
+        self.startup_error_type = None  # "no_gpu" | "generic" | None
         self.closed = False
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -360,13 +361,20 @@ class KataGoAnalyzer:
         if len(self.startup_lines) > 80:
             self.startup_lines = self.startup_lines[-80:]
 
-        if (
+        # Check for OpenCL GPU not found errors first (before generic "Uncaught exception")
+        if "CL_PLATFORM_NOT_FOUND_KHR" in text or "CL_DEVICE_NOT_FOUND" in text:
+            self.startup_error = text
+            self.startup_error_type = "no_gpu"
+            logger.error("KataGo OpenCL 錯誤: %s", text)
+            self._notify_startup("status.katago_no_gpu_found")
+        elif (
             "Uncaught exception" in text
             or "Could not" in text
             or "does not exist" in text
             or "invalid permissions" in text
         ):
             self.startup_error = text
+            self.startup_error_type = "generic"
             self._notify_startup("status.katago_startup_failed")
         elif "Performing autotuning" in text:
             self._notify_startup("status.katago_autotuning")
@@ -3970,7 +3978,7 @@ def start_analyzer_async(show_success=False, replacing=False):
         if globals().get("board") is not None and board.stones:
             root.after(100, auto_analyze)
 
-    def finish_failure(error):
+    def finish_failure(error, error_type=None):
         global analyzer_initializing
         if is_shutting_down:
             return
@@ -3981,7 +3989,10 @@ def start_analyzer_async(show_success=False, replacing=False):
             popup["progress_bar"].stop()
             popup["window"].destroy()
         logger.error("KataGo 初始化失敗: %s", error)
-        messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
+        if error_type == "no_gpu":
+            messagebox.showerror(t("dialog.no_gpu_title"), t("dialog.no_gpu_message"))
+        else:
+            messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
 
     def warn_if_slow():
         if is_shutting_down:
@@ -4021,7 +4032,8 @@ def start_analyzer_async(show_success=False, replacing=False):
                     return
                 if new_analyzer.process.poll() is not None:
                     error = new_analyzer.startup_error or t("error.katago_process_exited")
-                    raise RuntimeError(error)
+                    error_type = getattr(new_analyzer, 'startup_error_type', None)
+                    raise RuntimeError(f"{error_type}|{error}" if error_type else error)
                 time.sleep(0.1)
 
             if not is_shutting_down:
@@ -4032,7 +4044,12 @@ def start_analyzer_async(show_success=False, replacing=False):
         except (OSError, ValueError, RuntimeError) as e:
             if not is_shutting_down:
                 try:
-                    root.after(0, finish_failure, e)
+                    error_msg = str(e)
+                    error_type = None
+                    if error_msg.startswith("no_gpu|"):
+                        error_type = "no_gpu"
+                        error_msg = error_msg[7:]  # Remove "no_gpu|" prefix
+                    root.after(0, finish_failure, error_msg, error_type)
                 except tk.TclError:
                     pass
 

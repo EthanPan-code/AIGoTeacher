@@ -81,7 +81,7 @@ exe = EXE(
     a.datas,
 
     [],
-    name='KataGoUI',
+    name='AIGoTeacher',
 
     debug=False,
     bootloader_ignore_signals=False,

@@ -220,5 +220,8 @@
   "error.nvidia_api_key_missing_env": "NVIDIA is selected, but no NVIDIA API Key is set. Set it in Analysis > LLM Model, or provide NVIDIA_API_KEY / KATAGO_NVIDIA_API_KEY.",
   "error.github_token_empty": "GitHub token cannot be empty",
   "error.github_token_invalid": "GitHub token validation failed (please confirm the token can access GitHub Models)",
-  "error.github_token_missing_env": "GitHub Models is selected, but no GitHub token is set. Set it in Analysis > LLM Model, or provide GITHUB_TOKEN / KATAGO_GITHUB_TOKEN."
+  "error.github_token_missing_env": "GitHub Models is selected, but no GitHub token is set. Set it in Analysis > LLM Model, or provide GITHUB_TOKEN / KATAGO_GITHUB_TOKEN.",
+  "status.katago_no_gpu_found": "No GPU found, KataGo will run in CPU mode (slower)",
+  "dialog.no_gpu_title": "No GPU Detected",
+  "dialog.no_gpu_message": "No OpenCL GPU device was detected on this system.\n\nKataGo can still run in CPU mode, but analysis speed will be significantly slower.\n\nSuggestions:\n• Ensure GPU drivers are installed\n• Verify your GPU supports OpenCL\n• Or specify a CPU-only config file in settings"
 }
