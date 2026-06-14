@@ -19,8 +19,8 @@ GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference/chat/completions"
 
 
 class GithubProvider(LLMProvider):
-    def __init__(self, ui_callback, status_callback=None, model_name=None, translator=None, language_getter=None, api_key=None, on_complete_callback=None):
-        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback)
+    def __init__(self, ui_callback, status_callback=None, model_name=None, translator=None, language_getter=None, api_key=None, on_complete_callback=None, tone="friendly", custom_prompts=None):
+        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback, tone, custom_prompts)
         self.model_name = model_name or GITHUB_MODELS[0]
         self.api_key = normalize_api_key(api_key) or get_github_token()
         self.cc = OpenCC("s2twp")
@@ -49,22 +49,34 @@ class GithubProvider(LLMProvider):
     def _generate_task(self, data):
         try:
             import requests
+            from . import tone_templates
 
             user_prompt = data.get("user_prompt")
-            system_prompt = data.get("system_prompt", self.tr("teacher.system_prompt"))
-            if user_prompt is None:
-                turn = data["turn"]
-                user_move = data["user_move"]
-                winrate_drop = data["winrate_drop"] * 100
-                best_move = data["current_best_moves"][0]["move"] if data["current_best_moves"] else self.tr("teacher.best_unknown")
-
-                user_prompt = self.tr(
-                    "teacher.user_prompt",
-                    turn=turn,
-                    user_move=user_move,
-                    winrate_drop=winrate_drop,
-                    best_move=best_move,
-                )
+            system_prompt = data.get("system_prompt")
+            
+            if user_prompt is None or system_prompt is None:
+                # 使用提示詞系統取得模板
+                if system_prompt is None:
+                    system_prompt = self.get_prompt_template("system")
+                
+                if user_prompt is None:
+                    user_prompt_template = self.get_prompt_template("user")
+                    try:
+                        user_prompt = tone_templates.format_prompt(user_prompt_template, data)
+                    except Exception as e:
+                        print(f"提示詞格式化失敗: {e}，使用舊方法")
+                        # fallback 到舊方法
+                        turn = data["turn"]
+                        user_move = data["user_move"]
+                        winrate_drop = data["winrate_drop"] * 100
+                        best_move = data["current_best_moves"][0]["move"] if data["current_best_moves"] else self.tr("teacher.best_unknown")
+                        user_prompt = self.tr(
+                            "teacher.user_prompt",
+                            turn=turn,
+                            user_move=user_move,
+                            winrate_drop=winrate_drop,
+                            best_move=best_move,
+                        )
 
             stream = True
             headers = {

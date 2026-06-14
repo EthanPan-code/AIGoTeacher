@@ -10,8 +10,8 @@ OLLAMA_MODELS = ["qwen2.5:1.5b", "llama3.2:1b", "gemma2:2b", "qwen2.5:3b", "qwen
 
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, ui_callback, status_callback=None, model_name="qwen2.5:1.5b", translator=None, language_getter=None, on_complete_callback=None):
-        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback)
+    def __init__(self, ui_callback, status_callback=None, model_name="qwen2.5:1.5b", translator=None, language_getter=None, on_complete_callback=None, tone="friendly", custom_prompts=None):
+        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback, tone, custom_prompts)
         self.model_name = model_name
         self.cc = OpenCC("s2twp")
 
@@ -118,21 +118,36 @@ class OllamaProvider(LLMProvider):
     def _generate_task(self, data):
         try:
             import ollama
+            from . import tone_templates
 
+            # 【Phase 2】優先使用自訂提示詞或語氣特定提示詞
             prompt = data.get("user_prompt")
-            system_prompt = data.get("system_prompt", self.tr("teacher.system_prompt"))
-            if prompt is None:
-                turn = data["turn"]
-                user_move = data["user_move"]
-                winrate_drop = data["winrate_drop"] * 100
-                best_move = data["current_best_moves"][0]["move"] if data["current_best_moves"] else self.tr("teacher.best_unknown")
-                prompt = self.tr(
-                    "teacher.user_prompt",
-                    turn=turn,
-                    user_move=user_move,
-                    winrate_drop=winrate_drop,
-                    best_move=best_move,
-                )
+            system_prompt = data.get("system_prompt")
+            
+            if prompt is None or system_prompt is None:
+                # 使用提示詞系統取得模板
+                if system_prompt is None:
+                    system_prompt = self.get_prompt_template("system")
+                
+                if prompt is None:
+                    user_prompt_template = self.get_prompt_template("user")
+                    try:
+                        prompt = tone_templates.format_prompt(user_prompt_template, data)
+                    except Exception as e:
+                        print(f"提示詞格式化失敗: {e}，使用舊方法")
+                        # fallback 到舊方法
+                        turn = data["turn"]
+                        user_move = data["user_move"]
+                        winrate_drop = data["winrate_drop"] * 100
+                        best_move = data["current_best_moves"][0]["move"] if data["current_best_moves"] else self.tr("teacher.best_unknown")
+                        prompt = self.tr(
+                            "teacher.user_prompt",
+                            turn=turn,
+                            user_move=user_move,
+                            winrate_drop=winrate_drop,
+                            best_move=best_move,
+                        )
+            
             response = ollama.chat(
                 model=self.model_name,
                 messages=[
