@@ -20,8 +20,19 @@ NVIDIA_MODELS = [
 
 
 class NvidiaProvider(LLMProvider):
-    def __init__(self, ui_callback, status_callback=None, model_name=None, translator=None, language_getter=None, api_key=None, on_complete_callback=None, tone="friendly", custom_prompts=None):
-        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback, tone, custom_prompts)
+    def __init__(
+        self,
+        ui_callback,
+        status_callback=None,
+        model_name=None,
+        translator=None,
+        language_getter=None,
+        api_key=None,
+        on_complete_callback=None,
+        tone="friendly",
+        custom_prompt=None,
+    ):
+        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback, tone, custom_prompt)
         self.model_name = model_name or NVIDIA_MODELS[0]
         self.api_key = normalize_api_key(api_key) or get_nvidia_api_key()
         self.cc = OpenCC("s2twp")
@@ -52,35 +63,8 @@ class NvidiaProvider(LLMProvider):
     def _generate_task(self, data):
         try:
             import requests
-            from . import tone_templates
 
-            user_prompt = data.get("user_prompt")
-            system_prompt = data.get("system_prompt")
-            
-            if user_prompt is None or system_prompt is None:
-                # 使用提示詞系統取得模板
-                if system_prompt is None:
-                    system_prompt = self.get_prompt_template("system")
-                
-                if user_prompt is None:
-                    user_prompt_template = self.get_prompt_template("user")
-                    try:
-                        user_prompt = tone_templates.format_prompt(user_prompt_template, data)
-                    except Exception as e:
-                        print(f"提示詞格式化失敗: {e}，使用舊方法")
-                        # fallback 到舊方法
-                        turn = data["turn"]
-                        user_move = data["user_move"]
-                        winrate_drop = data["winrate_drop"] * 100
-                        best_move = data["current_best_moves"][0]["move"] if data["current_best_moves"] else self.tr("teacher.best_unknown")
-                        user_prompt = self.tr(
-                            "teacher.user_prompt",
-                            turn=turn,
-                            user_move=user_move,
-                            winrate_drop=winrate_drop,
-                            best_move=best_move,
-                        )
-
+            user_prompt = self.build_commentary_prompt(data)
             stream = True
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -91,7 +75,6 @@ class NvidiaProvider(LLMProvider):
             payload = {
                 "model": self.model_name,
                 "messages": [
-                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 "max_tokens": 512,
@@ -104,7 +87,7 @@ class NvidiaProvider(LLMProvider):
             response = requests.post(invoke_url, headers=headers, json=payload, stream=stream, timeout=30)
 
             if response.status_code != 200:
-                raise Exception(f"NVIDIA API 錯誤 (HTTP {response.status_code}): {response.text}")
+                raise Exception(f"NVIDIA API error (HTTP {response.status_code}): {response.text}")
 
             full_content = ""
             for line in response.iter_lines():
@@ -126,18 +109,17 @@ class NvidiaProvider(LLMProvider):
                             continue
 
         except Exception as e:
-            print(f"NVIDIA API 發生錯誤: {e}")
+            print(f"NVIDIA API commentary failed: {e}")
             self.ui_callback(self._fallback_commentary(data, e))
             if self.status_callback:
                 self.status_callback(self.tr("status.nvidia_fallback"))
         finally:
             self.is_generating = False
-            # 【Phase 1】生成完成 — 呼叫完成回呼
             if self.on_complete_callback:
                 try:
                     self.on_complete_callback()
                 except Exception as e:
-                    print(f"完成回呼執行失敗: {e}")
+                    print(f"Completion callback failed: {e}")
 
     def _fallback_commentary(self, data, error):
         if data.get("fallback_text"):

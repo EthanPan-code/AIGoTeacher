@@ -3305,6 +3305,9 @@ def _show_llm_selection_dialog(parent):
             model_name=selected_model,
             translator=t,
             language_getter=lambda: i18n.language,
+            on_complete_callback=on_commentary_generation_complete,
+            tone=config_service.get_llm_tone("friendly"),
+            custom_prompt=config_service.get_custom_prompt(""),
         )
         provider_name = ProviderFactory.get_display_name(provider)
         status_var.set(t("status.llm_provider_switched", provider=provider_name, model=selected_model))
@@ -3421,7 +3424,7 @@ def show_custom_prompt_dialog():
     
     prompt_win = tk.Toplevel(root)
     prompt_win.title(t("dialog.custom_prompts_title"))
-    prompt_win.geometry("700x600")
+    prompt_win.geometry("700x520")
     prompt_win.iconbitmap(resource_path("image/logo.ico"))
     prompt_win.transient(root)
     prompt_win.grab_set()
@@ -3429,101 +3432,45 @@ def show_custom_prompt_dialog():
     main_frame = ttk.Frame(prompt_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
     main_frame.columnconfigure(0, weight=1)
-    main_frame.rowconfigure(4, weight=1)
-    
-    # 預設模板選擇
-    template_frame = ttk.Frame(main_frame)
-    template_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-    template_frame.columnconfigure(1, weight=1)
-    
-    ttk.Label(template_frame, text=t("dialog.prompt_template"), font=("Microsoft JhengHei", 10, "bold")).pack(side="left", padx=(0, 8))
-    
+    main_frame.rowconfigure(1, weight=1)
+
     current_tone = config_service.get_llm_tone("friendly")
-    template_combo = ttk.Combobox(
-        template_frame,
-        values=[name for name in tone_templates.TONE_DISPLAY_NAMES.values()],
-        state="readonly",
-        width=30
-    )
-    template_combo.pack(side="left", fill="x", expand=True)
-    template_combo.set(tone_templates.TONE_DISPLAY_NAMES.get(current_tone, ""))
-    
-    # 系統提示詞區塊
-    ttk.Label(main_frame, text=t("dialog.system_prompt_label"), font=("Microsoft JhengHei", 10, "bold")).grid(row=1, column=0, sticky="nw", pady=(12, 6))
-    
-    system_text = tk.Text(main_frame, height=6, font=("Courier New", 10), wrap="word")
-    system_text.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
-    
-    system_scrollbar = ttk.Scrollbar(system_text, command=system_text.yview)
-    system_scrollbar.pack(side="right", fill="y")
-    system_text.config(yscrollcommand=system_scrollbar.set)
-    
-    # 取得自訂或預設提示詞
-    custom_prompts = config_service.get_custom_prompts()
-    if custom_prompts.get("system"):
-        system_text.insert("1.0", custom_prompts["system"])
-    else:
-        system_text.insert("1.0", tone_templates.get_tone_system_prompt(current_tone))
-    
-    # 用戶提示詞區塊
-    user_label_frame = ttk.Frame(main_frame)
-    user_label_frame.grid(row=3, column=0, sticky="ew", pady=(12, 6))
-    user_label_frame.columnconfigure(0, weight=1)
-    
-    ttk.Label(user_label_frame, text=t("dialog.user_prompt_label"), font=("Microsoft JhengHei", 10, "bold")).pack(side="left", anchor="nw")
-    
-    required_hint = ttk.Label(
-        user_label_frame,
-        text=f"({t('dialog.prompt_required_placeholders')}: turn, user_move, best_move, winrate_drop)",
-        font=("Microsoft JhengHei", 8),
-        foreground=TEXT_MUTED
-    )
-    required_hint.pack(side="right", anchor="ne")
-    
-    user_text = tk.Text(main_frame, height=8, font=("Courier New", 10), wrap="word")
-    user_text.grid(row=4, column=0, sticky="nsew", pady=(0, 12))
-    
-    user_scrollbar = ttk.Scrollbar(user_text, command=user_text.yview)
-    user_scrollbar.pack(side="right", fill="y")
-    user_text.config(yscrollcommand=user_scrollbar.set)
-    
-    if custom_prompts.get("user"):
-        user_text.insert("1.0", custom_prompts["user"])
-    else:
-        user_text.insert("1.0", tone_templates.get_tone_user_prompt_template(current_tone))
+
+    ttk.Label(main_frame, text=t("dialog.prompt_label"), font=("Microsoft JhengHei", 10, "bold")).grid(row=0, column=0, sticky="nw", pady=(0, 6))
+
+    prompt_text = tk.Text(main_frame, height=18, font=("Courier New", 10), wrap="word")
+    prompt_text.grid(row=1, column=0, sticky="nsew", pady=(0, 12))
+
+    prompt_scrollbar = ttk.Scrollbar(prompt_text, command=prompt_text.yview)
+    prompt_scrollbar.pack(side="right", fill="y")
+    prompt_text.config(yscrollcommand=prompt_scrollbar.set)
+
+    custom_prompt = config_service.get_custom_prompt("")
+    prompt_text.insert("1.0", custom_prompt or tone_templates.get_tone_prompt(current_tone))
     
     # 按鈕區塊
     button_frame = ttk.Frame(main_frame)
-    button_frame.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+    button_frame.grid(row=2, column=0, sticky="ew", pady=(12, 0))
     button_frame.columnconfigure(1, weight=1)
     
     def save_prompts():
-        system_prompt = system_text.get("1.0", "end-1c").strip()
-        user_prompt = user_text.get("1.0", "end-1c").strip()
+        prompt = prompt_text.get("1.0", "end-1c").strip()
         
         # 驗證提示詞
-        if not system_prompt:
+        if not prompt:
             messagebox.showerror(t("dialog.error_title"), t("error.prompt_empty"))
             return
-        
-        if not user_prompt:
-            messagebox.showerror(t("dialog.error_title"), t("error.prompt_empty"))
-            return
-        
-        is_valid, missing = tone_templates.validate_user_prompt_template(user_prompt)
-        if not is_valid:
-            missing_str = ", ".join(f"{{{p}}}" for p in missing)
-            messagebox.showerror(t("dialog.error_title"), t("error.prompt_missing_placeholder", placeholder=missing_str))
-            return
-        
+
         # 保存提示詞
-        config_service.set_custom_prompts(system_prompt, user_prompt)
+        config_service.set_custom_prompt(prompt)
         config_service.save()
         
         # 更新 provider
         try:
             if hasattr(analyzer, 'provider') and analyzer.provider:
-                analyzer.provider.set_custom_prompts(system_prompt, user_prompt)
+                analyzer.provider.set_custom_prompt(prompt)
+            if current_llm_worker:
+                current_llm_worker.set_custom_prompt(prompt)
         except Exception as e:
             print(f"更新提供商提示詞失敗: {e}")
         
@@ -3534,6 +3481,13 @@ def show_custom_prompt_dialog():
         if messagebox.askyesno(t("dialog.confirm_title"), "確定要重設為預設提示詞嗎？"):
             config_service.clear_custom_prompts()
             config_service.save()
+            try:
+                if hasattr(analyzer, 'provider') and analyzer.provider:
+                    analyzer.provider.clear_custom_prompts()
+                if current_llm_worker:
+                    current_llm_worker.clear_custom_prompts()
+            except Exception as e:
+                print(f"重設提供商提示詞失敗: {e}")
             prompt_win.destroy()
     
     ttk.Button(button_frame, text=t("button.save_prompts"), command=save_prompts).pack(side="left", padx=(0, 8))

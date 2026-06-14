@@ -57,6 +57,8 @@ class ProviderFactory:
     def create_from_config(cls, config_service, ui_callback, status_callback=None, translator=None, language_getter=None, **kwargs):
         provider_name = config_service.get_setting("llm_provider", "ollama")
         model_name = cls.get_configured_model(config_service, provider_name)
+        kwargs.setdefault("tone", config_service.get_llm_tone("friendly"))
+        kwargs.setdefault("custom_prompt", config_service.get_custom_prompt(""))
         return cls.create_provider(
             provider_name,
             ui_callback=ui_callback,
