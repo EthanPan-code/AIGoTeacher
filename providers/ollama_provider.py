@@ -6,7 +6,14 @@ from opencc import OpenCC
 from .base import LLMProvider
 
 
-OLLAMA_MODELS = ["qwen2.5:1.5b", "llama3.2:1b", "gemma2:2b", "qwen2.5:3b", "qwen2.5:7b"]
+OLLAMA_LOCAL_MODELS = ["qwen2.5:1.5b", "llama3.2:1b", "gemma2:2b", "qwen2.5:3b", "qwen2.5:7b"]
+OLLAMA_CLOUD_MODELS = ["gemma4:31b-cloud", "minimax-m2.1:cloud"]
+OLLAMA_PAID_MODELS = {"kimi-k2.6:cloud"}
+OLLAMA_MODELS = [
+    model
+    for model in [*OLLAMA_LOCAL_MODELS, *OLLAMA_CLOUD_MODELS]
+    if model not in OLLAMA_PAID_MODELS
+]
 
 
 class OllamaProvider(LLMProvider):
@@ -27,6 +34,15 @@ class OllamaProvider(LLMProvider):
 
     def get_available_models(self):
         return OLLAMA_MODELS
+
+    @staticmethod
+    def is_cloud_model(model_name: str) -> bool:
+        return "cloud" in (model_name or "").lower()
+
+    @staticmethod
+    def is_paid_model(model_name: str) -> bool:
+        normalized = (model_name or "").lower()
+        return normalized in OLLAMA_PAID_MODELS or ":paid" in normalized
 
     def validate_config(self):
         try:
@@ -49,14 +65,27 @@ class OllamaProvider(LLMProvider):
     def get_model_status(self) -> Dict[str, str]:
         from services.ollama_manager import get_ollama_manager
 
-        return get_ollama_manager().get_model_status(OLLAMA_MODELS)
+        visible_models = [model for model in OLLAMA_MODELS if not self.is_paid_model(model)]
+        status = get_ollama_manager().get_model_status(
+            [model for model in visible_models if not self.is_cloud_model(model)]
+        )
+        for model in visible_models:
+            if self.is_cloud_model(model):
+                status[model] = "cloud"
+        return status
 
     def is_model_available(self, model_name: str) -> bool:
+        if self.is_cloud_model(model_name):
+            return True
+
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().is_model_available(model_name)
 
     def get_model_size(self, model_name: str) -> Optional[str]:
+        if self.is_cloud_model(model_name):
+            return None
+
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().get_model_size(model_name)
@@ -67,6 +96,9 @@ class OllamaProvider(LLMProvider):
         progress_callback: Optional[Callable[[str], None]] = None,
         complete_callback: Optional[Callable[[bool, str], None]] = None,
     ) -> bool:
+        if self.is_cloud_model(model_name):
+            return False
+
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().pull_model_async(model_name, progress_callback, complete_callback)

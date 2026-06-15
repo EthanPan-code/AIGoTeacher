@@ -64,7 +64,7 @@ def resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-is_full_analyzing = False  # 【已棄用】已改用 analyzer.full_analyze_event（threading.Event），保留此行用於向後相容性
+
 
 
 def is_frozen_app():
@@ -890,7 +890,7 @@ def show_winrate_chart():
         except Exception as e:
             print(f"分析失敗: {e}")
         finally:
-            # 【Phase 1】用 analyzer.full_analyze_event.clear() 代改全局 is_full_analyzing = False
+
             analyzer.full_analyze_event.clear()
             
             # 解除鎖定並銷毀進度視窗
@@ -2677,6 +2677,7 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
     """
     為 Ollama 模型創建一個選擇行。
     - 已下載（available）：點擊直接選中
+    - 雲端（cloud）：點擊直接選中，不顯示下載
     - 未下載（pending）：點擊彈出下載確認
     
     Args:
@@ -2689,11 +2690,12 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
     """
     row_frame = tk.Frame(parent, bg=PANEL_BG, relief="flat", bd=0)
     row_frame.pack(fill="x", pady=3)
+    is_cloud_model = provider.is_cloud_model(model_name)
     
     # 整行的點擊邏輯
     def on_row_click():
-        if model_status == "available":
-            # 已下載：直接選中
+        if model_status in ("available", "cloud") or is_cloud_model:
+            # 已下載或雲端模型：直接選中
             selected_var.set(model_name)
         else:
             # 未下載：彈出下載確認
@@ -2721,9 +2723,21 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
     model_label.bind("<Button-1>", lambda e: on_row_click())
     
     # 狀態圖示：直接使用 PNG 格式
-    status_icon = _load_ollama_icon("available.png" if model_status == "available" else "download.png")
-    status_text = "" if status_icon else ("✓" if model_status == "available" else "⬇")
-    status_color = "#4CAF50" if model_status == "available" else "#FF9800"
+    if model_status == "cloud" or is_cloud_model:
+        icon_name = "cloud.png"
+        fallback_text = "☁"
+        status_color = "#2196F3"
+    elif model_status == "available":
+        icon_name = "available.png"
+        fallback_text = "✓"
+        status_color = "#4CAF50"
+    else:
+        icon_name = "download.png"
+        fallback_text = "⬇"
+        status_color = "#FF9800"
+
+    status_icon = _load_ollama_icon(icon_name)
+    status_text = "" if status_icon else fallback_text
     
     status_label = tk.Label(
         row_frame,
@@ -2741,6 +2755,9 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
 
 
 def _download_ollama_model(parent, model_name, provider, refresh_callback, on_success=None):
+    if provider.is_cloud_model(model_name):
+        return
+
     model_size = provider.get_model_size(model_name)
     size_text = f" ({model_size})" if model_size else ""
 
@@ -2855,6 +2872,9 @@ def _confirm_and_download_ollama_model(parent, model_name, provider, refresh_cal
         provider: OllamaProvider 實例
         refresh_callback: 下載完成後的刷新回調
     """
+    if provider.is_cloud_model(model_name):
+        return
+
     model_size = provider.get_model_size(model_name)
     size_text = f" ({model_size})" if model_size else ""
     
@@ -2970,7 +2990,14 @@ def _show_llm_selection_dialog(parent):
         language_getter=lambda: i18n.language
     )
     
-    available_models = ProviderFactory.get_available_models("ollama")
+    available_models = [
+        model
+        for model in ProviderFactory.get_available_models("ollama")
+        if not ollama_provider.is_paid_model(model)
+    ]
+    if ollama_provider.is_paid_model(current_ollama_model):
+        current_ollama_model = ProviderFactory.get_default_model("ollama")
+        ollama_model_var_local.set(current_ollama_model)
     
     # 創建固定高度、可捲動的模型列表，避免只顯示第一列。
     models_list_outer = tk.Frame(ollama_frame, bg=PANEL_BG, relief="solid", bd=1, height=190)
@@ -3007,6 +3034,8 @@ def _show_llm_selection_dialog(parent):
         # 重新創建模型行
         updated_status = ollama_provider.get_model_status()
         for model in available_models:
+            if ollama_provider.is_paid_model(model):
+                continue
             _create_ollama_model_row(
                 models_list_frame,
                 model,
@@ -3360,7 +3389,10 @@ def _show_llm_selection_dialog(parent):
             selected_model = github_model_var_local.get()
         else:
             selected_model = ollama_model_var_local.get()
-            if not ollama_provider.is_model_available(selected_model):
+            if ollama_provider.is_paid_model(selected_model):
+                selected_model = ProviderFactory.get_default_model("ollama")
+                ollama_model_var_local.set(selected_model)
+            if not ollama_provider.is_cloud_model(selected_model) and not ollama_provider.is_model_available(selected_model):
                 choice = messagebox.askyesnocancel(
                     t("dialog.confirm_title"),
                     t("dialog.ollama_model_missing_prompt", model=selected_model),
@@ -3765,16 +3797,7 @@ analysis_menu.add_separator()
 
 # 【Phase 2】LLM 語氣子菜單
 from providers import tone_templates
-tone_menu = tk.Menu(analysis_menu, tearoff=0)
-current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
-for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
-    tone_menu.add_radiobutton(
-        label=tone_name,
-        value=tone_id,
-        variable=current_tone_var,
-        command=lambda t=tone_id: set_llm_tone(t)
-    )
-analysis_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
+
 
 menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
 
@@ -3798,6 +3821,16 @@ for language in i18n.available_languages:
 
 settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
 settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
+tone_menu = tk.Menu(analysis_menu, tearoff=0)
+current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
+for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
+    tone_menu.add_radiobutton(
+        label=tone_name,
+        value=tone_id,
+        variable=current_tone_var,
+        command=lambda t=tone_id: set_llm_tone(t)
+    )
+settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
 settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
 settings_menu.add_separator()
 settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
