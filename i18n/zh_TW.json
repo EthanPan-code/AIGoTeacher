@@ -182,7 +182,7 @@
   "dialog.provider_nvidia_api_key": "API Key",
   "dialog.provider_nvidia_model": "模型",
   "dialog.provider_api_key_env_hint": "提示：API Key 優先從系統 keyring 讀取，並可 fallback 到 .env / NVIDIA_API_KEY / KATAGO_NVIDIA_API_KEY。套用 NVIDIA 時會存到 keyring，不會寫入 .env 或 ui_settings.json。",
-  "dialog.confirm_title": "確認",
+  "dialog.confirm_title": "確定",
   "dialog.ollama_model_confirm_download": "確定要下載 {model}？",
   "dialog.ollama_model_downloading": "下載模型中",
   "dialog.ollama_model_downloading_model": "正在下載：{model}{size}",

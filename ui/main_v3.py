@@ -26,7 +26,7 @@ BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
 CANVAS_SIZE = BOARD_PIXEL 
 ANALYSIS_CACHE_LIMIT = 300
 UI_POLL_INTERVAL_MS = 200
-COMMENTARY_CACHE_LIMIT = 200  # 【Phase 1】解說快取上限（無限制，改為存儲全部）
+COMMENTARY_CACHE_LIMIT = 200  
 
 UI_BG = "#f5f0e8"
 PANEL_BG = "#fffaf2"
@@ -3450,6 +3450,56 @@ def set_llm_tone(tone: str):
         print(f"更新提供商語氣失敗: {e}")
 
 
+
+
+def show_analysis_log_dialog():
+
+    def open_analysis_log_path(path):
+        with open(path, mode="r", encoding="utf-8") as file:
+            content = file.read()
+            text.config(state="normal")
+            text.insert(tk.END, content)
+            text.config(state="disabled")
+
+    # 選擇 log 視窗   
+    analysis_log_win = tk.Toplevel(root)
+    analysis_log_win.title(t("undefined"))
+    analysis_log_win.geometry("700x520")
+    analysis_log_win.iconbitmap(resource_path("image/logo.ico"))
+    analysis_log_win.transient(root)
+    analysis_log_win.grab_set()
+    
+    main_frame = ttk.Frame(analysis_log_win, padding=(16, 16, 16, 16))
+    main_frame.pack(fill="both", expand=True)
+    main_frame.columnconfigure(0, weight=1)
+    main_frame.rowconfigure(1, weight=1)
+    analysis_log_path = os.path.join(get_runtime_data_root(), "analysis_logs")
+    file_names = os.listdir(analysis_log_path)
+    file_names = file_names[::-1]
+    ttk.Label(main_frame, text=analysis_log_path, font=("Microsoft JhengHei", 10, "bold")).grid(row=0, column=0, sticky="nw", pady=(0, 6))
+
+    combo = ttk.Combobox(
+        main_frame,
+        values=file_names,
+        state="readonly"
+    )
+    combo.current(0)
+    combo.grid(row=1, column=0, sticky="new", pady=10)
+
+    text = tk.Text(
+        main_frame,
+        width=50,
+        height=20,
+        font=("Courier", 10)
+    )
+    text.grid(row=2, column=0, sticky="new", pady=10)
+    text.config(state="disabled")
+
+    analysis_log_file_path = os.path.join(analysis_log_path, combo.get())
+
+    ttk.Button(main_frame, text=t("dialog.confirm_title"), command=lambda: open_analysis_log_path(analysis_log_file_path)
+    , width=12).grid(row=3, column=0, sticky="se", pady=(0, 6))
+
 def show_custom_prompt_dialog():
     """顯示自訂提示詞對話框"""
     from providers import tone_templates
@@ -3832,6 +3882,7 @@ for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
     )
 settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
 settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
+settings_menu.add_command(label=t("KataGO 日誌"), command=show_analysis_log_dialog)
 settings_menu.add_separator()
 settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
 menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
