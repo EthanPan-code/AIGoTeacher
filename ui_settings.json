@@ -1,5 +1,5 @@
 {
-  "language": "zh_TW",
+  "language": "en",
   "llm_provider": "github",
   "ollama_model": "gemma4:31b-cloud",
   "nvidia_model": "meta/llama-3.1-8b-instruct",

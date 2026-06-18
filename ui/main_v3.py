@@ -203,7 +203,7 @@ from services.keyring_service import (
     set_nvidia_api_key,
 )
 from services.provider_factory import ProviderFactory
-import threading  # 【Phase 1】確保 threading 已匯入（已在 import 中，此為確認）
+import threading  
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -3922,9 +3922,8 @@ menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
 analysis_menu = tk.Menu(menu_bar, tearoff=0)
 analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
 analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
-analysis_menu.add_separator()
 
-# 【Phase 2】LLM 語氣子菜單
+# LLM 語氣子菜單
 from providers import tone_templates
 
 
@@ -3961,7 +3960,6 @@ for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
     )
 settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
 settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
-settings_menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
 settings_menu.add_separator()
 settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
 menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
@@ -3970,6 +3968,7 @@ view_menu = tk.Menu(menu_bar, tearoff=0)
 show_teacher_var = tk.BooleanVar(value=True)
 show_branch_var = tk.BooleanVar(value=True)
 show_move_numbers_var = tk.BooleanVar(value=False)
+show_dev_var = tk.BooleanVar(value=False)
 
 def toggle_teacher_panel():
     if show_teacher_var.get():
@@ -3987,9 +3986,16 @@ def toggle_move_numbers():
     board._handle_recommendation_hover(None)
     board._draw_move_numbers()
 
+def toggle_dev():
+    if show_dev_var.get():
+        menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
+    else:
+        menu_bar.delete(t("menu.dev"))
+
 view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
 view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
 view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
+view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
 menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
 
 help_menu = tk.Menu(menu_bar, tearoff=0)
@@ -4000,6 +4006,12 @@ help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.show
 help_menu.add_command(label=t("menu.about"), command=show_about)
 menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
 menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
+
+# 開發者選項
+dev_menu = tk.Menu(menu_bar, tearoff=0)
+dev_menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
+
+
 root.config(menu=menu_bar)
 
 # 綁定方向鍵
@@ -4430,6 +4442,7 @@ def rebuild_menu_bar():
     view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
     view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
     view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
+    view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
     menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
 
     help_menu = tk.Menu(menu_bar, tearoff=0)

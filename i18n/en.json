@@ -29,6 +29,7 @@
   "menu.show_teacher": "Show AI Teacher Commentary",
   "menu.show_branch": "Show Branch Switcher",
   "menu.show_move_numbers": "Show Move Numbers",
+  "menu.dev_show":"Show Developer Options",
   "menu.shortcuts": "Shortcuts",
   "menu.about": "About",
   "menu.feedback": "Feedback",
@@ -246,6 +247,7 @@
   "status.tone_changed": "Voice switched to: {tone}",
   "status.custom_prompts_saved": "Custom prompts saved",
   "error.prompt_empty": "Prompt cannot be empty",
+  "menu.dev":"Dev.",
   "menu.check_log_title":"KataGo log",
   "dialog.check_log_title":"check KataGo log"
 }
