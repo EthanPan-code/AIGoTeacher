@@ -245,5 +245,7 @@
   "button.reset_prompts": "重設為預設",
   "status.tone_changed": "語氣已切換為：{tone}",
   "status.custom_prompts_saved": "自訂提示詞已保存",
-  "error.prompt_empty": "提示詞不能為空"
+  "error.prompt_empty": "提示詞不能為空",
+  "menu.check_log_title":"KataGo 日誌",
+  "dialog.check_log_title":"查看 KataGo 日誌"
 }

@@ -3455,50 +3455,129 @@ def set_llm_tone(tone: str):
 def show_analysis_log_dialog():
 
     def open_analysis_log_path(path):
-        with open(path, mode="r", encoding="utf-8") as file:
-            content = file.read()
-            text.config(state="normal")
-            text.insert(tk.END, content)
-            text.config(state="disabled")
+        text.config(state="normal")
+        text.delete("1.0", tk.END)  
+        
+        if os.path.exists(path):
+            with open(path, mode="r", encoding="utf-8") as file:
+                content = file.read()
+                text.insert(tk.END, content)
+            
+            # 載入文字後，執行語法高亮解析
+            apply_highlighting()
+        else:
+            text.insert(tk.END, f"找不到日誌檔案：{path}\n")
+            text.tag_add("ERROR", "1.0", "end")  # 將錯誤提示整段標紅
+            
+        text.config(state="disabled")
+
+    def apply_highlighting():
+        """解析文字並加上對應的顏色標籤"""
+        # 定義不同層級的關鍵字與對應的 Tag 名稱
+        rules = {
+            "ERROR": r"\b(ERROR|CRITICAL|FAIL|FAILED|Exception|Traceback)\b",
+            "WARN": r"\b(WARN|WARNING|DEBUG)\b",
+            "INFO": r"\b(INFO|SUCCESS|OK)\b",
+            "TIME": r"\b\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\+\d{4}\b"  
+        }
+        
+        for tag_name, pattern in rules.items():
+            # 清除舊的 tag 標記（避免重複疊加）
+            text.tag_remove(tag_name, "1.0", tk.END)
+            
+            # 使用 re.finditer 尋找所有符合的關鍵字位置
+            content = text.get("1.0", tk.END)
+            for match in re.finditer(pattern, content, re.IGNORECASE):
+                start_index = match.start()
+                end_index = match.end()
+                
+                # 將字元索引轉換為 Tkinter Text 的 "行.列" 格式
+                # Tkinter 的行從 1 開始，列從 0 開始
+                start_pos = f"1.0 + {start_index} chars"
+                end_pos = f"1.0 + {end_index} chars"
+                
+                text.tag_add(tag_name, start_pos, end_pos)
 
     # 選擇 log 視窗   
     analysis_log_win = tk.Toplevel(root)
-    analysis_log_win.title(t("undefined"))
-    analysis_log_win.geometry("700x520")
+    analysis_log_win.title(t("dialog.check_log_title"))
+    analysis_log_win.geometry("750x600")
     analysis_log_win.iconbitmap(resource_path("image/logo.ico"))
     analysis_log_win.transient(root)
     analysis_log_win.grab_set()
     
+    # 主面板佈局設定
     main_frame = ttk.Frame(analysis_log_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
     main_frame.columnconfigure(0, weight=1)
-    main_frame.rowconfigure(1, weight=1)
-    analysis_log_path = os.path.join(get_runtime_data_root(), "analysis_logs")
-    file_names = os.listdir(analysis_log_path)
+    main_frame.rowconfigure(2, weight=1)
+    if is_frozen_app():
+        analysis_log_path = os.path.join(get_runtime_data_root(), "logs", "analysis_logs")
+    else:
+        analysis_log_path = os.path.join(get_runtime_data_root(), "analysis_logs")
+
+    file_names = os.listdir(analysis_log_path) if os.path.exists(analysis_log_path) else []
     file_names = file_names[::-1]
+
+    # 1. 頂部路徑標示
     ttk.Label(main_frame, text=analysis_log_path, font=("Microsoft JhengHei", 10, "bold")).grid(row=0, column=0, sticky="nw", pady=(0, 6))
 
-    combo = ttk.Combobox(
-        main_frame,
-        values=file_names,
-        state="readonly"
-    )
-    combo.current(0)
-    combo.grid(row=1, column=0, sticky="new", pady=10)
+    # 2. 下拉選單
+    combo = ttk.Combobox(main_frame, values=file_names, state="readonly")
+    if file_names:
+        combo.current(0)
+    combo.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+    # 3. Log 顯示區塊（含滾動條）
+    text_frame = ttk.Frame(main_frame)
+    text_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+    text_frame.columnconfigure(0, weight=1)
+    text_frame.rowconfigure(0, weight=1)
+
+    v_scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
+    v_scrollbar.grid(row=0, column=1, sticky="ns")
+    h_scrollbar = ttk.Scrollbar(text_frame, orient="horizontal")
+    h_scrollbar.grid(row=1, column=0, sticky="ew")
 
     text = tk.Text(
-        main_frame,
-        width=50,
-        height=20,
-        font=("Courier", 10)
+        text_frame,
+        wrap="none",
+        font=("Consolas", 10),
+        bg="#1e1e1e",
+        fg="#d4d4d4",
+        insertbackground="white",
+        padx=10,
+        pady=10,
+        undo=False,
+        yscrollcommand=v_scrollbar.set,
+        xscrollcommand=h_scrollbar.set
     )
-    text.grid(row=2, column=0, sticky="new", pady=10)
+    text.grid(row=0, column=0, sticky="nsew")
+    
+    v_scrollbar.config(command=text.yview)
+    h_scrollbar.config(command=text.xview)
+    
+    # --- 配置語法高亮的顏色樣式 ---
+    text.tag_config("ERROR", foreground="#f44336", font=("Consolas", 10, "bold"))  # 明亮紅 + 粗體
+    text.tag_config("WARN", foreground="#ff9800", font=("Consolas", 10, "bold"))   # 橘黃色 + 粗體
+    text.tag_config("INFO", foreground="#4caf50")                                   # 溫和綠
+    text.tag_config("TIME", foreground="#00bcd4")                                   # 青藍色
+    # ----------------------------
+    
     text.config(state="disabled")
 
-    analysis_log_file_path = os.path.join(analysis_log_path, combo.get())
+    # 4. 按鈕區塊
+    def on_confirm_click():
+        if combo.get():
+            current_path = os.path.join(analysis_log_path, combo.get())
+            open_analysis_log_path(current_path)
 
-    ttk.Button(main_frame, text=t("dialog.confirm_title"), command=lambda: open_analysis_log_path(analysis_log_file_path)
-    , width=12).grid(row=3, column=0, sticky="se", pady=(0, 6))
+    ttk.Button(
+        main_frame, 
+        text=t("dialog.confirm_title"), 
+        command=on_confirm_click, 
+        width=12
+    ).grid(row=3, column=0, sticky="se")
 
 def show_custom_prompt_dialog():
     """顯示自訂提示詞對話框"""
@@ -3882,7 +3961,7 @@ for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
     )
 settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
 settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
-settings_menu.add_command(label=t("KataGO 日誌"), command=show_analysis_log_dialog)
+settings_menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
 settings_menu.add_separator()
 settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
 menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)

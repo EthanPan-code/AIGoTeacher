@@ -245,5 +245,7 @@
   "button.reset_prompts": "Reset to Default",
   "status.tone_changed": "Voice switched to: {tone}",
   "status.custom_prompts_saved": "Custom prompts saved",
-  "error.prompt_empty": "Prompt cannot be empty"
+  "error.prompt_empty": "Prompt cannot be empty",
+  "menu.check_log_title":"KataGo log",
+  "dialog.check_log_title":"check KataGo log"
 }
