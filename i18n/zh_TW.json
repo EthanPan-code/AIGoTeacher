@@ -247,7 +247,16 @@
   "status.custom_prompts_saved": "自訂提示詞已保存",
   "error.prompt_empty": "提示詞不能為空",
   "menu.dev":"Dev.",
+  "menu.system_info": "系統資訊",
+  "menu.export_diagnostics": "匯出診斷報告",
   "menu.dev_show":"顯示開發者選項",
   "menu.check_log_title":"KataGo 日誌",
-  "dialog.check_log_title":"查看 KataGo 日誌"
+  "dialog.check_log_title":"查看 KataGo 日誌",
+  "dialog.system_info_title": "系統資訊",
+  "dialog.system_info_error": "無法顯示系統資訊，詳細錯誤已記錄到 log。",
+  "dialog.diagnostics_exported_title": "診斷報告已匯出",
+  "dialog.diagnostics_exported_message": "診斷報告已匯出",
+  "dialog.diagnostics_export_error": "無法匯出診斷報告，詳細錯誤已記錄到 log。",
+  "dialog.open_folder_error": "無法開啟資料夾，詳細錯誤已記錄到 log。",
+  "button.open_folder": "開啟資料夾"
 }

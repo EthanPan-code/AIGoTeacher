@@ -248,6 +248,15 @@
   "status.custom_prompts_saved": "Custom prompts saved",
   "error.prompt_empty": "Prompt cannot be empty",
   "menu.dev":"Dev.",
+  "menu.system_info": "System Info",
+  "menu.export_diagnostics": "Export Diagnostic Report",
   "menu.check_log_title":"KataGo log",
-  "dialog.check_log_title":"check KataGo log"
+  "dialog.check_log_title":"check KataGo log",
+  "dialog.system_info_title": "System Info",
+  "dialog.system_info_error": "Could not show system information. Details were written to the log.",
+  "dialog.diagnostics_exported_title": "Diagnostic Report Exported",
+  "dialog.diagnostics_exported_message": "Diagnostic report exported",
+  "dialog.diagnostics_export_error": "Could not export diagnostic report. Details were written to the log.",
+  "dialog.open_folder_error": "Could not open the folder. Details were written to the log.",
+  "button.open_folder": "Open Folder"
 }

@@ -2,7 +2,7 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io, shutil, ctypes  # 【Phase 1】確保 threading 已匯入
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io, shutil, ctypes, platform  # 【Phase 1】確保 threading 已匯入
 import webbrowser
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -367,15 +367,6 @@ class KataGoAnalyzer:
             self.startup_error_type = "no_gpu"
             logger.error("KataGo OpenCL 錯誤: %s", text)
             self._notify_startup("status.katago_no_gpu_found")
-        elif (
-            "Uncaught exception" in text
-            or "Could not" in text
-            or "does not exist" in text
-            or "invalid permissions" in text
-        ):
-            self.startup_error = text
-            self.startup_error_type = "generic"
-            self._notify_startup("status.katago_startup_failed")
         elif "Performing autotuning" in text:
             self._notify_startup("status.katago_autotuning")
         elif "Done tuning" in text:
@@ -387,6 +378,14 @@ class KataGoAnalyzer:
         elif "Started, ready to begin handling requests" in text:
             self.ready_event.set()
             self._notify_startup("status.katago_ready")
+        elif (
+            "Uncaught exception" in text
+        ):
+            self.startup_error = text
+            self.startup_error_type = "generic"
+            self._notify_startup("status.katago_startup_failed")
+            logger.info("KATAGO: %s", text)
+            logger.error("TRIGGERED FAIL: %s", text)
 
     def _startup_log_thread(self):
         while True:
@@ -3450,6 +3449,490 @@ def set_llm_tone(tone: str):
         print(f"更新提供商語氣失敗: {e}")
 
 
+def _format_bytes_as_gb(byte_count):
+    """把位元組數轉成 GB 字串；輸入不可用時回傳 Unknown。"""
+    try:
+        value = float(byte_count)
+        if value < 0:
+            return "Unknown"
+        return f"{value / (1024 ** 3):.1f} GB"
+    except Exception:
+        logger.exception("記憶體容量格式化失敗: %r", byte_count)
+        return "Unknown"
+
+
+def _run_powershell_json(command, timeout=5):
+    """執行 PowerShell 並解析 JSON，失敗時回傳 None。
+
+    這裡只用於診斷資訊的 best-effort 查詢，任何錯誤都不能影響主 UI。
+    """
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=creationflags,
+        )
+        if proc.returncode != 0:
+            logger.warning("PowerShell 診斷查詢失敗: %s", (proc.stderr or proc.stdout or "").strip())
+            return None
+        output = (proc.stdout or "").strip()
+        if not output:
+            return None
+        return json.loads(output)
+    except Exception:
+        logger.exception("PowerShell 診斷查詢例外")
+        return None
+
+
+def _get_windows_display_version(build_number):
+    """根據 Windows build 推估 Windows 顯示版本。"""
+    try:
+        build_int = int(build_number)
+        if build_int >= 22000:
+            return "Windows 11"
+        if build_int > 0:
+            return "Windows 10"
+    except Exception:
+        logger.exception("Windows build 解析失敗: %r", build_number)
+    return platform.platform() or "Unknown"
+
+
+def _get_cpu_name():
+    """取得 CPU 名稱；Windows 優先使用 CIM，失敗再回落到 platform。"""
+    data = _run_powershell_json(
+        "Get-CimInstance Win32_Processor | Select-Object -First 1 Name | ConvertTo-Json -Compress"
+    )
+    try:
+        if isinstance(data, dict) and data.get("Name"):
+            return str(data["Name"]).strip()
+    except Exception:
+        logger.exception("CPU 名稱解析失敗")
+
+    try:
+        return platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER") or "Unknown"
+    except Exception:
+        logger.exception("CPU fallback 查詢失敗")
+        return "Unknown"
+
+
+def _get_physical_core_count():
+    """取得實體核心數；CIM 失敗時以 Unknown 表示。"""
+    data = _run_powershell_json(
+        "Get-CimInstance Win32_Processor | Select-Object -First 1 NumberOfCores | ConvertTo-Json -Compress"
+    )
+    try:
+        if isinstance(data, dict) and data.get("NumberOfCores") is not None:
+            return str(data["NumberOfCores"])
+    except Exception:
+        logger.exception("CPU 核心數解析失敗")
+    return "Unknown"
+
+
+def _get_ram_info():
+    """使用 Win32 GlobalMemoryStatusEx 取得 RAM 資訊。"""
+    info = {"total": "Unknown", "available": "Unknown", "used": "Unknown"}
+
+    try:
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MEMORYSTATUSEX()
+        status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            logger.warning("GlobalMemoryStatusEx 回傳失敗")
+            return info
+
+        used = max(status.ullTotalPhys - status.ullAvailPhys, 0)
+        info["total"] = _format_bytes_as_gb(status.ullTotalPhys)
+        info["available"] = _format_bytes_as_gb(status.ullAvailPhys)
+        info["used"] = _format_bytes_as_gb(used)
+    except Exception:
+        logger.exception("RAM 資訊取得失敗")
+
+    return info
+
+
+def _get_gpu_info():
+    """取得第一張 GPU 的名稱與記憶體；不可用時回傳 Unknown。"""
+    result = {"name": "Unknown", "memory": "Unknown"}
+    data = _run_powershell_json(
+        "Get-CimInstance Win32_VideoController | "
+        "Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress"
+    )
+    try:
+        if isinstance(data, list) and data:
+            data = data[0]
+        if isinstance(data, dict):
+            result["name"] = str(data.get("Name") or "Unknown").strip() or "Unknown"
+            adapter_ram = data.get("AdapterRAM")
+            if adapter_ram is not None:
+                result["memory"] = _format_bytes_as_gb(adapter_ram)
+    except Exception:
+        logger.exception("GPU 資訊解析失敗")
+    return result
+
+
+def safe_get_system_info():
+    """安全收集系統資訊，任何欄位失敗都不會讓 UI 崩潰。"""
+    info = {
+        "windows_version": "Unknown",
+        "windows_build": "Unknown",
+        "machine_type": "Unknown",
+        "cpu_name": "Unknown",
+        "cpu_core_count": "Unknown",
+        "logical_processor_count": "Unknown",
+        "total_ram": "Unknown",
+        "available_ram": "Unknown",
+        "used_ram": "Unknown",
+        "gpu_name": "Unknown",
+        "gpu_memory": "Unknown",
+        "python": "Unknown",
+    }
+
+    try:
+        version_parts = platform.version().split(".")
+        build = version_parts[2] if len(version_parts) >= 3 else "Unknown"
+        info["windows_version"] = _get_windows_display_version(build)
+        info["windows_build"] = f"Build {build}" if build != "Unknown" else "Unknown"
+    except Exception:
+        logger.exception("Windows 版本資訊取得失敗")
+
+    try:
+        info["machine_type"] = platform.machine() or "Unknown"
+    except Exception:
+        logger.exception("Machine Type 取得失敗")
+
+    info["cpu_name"] = _get_cpu_name()
+    info["cpu_core_count"] = _get_physical_core_count()
+    try:
+        info["logical_processor_count"] = str(os.cpu_count() or "Unknown")
+    except Exception:
+        logger.exception("邏輯處理器數量取得失敗")
+
+    ram_info = _get_ram_info()
+    info["total_ram"] = ram_info["total"]
+    info["available_ram"] = ram_info["available"]
+    info["used_ram"] = ram_info["used"]
+
+    gpu_info = _get_gpu_info()
+    info["gpu_name"] = gpu_info["name"]
+    info["gpu_memory"] = gpu_info["memory"]
+
+    try:
+        info["python"] = sys.version.replace("\n", " ")
+    except Exception:
+        logger.exception("Python 版本資訊取得失敗")
+
+    return info
+
+
+def safe_get_katago_info():
+    """安全取得 KataGo 執行檔、設定檔、模型檔路徑與存在狀態。"""
+    items = [
+        ("executable", "KataGo Executable", get_katago_path, DEFAULT_KATAGO_PATH),
+        ("config", "Config", get_config_path, DEFAULT_CONFIG_PATH),
+        ("model", "Model", get_model_path, DEFAULT_MODEL_PATH),
+    ]
+    info = {}
+    for key, label, getter, fallback in items:
+        path = fallback
+        exists = False
+        try:
+            path = getter() or fallback
+            exists = os.path.exists(path)
+        except Exception:
+            logger.exception("%s 路徑檢查失敗", label)
+        info[key] = {
+            "label": label,
+            "path": os.path.abspath(path) if path else "Unknown",
+            "filename": os.path.basename(path) if path else fallback,
+            "exists": bool(exists),
+        }
+    return info
+
+
+def safe_get_ai_config():
+    """安全取得目前 AI 提供商、模型與語言設定。"""
+    config = {"provider": "Unknown", "model": "Unknown", "language": "Unknown"}
+    try:
+        provider_id = config_service.get_setting("llm_provider", "ollama")
+        config["provider"] = ProviderFactory.get_display_name(provider_id)
+        config["model"] = ProviderFactory.get_configured_model(config_service, provider_id)
+    except Exception:
+        logger.exception("AI Provider/Model 設定取得失敗")
+    try:
+        config["language"] = i18n.language
+    except Exception:
+        logger.exception("語言設定取得失敗")
+    return config
+
+
+def _create_labeled_row(parent, row, label, value, value_font=None):
+    """建立診斷資訊視窗中的單列 label/value。"""
+    ttk.Label(parent, text=label, style="Panel.TLabel").grid(row=row, column=0, sticky="nw", padx=(0, 16), pady=3)
+    ttk.Label(
+        parent,
+        text=value,
+        style="Panel.TLabel",
+        font=value_font or ("Microsoft JhengHei", 10),
+        wraplength=460,
+        justify="left",
+    ).grid(row=row, column=1, sticky="nw", pady=3)
+
+
+def _create_info_section(parent, title, rows):
+    """建立系統資訊視窗中的群組區塊。"""
+    frame = ttk.LabelFrame(parent, text=title, padding=(12, 8, 12, 10))
+    frame.pack(fill="x", padx=14, pady=(10, 0))
+    frame.columnconfigure(1, weight=1)
+    for index, (label, value) in enumerate(rows):
+        _create_labeled_row(parent=frame, row=index, label=label, value=value)
+    return frame
+
+
+def show_system_info_dialog():
+    """顯示開發者用系統資訊視窗。"""
+    try:
+        system_info = safe_get_system_info()
+        katago_info = safe_get_katago_info()
+
+        win = tk.Toplevel(root)
+        win.title(t("dialog.system_info_title"))
+        win.geometry("640x680")
+        win.minsize(560, 520)
+        win.iconbitmap(resource_path("image/logo.ico"))
+        win.transient(root)
+        win.grab_set()
+
+        container = ttk.Frame(win, padding=(12, 8, 12, 12))
+        container.pack(fill="both", expand=True)
+
+        _create_info_section(container, "作業系統", [
+            ("Windows Version", system_info["windows_version"]),
+            ("Windows Build", system_info["windows_build"]),
+            ("Machine Type", system_info["machine_type"]),
+        ])
+        _create_info_section(container, "CPU", [
+            ("CPU Name", system_info["cpu_name"]),
+            ("CPU Core Count", system_info["cpu_core_count"]),
+            ("Logical Processor Count", system_info["logical_processor_count"]),
+        ])
+        _create_info_section(container, "RAM", [
+            ("Total RAM", system_info["total_ram"]),
+            ("Available RAM", system_info["available_ram"]),
+            ("Used RAM", system_info["used_ram"]),
+        ])
+        _create_info_section(container, "GPU", [
+            ("GPU Name", system_info["gpu_name"]),
+            ("GPU Memory", system_info["gpu_memory"]),
+        ])
+
+        katago_rows = []
+        for key in ("executable", "config", "model"):
+            item = katago_info[key]
+            mark = "✓" if item["exists"] else "✗"
+            katago_rows.append((item["label"], f"{mark} {item['filename']}"))
+        _create_info_section(container, "KataGo", katago_rows)
+
+        button_frame = ttk.Frame(container)
+        button_frame.pack(fill="x", padx=14, pady=(14, 0))
+        ttk.Button(button_frame, text=t("button.close"), command=win.destroy, width=12).pack(side="right")
+    except Exception:
+        logger.exception("系統資訊視窗建立失敗")
+        messagebox.showerror(t("dialog.error_title"), t("dialog.system_info_error"))
+
+
+def _iter_log_candidates():
+    """依需求順序列出可附加到診斷報告的 log 目錄。"""
+    yield os.path.join(get_runtime_data_root(), "logs")
+    if is_frozen_app():
+        yield os.path.join(get_runtime_data_root(), "logs", "analysis_logs")
+    else:
+        yield os.path.join(get_runtime_data_root(), "analysis_logs")
+
+
+def _get_newest_log_file():
+    """取得候選 log 目錄中最新的檔案。"""
+    for directory in _iter_log_candidates():
+        try:
+            if not os.path.isdir(directory):
+                continue
+            files = [
+                os.path.join(directory, name)
+                for name in os.listdir(directory)
+                if os.path.isfile(os.path.join(directory, name))
+            ]
+            if files:
+                return max(files, key=os.path.getmtime)
+        except Exception:
+            logger.exception("讀取 log 目錄失敗: %s", directory)
+    return None
+
+
+def _read_recent_log_lines(max_lines=100):
+    """讀取最新 log 的最後 max_lines 行；沒有 log 時回傳提示文字。"""
+    log_path = _get_newest_log_file()
+    if not log_path:
+        return "No log file found"
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+        tail = "".join(lines[-max_lines:]).rstrip()
+        return f"Log File: {log_path}\n\n{tail}" if tail else f"Log File: {log_path}\n\n"
+    except Exception:
+        logger.exception("讀取最新 log 檔失敗: %s", log_path)
+        return f"Failed to read log file: {log_path}"
+
+
+def _build_diagnostic_report_text():
+    """組合 diagnostic_report.txt 的完整內容。"""
+    system_info = safe_get_system_info()
+    katago_info = safe_get_katago_info()
+    ai_config = safe_get_ai_config()
+    build_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = [
+        "Application",
+        "===========",
+        f"Version: {APP_VERSION}",
+        f"Build Time: {build_time}",
+        "",
+        "System",
+        "======",
+        f"OS: {system_info['windows_version']} ({system_info['windows_build']}) {system_info['machine_type']}",
+        f"Python: {system_info['python']}",
+        f"CPU: {system_info['cpu_name']} / Cores: {system_info['cpu_core_count']} / Logical: {system_info['logical_processor_count']}",
+        f"RAM: Total {system_info['total_ram']} / Available {system_info['available_ram']} / Used {system_info['used_ram']}",
+        f"GPU: {system_info['gpu_name']} / Memory: {system_info['gpu_memory']}",
+        "",
+        "KataGo",
+        "======",
+        f"Executable Path: {katago_info['executable']['path']}",
+        f"Exists: {katago_info['executable']['exists']}",
+        f"Config Path: {katago_info['config']['path']}",
+        f"Exists: {katago_info['config']['exists']}",
+        f"Model Path: {katago_info['model']['path']}",
+        f"Exists: {katago_info['model']['exists']}",
+        "",
+        "AI Configuration",
+        "================",
+        f"Provider: {ai_config['provider']}",
+        f"Model: {ai_config['model']}",
+        f"Language: {ai_config['language']}",
+        "",
+        "Recent Logs",
+        "===========",
+        _read_recent_log_lines(100),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _open_folder(path):
+    """開啟資料夾，失敗時記錄並顯示錯誤。"""
+    try:
+        if os.name == "nt" and hasattr(os, "startfile"):
+            os.startfile(path)
+        else:
+            webbrowser.open(path)
+    except Exception:
+        logger.exception("開啟資料夾失敗: %s", path)
+        messagebox.showerror(t("dialog.error_title"), t("dialog.open_folder_error"))
+
+
+def _show_diagnostic_export_success(report_path, diagnostics_dir):
+    """顯示診斷報告匯出完成訊息與開啟資料夾按鈕。"""
+    win = tk.Toplevel(root)
+    win.title(t("dialog.diagnostics_exported_title"))
+    win.resizable(False, False)
+    win.iconbitmap(resource_path("image/logo.ico"))
+    win.transient(root)
+    win.grab_set()
+
+    frame = ttk.Frame(win, padding=(22, 18, 22, 18))
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(
+        frame,
+        text=t("dialog.diagnostics_exported_message"),
+        font=("Microsoft JhengHei", 12, "bold"),
+        justify="center",
+    ).pack(fill="x")
+    ttk.Label(
+        frame,
+        text="diagnostics/diagnostic_report.txt",
+        font=("Consolas", 10),
+        justify="center",
+    ).pack(fill="x", pady=(8, 18))
+
+    button_frame = ttk.Frame(frame)
+    button_frame.pack(fill="x")
+    ttk.Button(
+        button_frame,
+        text=t("button.open_folder"),
+        command=lambda: _open_folder(diagnostics_dir),
+        style="Primary.TButton",
+    ).pack(side="left")
+    ttk.Button(button_frame, text=t("button.close"), command=win.destroy).pack(side="right")
+
+    win.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width() - win.winfo_width()) // 2
+    y = root.winfo_y() + (root.winfo_height() - win.winfo_height()) // 2
+    win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+
+def export_diagnostic_report():
+    """匯出診斷報告到 diagnostics/diagnostic_report.txt。"""
+    try:
+        diagnostics_dir = os.path.join(get_runtime_data_root(), "diagnostics")
+        try:
+            os.makedirs(diagnostics_dir, exist_ok=True)
+        except Exception:
+            logger.exception("建立 diagnostics 資料夾失敗: %s", diagnostics_dir)
+            messagebox.showerror(t("dialog.error_title"), t("dialog.diagnostics_export_error"))
+            return
+
+        report_path = os.path.join(diagnostics_dir, "diagnostic_report.txt")
+        try:
+            report_text = _build_diagnostic_report_text()
+            with open(report_path, "w", encoding="utf-8") as fh:
+                fh.write(report_text)
+        except Exception:
+            logger.exception("寫入診斷報告失敗: %s", report_path)
+            messagebox.showerror(t("dialog.error_title"), t("dialog.diagnostics_export_error"))
+            return
+
+        logger.info("診斷報告已匯出: %s", report_path)
+        _show_diagnostic_export_success(report_path, diagnostics_dir)
+    except Exception:
+        logger.exception("匯出診斷報告發生未預期錯誤")
+        messagebox.showerror(t("dialog.error_title"), t("dialog.diagnostics_export_error"))
+
+
+def create_dev_menu(parent_menu):
+    """建立 Dev 選單；初始建置與語言重建共用同一份項目。"""
+    menu = tk.Menu(parent_menu, tearoff=0)
+    menu.add_command(label=t("menu.system_info"), command=show_system_info_dialog)
+    menu.add_command(label=t("menu.export_diagnostics"), command=export_diagnostic_report)
+    menu.add_separator()
+    menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
+    return menu
+
+
 
 
 def show_analysis_log_dialog():
@@ -3990,7 +4473,10 @@ def toggle_dev():
     if show_dev_var.get():
         menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
     else:
-        menu_bar.delete(t("menu.dev"))
+        try:
+            menu_bar.delete(t("menu.dev"))
+        except tk.TclError:
+            logger.exception("Dev 選單移除失敗")
 
 view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
 view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
@@ -4008,8 +4494,7 @@ menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
 menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
 
 # 開發者選項
-dev_menu = tk.Menu(menu_bar, tearoff=0)
-dev_menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
+dev_menu = create_dev_menu(menu_bar)
 
 
 root.config(menu=menu_bar)
@@ -4392,7 +4877,7 @@ def on_commentary_generation_complete():
 
 def rebuild_menu_bar():
     global menu_bar, file_menu, edit_menu, analysis_menu, ollama_model_menu
-    global settings_menu, language_menu, view_menu, help_menu
+    global settings_menu, language_menu, view_menu, help_menu, dev_menu
 
     menu_bar = tk.Menu(root)
 
@@ -4455,6 +4940,9 @@ def rebuild_menu_bar():
     
 
     menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
+    dev_menu = create_dev_menu(menu_bar)
+    if show_dev_var.get():
+        menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
     root.config(menu=menu_bar)
 
 
