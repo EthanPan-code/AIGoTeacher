@@ -1,14 +1,14 @@
 Application
 ===========
 Version: 0.2.0-beta
-Build Time: 2026-06-19 14:54:52
+Build Time: 2026-06-19 15:03:06
 
 System
 ======
 OS: Windows 11 (Build 26200) AMD64
 Python: 3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
 CPU: 13th Gen Intel(R) Core(TM) i7-13620H / Cores: 10 / Logical: 16
-RAM: Total 15.6 GB / Available 3.1 GB / Used 12.6 GB
+RAM: Total 15.6 GB / Available 3.4 GB / Used 12.2 GB
 GPU: Intel(R) UHD Graphics / Memory: 2.0 GB
 
 KataGo
@@ -28,9 +28,9 @@ Language: zh_TW
 
 Recent Logs
 ===========
-Log File: c:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\analysis_logs\20260619-145412-6C9FF90E.log
+Log File: c:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\analysis_logs\20260619-150253-B9690E06.log
 
-2026-06-19 14:54:12+0800: Running with following config:
+2026-06-19 15:02:53+0800: Running with following config:
 logDir = analysis_logs
 maxVisits = 500
 nnCacheSizePowerOfTwo = 23
@@ -41,21 +41,21 @@ numAnalysisThreads = 2
 numSearchThreads = 16
 reportAnalysisWinratesAs = BLACK
 
-2026-06-19 14:54:12+0800: Analysis Engine starting...
-2026-06-19 14:54:12+0800: KataGo v1.16.4
-2026-06-19 14:54:12+0800: nnRandSeed0 = 2290685975772423430
-2026-06-19 14:54:12+0800: After dedups: nnModelFile0 = C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\models\kata.bin.gz useFP16 auto useNHWC auto
-2026-06-19 14:54:12+0800: Initializing neural net buffer to be size 19 * 19 allowing smaller boards
-2026-06-19 14:54:16+0800: Found OpenCL Platform 0: Intel(R) OpenCL Graphics (Intel(R) Corporation) (OpenCL 3.0 )
-2026-06-19 14:54:16+0800: Found 1 device(s) on platform 0 with type CPU or GPU or Accelerator
-2026-06-19 14:54:16+0800: Found OpenCL Device 0: Intel(R) UHD Graphics (Intel(R) Corporation) (score 6000300)
-2026-06-19 14:54:16+0800: Creating context for OpenCL Platform: Intel(R) OpenCL Graphics (Intel(R) Corporation) (OpenCL 3.0 )
-2026-06-19 14:54:16+0800: Using OpenCL Device 0: Intel(R) UHD Graphics (Intel(R) Corporation) OpenCL 3.0 NEO  (Extensions: cl_khr_byte_addressable_store cl_khr_device_uuid cl_khr_fp16 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_icd cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_intel_command_queue_families cl_intel_subgroups cl_intel_required_subgroup_size cl_intel_subgroups_short cl_khr_spir cl_intel_accelerator cl_intel_driver_diagnostics cl_khr_priority_hints cl_khr_throttle_hints cl_khr_create_command_queue cl_intel_subgroups_char cl_intel_subgroups_long cl_khr_il_program cl_intel_mem_force_host_memory cl_khr_subgroup_extended_types cl_khr_subgroup_non_uniform_vote cl_khr_subgroup_ballot cl_khr_subgroup_non_uniform_arithmetic cl_khr_subgroup_shuffle cl_khr_subgroup_shuffle_relative cl_khr_subgroup_clustered_reduce cl_intel_device_attribute_query cl_khr_expect_assume cl_khr_extended_bit_ops cl_khr_suggested_local_work_size cl_intel_split_work_group_barrier cl_intel_spirv_media_block_io cl_intel_spirv_subgroups cl_khr_spirv_linkonce_odr cl_khr_spirv_no_integer_wrap_decoration cl_intel_unified_shared_memory cl_khr_mipmap_image cl_khr_mipmap_image_writes cl_ext_float_atomics cl_khr_external_memory cl_intel_planar_yuv cl_intel_packed_yuv cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_image2d_from_buffer cl_khr_depth_images cl_khr_3d_image_writes cl_intel_media_block_io cl_intel_subgroup_local_block_io cl_khr_integer_dot_product cl_khr_gl_sharing cl_khr_gl_depth_images cl_khr_gl_event cl_khr_gl_msaa_sharing cl_intel_dx9_media_sharing cl_khr_dx9_media_sharing cl_khr_d3d10_sharing cl_khr_d3d11_sharing cl_intel_d3d11_nv12_media_sharing cl_intel_sharing_format_query cl_khr_pci_bus_info cl_intel_simultaneous_sharing )
-2026-06-19 14:54:16+0800: Loaded tuning parameters from: C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher/KataGoData/opencltuning/tune11_gpuIntelRUHDGraphics_x19_y19_c512_mv15.txt
-2026-06-19 14:54:16+0800: OpenCL backend thread 0: Model version 15
-2026-06-19 14:54:16+0800: OpenCL backend thread 0: Model name: kata1-b28c512nbt-s11683634944-d5521904263
-2026-06-19 14:54:20+0800: OpenCL backend thread 0: FP16Storage true FP16Compute true FP16TensorCores false FP16TensorCoresFor1x1 false
-2026-06-19 14:54:20+0800: Loaded config C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\analysis_example.cfg
-2026-06-19 14:54:20+0800: Loaded model C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\models\kata.bin.gz
-2026-06-19 14:54:20+0800: Analyzing up to 2 positions at a time in parallel
-2026-06-19 14:54:20+0800: Started, ready to begin handling requests
+2026-06-19 15:02:53+0800: Analysis Engine starting...
+2026-06-19 15:02:53+0800: KataGo v1.16.4
+2026-06-19 15:02:53+0800: nnRandSeed0 = 2395662345332876593
+2026-06-19 15:02:53+0800: After dedups: nnModelFile0 = C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\models\kata.bin.gz useFP16 auto useNHWC auto
+2026-06-19 15:02:53+0800: Initializing neural net buffer to be size 19 * 19 allowing smaller boards
+2026-06-19 15:02:57+0800: Found OpenCL Platform 0: Intel(R) OpenCL Graphics (Intel(R) Corporation) (OpenCL 3.0 )
+2026-06-19 15:02:57+0800: Found 1 device(s) on platform 0 with type CPU or GPU or Accelerator
+2026-06-19 15:02:57+0800: Found OpenCL Device 0: Intel(R) UHD Graphics (Intel(R) Corporation) (score 6000300)
+2026-06-19 15:02:57+0800: Creating context for OpenCL Platform: Intel(R) OpenCL Graphics (Intel(R) Corporation) (OpenCL 3.0 )
+2026-06-19 15:02:57+0800: Using OpenCL Device 0: Intel(R) UHD Graphics (Intel(R) Corporation) OpenCL 3.0 NEO  (Extensions: cl_khr_byte_addressable_store cl_khr_device_uuid cl_khr_fp16 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_icd cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_intel_command_queue_families cl_intel_subgroups cl_intel_required_subgroup_size cl_intel_subgroups_short cl_khr_spir cl_intel_accelerator cl_intel_driver_diagnostics cl_khr_priority_hints cl_khr_throttle_hints cl_khr_create_command_queue cl_intel_subgroups_char cl_intel_subgroups_long cl_khr_il_program cl_intel_mem_force_host_memory cl_khr_subgroup_extended_types cl_khr_subgroup_non_uniform_vote cl_khr_subgroup_ballot cl_khr_subgroup_non_uniform_arithmetic cl_khr_subgroup_shuffle cl_khr_subgroup_shuffle_relative cl_khr_subgroup_clustered_reduce cl_intel_device_attribute_query cl_khr_expect_assume cl_khr_extended_bit_ops cl_khr_suggested_local_work_size cl_intel_split_work_group_barrier cl_intel_spirv_media_block_io cl_intel_spirv_subgroups cl_khr_spirv_linkonce_odr cl_khr_spirv_no_integer_wrap_decoration cl_intel_unified_shared_memory cl_khr_mipmap_image cl_khr_mipmap_image_writes cl_ext_float_atomics cl_khr_external_memory cl_intel_planar_yuv cl_intel_packed_yuv cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_image2d_from_buffer cl_khr_depth_images cl_khr_3d_image_writes cl_intel_media_block_io cl_intel_subgroup_local_block_io cl_khr_integer_dot_product cl_khr_gl_sharing cl_khr_gl_depth_images cl_khr_gl_event cl_khr_gl_msaa_sharing cl_intel_dx9_media_sharing cl_khr_dx9_media_sharing cl_khr_d3d10_sharing cl_khr_d3d11_sharing cl_intel_d3d11_nv12_media_sharing cl_intel_sharing_format_query cl_khr_pci_bus_info cl_intel_simultaneous_sharing )
+2026-06-19 15:02:57+0800: Loaded tuning parameters from: C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher/KataGoData/opencltuning/tune11_gpuIntelRUHDGraphics_x19_y19_c512_mv15.txt
+2026-06-19 15:02:57+0800: OpenCL backend thread 0: Model version 15
+2026-06-19 15:02:57+0800: OpenCL backend thread 0: Model name: kata1-b28c512nbt-s11683634944-d5521904263
+2026-06-19 15:03:01+0800: OpenCL backend thread 0: FP16Storage true FP16Compute true FP16TensorCores false FP16TensorCoresFor1x1 false
+2026-06-19 15:03:01+0800: Loaded config C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\analysis_example.cfg
+2026-06-19 15:03:01+0800: Loaded model C:\Users\ethan\OneDrive\桌面\自主學習AI\AIGoTeacher\models\kata.bin.gz
+2026-06-19 15:03:01+0800: Analyzing up to 2 positions at a time in parallel
+2026-06-19 15:03:01+0800: Started, ready to begin handling requests

@@ -3703,56 +3703,354 @@ def _create_info_section(parent, title, rows):
     return frame
 
 
+
+
+
+
+
+
+def setup_system_info_styles():
+    style = ttk.Style()
+
+    bg = style.lookup("TFrame", "background")
+
+    style.configure(
+        "InfoCard.TLabelframe",
+        padding=10
+    )
+
+    style.configure(
+        "InfoCard.TLabelframe.Label",
+        font=("Segoe UI", 10, "bold")
+    )
+
+    style.configure(
+        "InfoKey.TLabel",
+        font=("Segoe UI", 9, "bold"),
+        foreground="#555555"
+    )
+
+    style.configure(
+        "InfoValue.TLabel",
+        font=("Segoe UI", 9)
+    )
+
+    style.configure(
+        "Success.TLabel",
+        foreground="#0A9D4D",
+        font=("Segoe UI", 9, "bold")
+    )
+
+    style.configure(
+        "Error.TLabel",
+        foreground="#D13438",
+        font=("Segoe UI", 9, "bold")
+    )
+
+    style.configure(
+        "HeaderTitle.TLabel",
+        font=("Segoe UI", 16, "bold")
+    )
+
+    style.configure(
+        "HeaderSub.TLabel",
+        font=("Segoe UI", 9)
+    )
+
+
+def _create_info_section(parent, section_title, rows):
+
+    frame = ttk.LabelFrame(
+        parent,
+        text=f" {section_title} ",
+        style="InfoCard.TLabelframe"
+    )
+
+    frame.pack(
+        fill="x",
+        padx=8,
+        pady=6
+    )
+
+    frame.columnconfigure(1, weight=1)
+
+    for row_idx, (key, value) in enumerate(rows):
+
+        ttk.Label(
+            frame,
+            text=key,
+            style="InfoKey.TLabel"
+        ).grid(
+            row=row_idx,
+            column=0,
+            sticky="w",
+            padx=(0, 25),
+            pady=5
+        )
+
+        ttk.Label(
+            frame,
+            text=value,
+            style="InfoValue.TLabel"
+        ).grid(
+            row=row_idx,
+            column=1,
+            sticky="ew",
+            pady=5
+        )
+
+
+def _create_katago_section(parent, katago_info):
+
+    frame = ttk.LabelFrame(
+        parent,
+        text=" KataGo 引擎狀態 ",
+        style="InfoCard.TLabelframe"
+    )
+
+    frame.pack(
+        fill="x",
+        padx=8,
+        pady=6
+    )
+
+    frame.columnconfigure(1, weight=1)
+
+    for row, key in enumerate(("executable", "config", "model")):
+
+        item = katago_info[key]
+
+        ttk.Label(
+            frame,
+            text=item["label"],
+            style="InfoKey.TLabel"
+        ).grid(
+            row=row,
+            column=0,
+            sticky="w",
+            padx=(0, 25),
+            pady=5
+        )
+
+        exists = item["exists"]
+
+        ttk.Label(
+            frame,
+            text=f"{'✓' if exists else '✗'} {item['filename']}",
+            style="Success.TLabel" if exists else "Error.TLabel"
+        ).grid(
+            row=row,
+            column=1,
+            sticky="w",
+            pady=5
+        )
+
+
 def show_system_info_dialog():
-    """顯示開發者用系統資訊視窗。"""
+
     try:
+
+        setup_system_info_styles()
+
         system_info = safe_get_system_info()
         katago_info = safe_get_katago_info()
 
         win = tk.Toplevel(root)
+
         win.title(t("dialog.system_info_title"))
-        win.geometry("640x680")
-        win.minsize(560, 520)
-        win.iconbitmap(resource_path("image/logo.ico"))
+        win.geometry("720x760")
+        win.minsize(640, 600)
+
+        win.iconbitmap(
+            resource_path("image/logo.ico")
+        )
+
         win.transient(root)
         win.grab_set()
 
-        container = ttk.Frame(win, padding=(12, 8, 12, 12))
-        container.pack(fill="both", expand=True)
+        style = ttk.Style()
 
-        _create_info_section(container, "作業系統", [
-            ("Windows Version", system_info["windows_version"]),
-            ("Windows Build", system_info["windows_build"]),
-            ("Machine Type", system_info["machine_type"]),
-        ])
-        _create_info_section(container, "CPU", [
-            ("CPU Name", system_info["cpu_name"]),
-            ("CPU Core Count", system_info["cpu_core_count"]),
-            ("Logical Processor Count", system_info["logical_processor_count"]),
-        ])
-        _create_info_section(container, "RAM", [
-            ("Total RAM", system_info["total_ram"]),
-            ("Available RAM", system_info["available_ram"]),
-            ("Used RAM", system_info["used_ram"]),
-        ])
-        _create_info_section(container, "GPU", [
-            ("GPU Name", system_info["gpu_name"]),
-            ("GPU Memory", system_info["gpu_memory"]),
-        ])
+        bg = style.lookup("TFrame", "background")
 
-        katago_rows = []
-        for key in ("executable", "config", "model"):
-            item = katago_info[key]
-            mark = "✓" if item["exists"] else "✗"
-            katago_rows.append((item["label"], f"{mark} {item['filename']}"))
-        _create_info_section(container, "KataGo", katago_rows)
+        canvas = tk.Canvas(
+            win,
+            bg=bg,
+            highlightthickness=0,
+            borderwidth=0
+        )
 
-        button_frame = ttk.Frame(container)
-        button_frame.pack(fill="x", padx=14, pady=(14, 0))
-        ttk.Button(button_frame, text=t("button.close"), command=win.destroy, width=12).pack(side="right")
+        scrollbar = ttk.Scrollbar(
+            win,
+            orient="vertical",
+            command=canvas.yview
+        )
+
+        container = ttk.Frame(
+            canvas,
+            padding=20
+        )
+
+        container_id = canvas.create_window(
+            (0, 0),
+            window=container,
+            anchor="nw"
+        )
+
+        def on_frame_configure(event):
+            canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+
+        def on_canvas_configure(event):
+            canvas.itemconfig(
+                container_id,
+                width=event.width
+            )
+
+        container.bind(
+            "<Configure>",
+            on_frame_configure
+        )
+
+        canvas.bind(
+            "<Configure>",
+            on_canvas_configure
+        )
+
+        canvas.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        def mousewheel(event):
+            canvas.yview_scroll(
+                int(-1 * (event.delta / 120)),
+                "units"
+            )
+
+        canvas.bind_all(
+            "<MouseWheel>",
+            mousewheel
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        canvas.pack(
+            side="left",
+            fill="both",
+            expand=True
+        )
+
+        # =====================
+        # Header
+        # =====================
+
+        ttk.Label(
+            container,
+            text="🖥 系統資訊與診斷",
+            style="HeaderTitle.TLabel"
+        ).pack(
+            anchor="w"
+        )
+
+        ttk.Label(
+            container,
+            text="Developer Tools • 系統環境檢查 • KataGo 診斷",
+            style="HeaderSub.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 15)
+        )
+
+        ttk.Separator(
+            container,
+            orient="horizontal"
+        ).pack(
+            fill="x",
+            pady=(0, 10)
+        )
+
+        _create_info_section(
+            container,
+            "作業系統",
+            [
+                ("Windows Version", system_info["windows_version"]),
+                ("Windows Build", system_info["windows_build"]),
+                ("Machine Type", system_info["machine_type"]),
+            ]
+        )
+
+        _create_info_section(
+            container,
+            "中央處理器 (CPU)",
+            [
+                ("CPU Name", system_info["cpu_name"]),
+                ("CPU Core Count", system_info["cpu_core_count"]),
+                ("Logical Processor Count", system_info["logical_processor_count"]),
+            ]
+        )
+
+        _create_info_section(
+            container,
+            "記憶體 (RAM)",
+            [
+                ("Total RAM", system_info["total_ram"]),
+                ("Available RAM", system_info["available_ram"]),
+                ("Used RAM", system_info["used_ram"]),
+            ]
+        )
+
+        _create_info_section(
+            container,
+            "顯示卡 (GPU)",
+            [
+                ("GPU Name", system_info["gpu_name"]),
+                ("GPU Memory", system_info["gpu_memory"]),
+            ]
+        )
+
+        _create_katago_section(
+            container,
+            katago_info
+        )
+
+        separator = ttk.Separator(
+            win,
+            orient="horizontal"
+        )
+
+        separator.pack(
+            side="bottom",
+            fill="x"
+        )
+
+        button_frame = ttk.Frame(
+            win,
+            padding=(15, 10)
+        )
+
+        button_frame.pack(
+            side="bottom",
+            fill="x"
+        )
+
+        ttk.Button(
+            button_frame,
+            text=t("button.close"),
+            width=12,
+            command=win.destroy
+        ).pack(
+            side="right"
+        )
+
     except Exception:
         logger.exception("系統資訊視窗建立失敗")
-        messagebox.showerror(t("dialog.error_title"), t("dialog.system_info_error"))
+        messagebox.showerror(
+            t("dialog.error_title"),
+            t("dialog.system_info_error")
+        )
 
 
 def _iter_log_candidates():
