@@ -10,12 +10,11 @@ from .base import LLMProvider
 
 NVIDIA_MODELS = [
     "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.1-8b-instruct",
-    "meta/llama-3.3-70b-instruct",
-    "mistralai/mixtral-8x22b-instruct",
-    "mistralai/mixtral-8x7b-instruct",
-    "google/gemma-7b",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "openai/gpt-oss-120b",
+    "moonshotai/kimi-k2.6",
+    "mistralai/mistral-medium-3.5-128b",
+    "google/gemma-4-31b-it",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
 ]
 
 

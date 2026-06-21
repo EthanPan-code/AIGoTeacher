@@ -4749,7 +4749,7 @@ view_menu = tk.Menu(menu_bar, tearoff=0)
 show_teacher_var = tk.BooleanVar(value=True)
 show_branch_var = tk.BooleanVar(value=True)
 show_move_numbers_var = tk.BooleanVar(value=False)
-show_dev_var = tk.BooleanVar(value=False)
+show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
 
 def toggle_teacher_panel():
     if show_teacher_var.get():
@@ -4775,6 +4775,8 @@ def toggle_dev():
             menu_bar.delete(t("menu.dev"))
         except tk.TclError:
             logger.exception("Dev 選單移除失敗")
+    config_service.set_setting("show_developer", show_dev_var.get())
+    config_service.save()
 
 view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
 view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
@@ -4796,6 +4798,10 @@ dev_menu = create_dev_menu(menu_bar)
 
 
 root.config(menu=menu_bar)
+
+# 根據設定套用開發者選項初始狀態
+if show_dev_var.get():
+    menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
 
 # 綁定方向鍵
 root.bind("<Up>", lambda e: board.undo())
