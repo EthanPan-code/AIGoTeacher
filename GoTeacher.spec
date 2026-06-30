@@ -89,7 +89,7 @@ exe = EXE(
     strip=False,
     upx=False,
 
-    console=True,
+    console=False,
 
     disable_windowed_traceback=False,
     argv_emulation=False,
