@@ -2,7 +2,7 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, io, shutil, ctypes, platform  # 【Phase 1】確保 threading 已匯入
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform  
 import webbrowser
 from collections import OrderedDict
 import matplotlib.pyplot as plt

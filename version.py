@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 
-APP_VERSION = "0.2.0-beta"
+APP_VERSION = "0.3.0-beta"
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 VERSION_INFO_PATH = PROJECT_ROOT / "version_info.txt"
