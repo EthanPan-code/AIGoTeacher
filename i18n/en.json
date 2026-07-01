@@ -258,5 +258,16 @@
   "dialog.diagnostics_exported_message": "Diagnostic report exported",
   "dialog.diagnostics_export_error": "Could not export diagnostic report. Details were written to the log.",
   "dialog.open_folder_error": "Could not open the folder. Details were written to the log.",
-  "button.open_folder": "Open Folder"
+  "button.open_folder": "Open Folder",
+  "settings.appearance": "Appearance",
+  "settings.appearance_title": "Appearance Settings",
+  "settings.board_background": "Board Background Image",
+  "settings.board_frame": "Board Frame Background",
+  "settings.black_stone": "Black Stone Image",
+  "settings.white_stone": "White Stone Image",
+  "settings.select_image": "Select Image",
+  "settings.use_default": "Use Default",
+  "settings.image_preview": "Preview",
+  "settings.no_image_selected": "No image selected",
+  "settings.image_files": "Image Files"
 }

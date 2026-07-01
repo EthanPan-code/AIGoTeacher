@@ -1,53 +1,182 @@
 # AI 圍棋老師 / AI Go Teacher
-[中文](#中文)
+
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
+![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)
+![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)
+![License](https://img.shields.io/badge/License-MIT-red)
+![Version](https://img.shields.io/badge/Version-0.3.0--beta-blue)
+
+**AI 圍棋老師 v0.3.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+
+English | 中文
 
 ---
 
-## 中文
-## 介紹
-大家好我是潘昱昕。 **AI 圍棋老師**是我的自主學習專題，此 **Repositories** 涵蓋 **AI 圍棋老師**原始碼，歡迎大家參考。
+## 目錄
 
-## 動機
+- 功能特色
+- 快速開始
+- 技術架構
+- LLM 整合
+- i18n
+- 開發指令
 
-從小在學棋時有接觸過圍棋 AI ，但因為沒有中文的介面與安裝說明，加上當時完全對程式語言一無所知，導致在前置作業處處碰壁。最後找不到解決方法只好放棄。
+---
 
-上高中後因為從社團學習了程式語言加上有語言模型可以提供執導，才終於能成功運行應用程式。而此時我想到如果我可以自己做一個應用程式是不是就可以更方便了。
+## 功能特色
 
-## 目標
+### 核心功能
 
-我的目標是製作出一個互動式應用程式— AI 圍棋老師。透過將 AI 分析的資料傳給 LLM 使其生成解說，讓使用者可以輕鬆覆盤，並且能夠自由設定適合自己的模式。
+| 功能 | 說明 |
+|------|------|
+| **互動棋盤** | Tkinter 視覺化棋盤，支援點擊下棋、拖曳、縮放 |
+| **即時分析** | 同步顯示 AI 推薦手、勝率、預測變化 |
+| **全局分析** | 整盤棋局勝率曲線圖 |
+| **SGF 支援** | 匯入/匯出棋譜，支援分支導航 |
+| **LLM 評論** | 多提供商 AI 圍棋解說 |
 
-## 架構
-![架構](README_img/framework.png)
+### LLM 提供商支援
 
-## UI 介面
-我使用 tkinter 模組生成棋盤，使用者藉由點擊棋盤落子，形成棋譜資訊。
+| 提供商 | 類型 | 預設模型 |
+|--------|------|----------|
+| **Ollama** | 本機 / 雲端 API | `qwen2.5:3b` |
+| **NVIDIA NIM** | 雲端 API | `meta/llama-3.1-8b-instruct` |
+| **GitHub Models** | 雲端 API | `GPT-4o` |
 
-得到 LLM 生成的解說後，解說顯示在  UI 介面上，供使用者參考。
+---
 
-## LLM 
-大型語言模型（Large Language Model）是指像是 ChatGPT 、 Gemini 等語言模型。在我的應用程式中負責將勝率等資料轉化成淺顯易懂的解說供使用者參考。
+## 快速開始
 
-得到勝率變化與最佳著手後，會將資料餵給 LLM ，生成使用者讀的懂的解說。使用者可以依據需求與喜好設定要使用的  LLM 。總共支援 3 種模型來源。
+### 前置需求
+
+- Windows 作業系統
+- Python 3.14+
+- KataGo 模型檔案（需從 [katagotraining.org](https://katagotraining.org/) 下載）
+
+### 安裝步驟
+
+```bash
+# 1. 複製專案
+git clone https://github.com/EthanPan-code/AIGoTeacher.git
+cd AIGoTeacher
+
+# 2. 安裝依賴
+pip install -r requirements.txt
+
+# 3. 下載 KataGo 模型
+'''
+前往 https://katagotraining.org/ 下載神經網路權重檔案
+放置於 models/ 目錄下
+'''
+
+# 4. 執行
+py ui/main_v3.py
+```
 
 
-### Ollama
-Ollama 是我最主要使用的本地語言模型，可以離線操作，也沒有使用次數限制。只要安裝好  Ollama 以及要使用的模型就可以串接。
+---
 
-### Nvidia Models
-Nvidia 在不久之前提供的微型服務，可以利用 API 串接很多語言模型，而且使用次數很多不會很常耗盡。
+## 技術架構
 
-### Github Models
-為開發者測試比較模型的服務，有提供  GPT-4o 等強大模型的 API  。原本打算主要使用  Github Models ，但缺點是  token 數較少，因此現在主要使用  Ollama。
+```
+┌─────────────────────────────────────────┐
+│   KataGo Engine (C++ Binary)            │
+│   - Neural net inference (OpenCL/CUDA)  │
+│   - MCTS search algorithm               │
+│   - 3 operation modes                   │
+└──────────────┬──────────────────────────┘
+               │ Async JSON Protocol
+        ┌──────▼─────────────────────────┐
+        │   Python UI & Tools            │
+        │ ├─ ui/main_v3.py               │
+        │ │  ├─ KataGoAnalyzer class     │
+        │ │  ├─ GoBoard (19x19)          │
+        │ │  └─ OllamaWorker (async)     │
+        │ ├─ providers/ (LLM)            │
+        │ ├─ services/ (config, keyring) │
+        │ └─ i18n/ (translations)        │
+        └────────────────────────────────┘
+```
 
-## 參考資料
+### 核心模組
 
-lightvector.（2025）. *Analysis_Engine.md* [Markdown file]. GitHub. https://github.com/lightvector/KataGo/blob/master/docs/Analysis_Engine.md
+| 模組 | 職責 |
+|------|------|
+| `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
+| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/GitHub） |
+| services | 設定管理、API 金鑰安全儲存 |
+| `i18n.py` | 國際化系統 |
 
-GitHub, Inc.（n.d.）. *GitHub Models* [Documentation page]. GitHub Docs. https://docs.github.com/en/github-models
+### 通訊協定
 
-LLM APIs.（n.d.）. NVIDIA. 
-https://docs.api.nvidia.com/nim/reference/llm-apis
+- **非同步 JSON 協定**：透過 stdin/stdout 與 KataGo 引擎溝通
+- **響應匹配**：使用 unique `id` 欄位匹配請求與回應
+- **執行緒安全**：使用 `queue.Queue` 進行執行緒間通訊
 
-Ollama’s Documentation.（n.d.）. Ollama. 
-https://docs.ollama.com/
+---
+
+## LLM 整合
+
+### 設定 API 金鑰
+
+**Ollama（本地）**
+```bash
+# 安裝後自動偵測，無需 API 金鑰
+ollama pull qwen2.5:3b
+```
+
+**NVIDIA NIM**
+```
+nvapi-xxxxx
+```
+
+**GitHub Models**
+```
+github_pat_xxxxx
+```
+
+### 自訂教學語氣
+
+LLM 評論支援多種語氣模板，可根據學習者程度調整解說深度。
+
+---
+
+## i18n
+
+| 語言 | 檔案 |
+|------|------|
+| 繁體中文 | zh_TW.json |
+| English | en.json |
+
+**切換語言**：透過 UI 選單 `設定` > `語言` 即時切換
+
+---
+
+## 開發指令
+
+### KataGo 引擎指令
+
+| 指令 | 用途 |
+|------|------|
+| `katago.exe benchmark -model <model>.bin.gz` | 測試 GPU 效能 |
+| `katago.exe analysis -model <model>.bin.gz -config analysis.cfg` | 啟動分析模式 |
+| `katago.exe gtp -model <model>.bin.gz -config gtp.cfg` | 啟動 GTP 模式 |
+
+### Python 指令
+
+```bash
+py ui/main_v3.py           # 啟動主程式
+py version.py 0.3.0-beta   # 更新版本號
+```
+
+
+---
+
+## 授權
+
+本專案採用 MIT 授權條款。詳見 LICENSE 檔案。
+
+
+
+
+

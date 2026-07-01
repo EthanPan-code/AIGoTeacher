@@ -11,6 +11,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib as mpl
 from dotenv import load_dotenv
 from i18n import I18n
+try:
+    from PIL import Image, ImageOps, ImageTk
+except ImportError:
+    Image = None
+    ImageOps = None
+    ImageTk = None
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -24,6 +30,7 @@ MARGIN = 40
 COORD_MARGIN = 25  # 座標額外空間
 BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
 CANVAS_SIZE = BOARD_PIXEL 
+STONE_IMAGE_SIZE = 24
 ANALYSIS_CACHE_LIMIT = 300
 UI_POLL_INTERVAL_MS = 200
 COMMENTARY_CACHE_LIMIT = 200  
@@ -63,6 +70,34 @@ def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
+
+def load_tk_image(file_path, size=None, fill_size=False):
+    """Load an image as a Tk image, preferring Pillow for broad format support."""
+    if Image and ImageTk:
+        with Image.open(file_path) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA")
+
+            if size:
+                resample = Image.Resampling.LANCZOS
+                if fill_size:
+                    img = ImageOps.fit(img, size, method=resample)
+                else:
+                    img = img.copy()
+                    img.thumbnail(size, resample)
+
+            return ImageTk.PhotoImage(img)
+
+    image = tk.PhotoImage(file=file_path)
+    if size:
+        target_w, target_h = size
+        img_w, img_h = image.width(), image.height()
+        if img_w > target_w or img_h > target_h:
+            factor = max(1, min(img_w // target_w, img_h // target_h))
+            image = image.subsample(factor, factor)
+    return image
 
 
 
@@ -1558,10 +1593,60 @@ class GoBoard(tk.Canvas):
         self.current_node = self.root_node
         self.analyze_timer = None
 
+        # 自訂圖片
+        self.board_bg_image = None
+        self.board_frame_image = None
+        self.black_stone_image = None
+        self.white_stone_image = None
+        self._load_custom_images()
+
         self.draw_board()
         self.bind("<Button-1>", self.on_click)
         self.bind("<Motion>", self.preview)
         self.bind("<Leave>", self.on_leave)
+
+    def _load_custom_images(self):
+        """載入自訂圖片（如果有的話）"""
+        self.board_bg_image = None
+        self.board_frame_image = None
+        self.black_stone_image = None
+        self.white_stone_image = None
+
+        bg_path = config_service.get_board_background()
+        if bg_path and os.path.exists(bg_path):
+            try:
+                self.board_bg_image = load_tk_image(bg_path, (CANVAS_SIZE, CANVAS_SIZE), fill_size=True)
+            except Exception as e:
+                logger.warning(f"無法載入棋盤背景圖片 {bg_path}: {e}")
+
+        frame_path = config_service.get_board_frame_background()
+        if frame_path and os.path.exists(frame_path):
+            try:
+                self.board_frame_image = load_tk_image(frame_path, (CANVAS_SIZE, CANVAS_SIZE), fill_size=True)
+            except Exception as e:
+                logger.warning(f"無法載入棋盤外框圖片 {frame_path}: {e}")
+
+        black_path = config_service.get_black_stone_image()
+        if black_path and os.path.exists(black_path):
+            try:
+                self.black_stone_image = load_tk_image(
+                    black_path,
+                    (STONE_IMAGE_SIZE, STONE_IMAGE_SIZE),
+                    fill_size=True,
+                )
+            except Exception as e:
+                logger.warning(f"無法載入黑棋圖片 {black_path}: {e}")
+
+        white_path = config_service.get_white_stone_image()
+        if white_path and os.path.exists(white_path):
+            try:
+                self.white_stone_image = load_tk_image(
+                    white_path,
+                    (STONE_IMAGE_SIZE, STONE_IMAGE_SIZE),
+                    fill_size=True,
+                )
+            except Exception as e:
+                logger.warning(f"無法載入白棋圖片 {white_path}: {e}")
 
     @property
     def stones(self):
@@ -1913,7 +1998,17 @@ class GoBoard(tk.Canvas):
             self.analyze_timer = root.after(500, auto_analyze)
 
     def draw_board(self):
-        margin = MARGIN 
+        margin = MARGIN
+
+        # 如果有自訂背景圖片，繪製背景
+        if self.board_bg_image:
+            self.create_image(0, 0, image=self.board_bg_image, anchor="nw")
+        else:
+            # 使用預設背景色
+            self.create_rectangle(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill=BOARD_BG, outline="")
+
+        if self.board_frame_image:
+            self.create_image(0, 0, image=self.board_frame_image, anchor="nw")
 
         # 畫線
         for i in range(BOARD_SIZE):
@@ -2079,17 +2174,24 @@ class GoBoard(tk.Canvas):
         self.delete("all")
         self.draw_board()
         margin = self.margin
-        
+
         # 1. 繪製所有在棋盤上的棋子 (從 self.board 讀取，而非 history)
         for y in range(BOARD_SIZE):
             for x in range(BOARD_SIZE):
                 color = self.board[y][x]
                 if color:
                     px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
-                    fill = STONE_BLACK if color == "black" else STONE_WHITE
-                    outline = "#0f0f0f" if color == "black" else "#8e806f"
-                    self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
-        
+                    # 使用自訂棋子圖片（如果有的話）
+                    if color == "black" and self.black_stone_image:
+                        self.create_image(px, py, image=self.black_stone_image, anchor="center")
+                    elif color == "white" and self.white_stone_image:
+                        self.create_image(px, py, image=self.white_stone_image, anchor="center")
+                    else:
+                        # 預設圓形棋子
+                        fill = STONE_BLACK if color == "black" else STONE_WHITE
+                        outline = "#0f0f0f" if color == "black" else "#8e806f"
+                        self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
+
         # 2. 繪製最後一手標記 (紅色小方塊)
         if self.current_node and self.current_node.move:
             lx, ly, lcolor = self.current_node.move
@@ -2098,7 +2200,7 @@ class GoBoard(tk.Canvas):
             self.create_rectangle(px-5, py-5, px+5, py+5, outline="red", width=2)
 
         self._draw_move_numbers()
-            
+
         # 3. 顯示目前手數 (選擇性：顯示在標籤或標題)
         total_moves = len(self.stones)
         root.title(t("app.title_with_move", moves=total_moves))
@@ -4598,6 +4700,135 @@ def show_settings_dialog():
     ttk.Button(btn_frame, text=t("button.cancel"), command=settings_win.destroy, width=12).pack(side="right")
 
 
+def show_appearance_settings_dialog():
+    """顯示外觀設定對話框"""
+    settings_win = tk.Toplevel(root)
+    settings_win.title(t("settings.appearance_title"))
+    settings_win.geometry("520x400")
+    try:
+        settings_win.iconbitmap(resource_path("image/logo.ico"))
+    except Exception:
+        pass
+    settings_win.transient(root)
+    settings_win.grab_set()
+
+    main_frame = ttk.Frame(settings_win, padding=(16, 16, 16, 16))
+    main_frame.pack(fill="both", expand=True)
+
+    # 儲存當前值（用於取消時恢復）
+    original_values = {
+        "board_background": config_service.get_board_background(),
+        "board_frame_background": config_service.get_board_frame_background(),
+        "black_stone_image": config_service.get_black_stone_image(),
+        "white_stone_image": config_service.get_white_stone_image(),
+    }
+
+    # 目前編輯中的值
+    current_values = dict(original_values)
+
+    # 圖片預覽標籤
+    preview_labels = {}
+
+    def create_image_row(parent, label_key, config_key, row):
+        """建立一個圖片選擇行"""
+        frame = ttk.Frame(parent)
+        frame.pack(fill="x", pady=(0, 12))
+        frame.columnconfigure(1, weight=1)
+
+        # 標籤
+        ttk.Label(frame, text=t(label_key), font=("Microsoft JhengHei", 10)).grid(
+            row=0, column=0, sticky="w", padx=(0, 12)
+        )
+
+        # 路徑顯示
+        path_var = tk.StringVar(value=current_values[config_key] or t("settings.no_image_selected"))
+        path_label = ttk.Label(frame, textvariable=path_var, foreground=TEXT_MUTED)
+        path_label.grid(row=0, column=1, sticky="w", padx=(0, 8))
+
+        # 預覽標籤
+        preview_label = ttk.Label(frame, text="", background=PANEL_BG)
+        preview_label.grid(row=0, column=2, padx=(0, 8))
+        preview_labels[config_key] = preview_label
+
+        def browse_image():
+            file_path = filedialog.askopenfilename(
+                title=t("settings.select_image"),
+                filetypes=[
+                    (
+                        t("settings.image_files"),
+                        "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tif *.tiff *.ico",
+                    ),
+                    (t("filetype.all"), "*.*")
+                ],
+                parent=settings_win,
+            )
+            if file_path:
+                current_values[config_key] = file_path
+                path_var.set(file_path)
+                update_preview(config_key, file_path)
+
+        def use_default():
+            current_values[config_key] = ""
+            path_var.set(t("settings.no_image_selected"))
+            preview_labels[config_key].config(image="")
+
+        ttk.Button(frame, text=t("button.browse"), command=browse_image, width=10).grid(
+            row=0, column=3, padx=(0, 4)
+        )
+        ttk.Button(frame, text=t("settings.use_default"), command=use_default, width=10).grid(
+            row=0, column=4, padx=(0, 0)
+        )
+
+        # 更新預覽
+        if current_values[config_key]:
+            update_preview(config_key, current_values[config_key])
+
+        return path_var
+
+    def update_preview(config_key, file_path):
+        """更新圖片預覽"""
+        try:
+            if file_path and os.path.exists(file_path):
+                img = load_tk_image(file_path, (60, 60))
+                preview_labels[config_key].config(image=img, text="")
+                preview_labels[config_key].image = img
+            else:
+                preview_labels[config_key].config(image="", text="")
+        except Exception as e:
+            logger.warning(f"無法載入圖片預覽 {file_path}: {e}")
+            preview_labels[config_key].config(image="", text="")
+
+    # 建立四個圖片選擇行
+    create_image_row(main_frame, "settings.board_background", "board_background", 0)
+    create_image_row(main_frame, "settings.board_frame", "board_frame_background", 1)
+    create_image_row(main_frame, "settings.black_stone", "black_stone_image", 2)
+    create_image_row(main_frame, "settings.white_stone", "white_stone_image", 3)
+
+    # 按鈕框架
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.pack(fill="x", pady=(24, 0))
+
+    def apply_changes():
+        # 儲存設定
+        config_service.set_board_background(current_values["board_background"])
+        config_service.set_board_frame_background(current_values["board_frame_background"])
+        config_service.set_black_stone_image(current_values["black_stone_image"])
+        config_service.set_white_stone_image(current_values["white_stone_image"])
+        config_service.save()
+
+        # 重新載入棋盤圖片
+        board._load_custom_images()
+        board.refresh_display()
+
+        settings_win.destroy()
+
+    def cancel_changes():
+        settings_win.destroy()
+
+    ttk.Button(btn_frame, text=t("button.apply"), command=apply_changes, width=12).pack(side="right", padx=(8, 0))
+    ttk.Button(btn_frame, text=t("button.cancel"), command=cancel_changes, width=12).pack(side="right")
+
+
 # 滾輪事件處理
 def on_mouse_wheel(event):
     # Windows: event.delta, Linux/Mac: event.num
@@ -4712,6 +4943,7 @@ menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
 
 settings_menu = tk.Menu(menu_bar, tearoff=0)
 settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
+settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
 language_menu = tk.Menu(settings_menu, tearoff=0)
 
 def set_language(language):
@@ -5214,6 +5446,7 @@ def rebuild_menu_bar():
 
     settings_menu = tk.Menu(menu_bar, tearoff=0)
     settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
+    settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
     language_menu = tk.Menu(settings_menu, tearoff=0)
     for language in i18n.available_languages:
         language_menu.add_radiobutton(

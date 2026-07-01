@@ -258,5 +258,16 @@
   "dialog.diagnostics_exported_message": "診斷報告已匯出",
   "dialog.diagnostics_export_error": "無法匯出診斷報告，詳細錯誤已記錄到 log。",
   "dialog.open_folder_error": "無法開啟資料夾，詳細錯誤已記錄到 log。",
-  "button.open_folder": "開啟資料夾"
+  "button.open_folder": "開啟資料夾",
+  "settings.appearance": "外觀設定",
+  "settings.appearance_title": "外觀設定",
+  "settings.board_background": "棋盤背景圖片",
+  "settings.board_frame": "棋盤外框背景",
+  "settings.black_stone": "黑棋圖片",
+  "settings.white_stone": "白棋圖片",
+  "settings.select_image": "選擇圖片",
+  "settings.use_default": "使用預設",
+  "settings.image_preview": "預覽",
+  "settings.no_image_selected": "未選擇圖片",
+  "settings.image_files": "圖片檔案"
 }

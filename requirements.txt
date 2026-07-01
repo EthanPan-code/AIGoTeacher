@@ -4,6 +4,7 @@ pywin32-ctypes
 opencc-python-reimplemented
 matplotlib
 numpy
+Pillow
 pyinstaller
 ollama
 httpx

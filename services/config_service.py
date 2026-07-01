@@ -27,3 +27,29 @@ class ConfigService:
 
     def clear_custom_prompts(self):
         self.set_setting("llm_custom_prompt", "")
+
+    # === Board Image Settings ===
+
+    def get_board_background(self, default=""):
+        return self.get_setting("board_background", default)
+
+    def set_board_background(self, path):
+        self.set_setting("board_background", path)
+
+    def get_board_frame_background(self, default=""):
+        return self.get_setting("board_frame_background", default)
+
+    def set_board_frame_background(self, path):
+        self.set_setting("board_frame_background", path)
+
+    def get_black_stone_image(self, default=""):
+        return self.get_setting("black_stone_image", default)
+
+    def set_black_stone_image(self, path):
+        self.set_setting("black_stone_image", path)
+
+    def get_white_stone_image(self, default=""):
+        return self.get_setting("white_stone_image", default)
+
+    def set_white_stone_image(self, path):
+        self.set_setting("white_stone_image", path)

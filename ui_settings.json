@@ -1,5 +1,5 @@
 {
-  "language": "en",
+  "language": "zh_TW",
   "show_developer": false,
   "llm_provider": "nvidia",
   "ollama_model": "gemma4:31b-cloud",
@@ -10,5 +10,9 @@
   },
   "llm_custom_prompt": "",
   "llm_tone": "strict",
-  "github_model": "openai/gpt-4o-mini"
+  "github_model": "openai/gpt-4o-mini",
+  "board_background": "",
+  "board_frame_background": "",
+  "black_stone_image": "",
+  "white_stone_image": ""
 }
