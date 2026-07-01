@@ -1,8 +1,8 @@
 # AI 圍棋老師 / AI Go Teacher
 
-![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
-![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)
-![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)](https://katagotraining.org/)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/)
 ![License](https://img.shields.io/badge/License-MIT-red)
 ![Version](https://img.shields.io/badge/Version-0.3.0--beta-blue)
 
@@ -77,26 +77,22 @@ py ui/main_v3.py
 ---
 
 ## 技術架構
+### 圍棋引擎
 
-```
-┌─────────────────────────────────────────┐
-│   KataGo Engine (C++ Binary)            │
-│   - Neural net inference (OpenCL/CUDA)  │
-│   - MCTS search algorithm               │
-│   - 3 operation modes                   │
-└──────────────┬──────────────────────────┘
-               │ Async JSON Protocol
-        ┌──────▼─────────────────────────┐
-        │   Python UI & Tools            │
-        │ ├─ ui/main_v3.py               │
-        │ │  ├─ KataGoAnalyzer class     │
-        │ │  ├─ GoBoard (19x19)          │
-        │ │  └─ OllamaWorker (async)     │
-        │ ├─ providers/ (LLM)            │
-        │ ├─ services/ (config, keyring) │
-        │ └─ i18n/ (translations)        │
-        └────────────────────────────────┘
-```
+| 技術                 | 說明                    |
+| ------------------ | --------------------- |
+| **KataGo v1.16.4** | 頂尖神經網路圍棋引擎            |
+| **神經網路權重模型**       | 支援 GPU／CPU 加速的策略與價值網路 |
+### 前端與應用程式層
+
+| 技術                | 用途          |
+| ----------------- | ----------- |
+| **Python 3.14**   | 主要開發語言      |
+| **Python 3.13 & PyInstaller**   |  打包成單一執行檔  |
+| **Tkinter / ttk** | 跨平台桌面圖形介面框架 |
+| **Matplotlib**    | 勝率與目差圖表視覺化  |
+| **Pillow (PIL)**  | 棋盤材質與圖片資源處理 |
+
 
 ### 核心模組
 
@@ -113,6 +109,17 @@ py ui/main_v3.py
 - **響應匹配**：使用 unique `id` 欄位匹配請求與回應
 - **執行緒安全**：使用 `queue.Queue` 進行執行緒間通訊
 
+## Python 相依套件
+
+```text
+matplotlib >= 3.7
+pillow >= 10.0
+python-dotenv >= 1.0
+keyring >= 24.0
+requests >= 2.31
+opencc-python-reimplemented
+```
+
 ---
 
 ## LLM 整合
@@ -126,11 +133,15 @@ ollama pull qwen2.5:3b
 ```
 
 **NVIDIA NIM**
+
+api key：
 ```
 nvapi-xxxxx
 ```
 
 **GitHub Models**
+
+api key：
 ```
 github_pat_xxxxx
 ```
