@@ -64,6 +64,8 @@
   "label.config_path": "配置檔案:",
   "label.path_default": "預設",
   "label.path_custom": "自訂",
+  "label.model_standard": "標準",
+  "label.model_fast": "快速",
   "label.using_builtin_file": "使用內建檔案",
   "placeholder.katago_path": "例如：C:/KataGo/katago.exe",
   "placeholder.model_path": "例如：C:/KataGo/models/kata.bin.gz",

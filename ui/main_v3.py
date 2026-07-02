@@ -60,6 +60,8 @@ VARIATION_LABEL_WHITE = "#ffffff"
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
 DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
+MODEL_STANDARD_PATH = os.path.join("models", "kata.bin.gz")
+MODEL_FAST_PATH = os.path.join("models", "kata-mini.txt.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
 RUNTIME_BUNDLE_DIR_NAME = "runtime"
@@ -260,8 +262,11 @@ def get_katago_path():
 
 
 def get_model_path():
-    if model_path_mode_var.get() == "default":
-        return materialize_bundled_runtime_file(DEFAULT_MODEL_PATH)
+    mode = model_path_mode_var.get()
+    if mode == "standard":
+        return materialize_bundled_runtime_file(MODEL_STANDARD_PATH)
+    if mode == "fast":
+        return materialize_bundled_runtime_file(MODEL_FAST_PATH)
     return model_path_var.get().strip()
 
 
@@ -272,8 +277,11 @@ def get_config_path():
 
 
 def get_model_display_name():
-    if model_path_mode_var.get() == "default":
-        return t("label.path_default")
+    mode = model_path_mode_var.get()
+    if mode == "standard":
+        return t("label.model_standard")
+    if mode == "fast":
+        return t("label.model_fast")
     return os.path.basename(model_path_var.get().strip()) or t("label.path_custom")
 
 
@@ -4554,7 +4562,7 @@ def show_settings_dialog():
     main_frame.pack(fill="both", expand=True)
     main_frame.columnconfigure(1, weight=1)
 
-    def create_path_row(row, label_key, mode_var, path_var, browse_title_key, filetypes, placeholder):
+    def create_path_row(row, label_key, mode_var, path_var, browse_title_key, filetypes, placeholder, mode_options="2"):
         ttk.Label(main_frame, text=t(label_key), font=("Microsoft JhengHei", 10)).grid(
             row=row, column=0, sticky="nw", pady=(0, 10)
         )
@@ -4619,31 +4627,65 @@ def show_settings_dialog():
         custom_entry.bind("<FocusIn>", lambda _event: hide_placeholder())
         custom_entry.bind("<FocusOut>", lambda _event: (sync_var(), show_placeholder()))
 
-        ttk.Radiobutton(
-            selector_frame,
-            text=t("label.path_default"),
-            variable=mode_var,
-            value="default",
-            command=lambda: (sync_var(), update_mode()),
-        ).grid(row=0, column=0, sticky="w", padx=(0, 16))
-        ttk.Radiobutton(
-            selector_frame,
-            text=t("label.path_custom"),
-            variable=mode_var,
-            value="custom",
-            command=lambda: (sync_var(), update_mode()),
-        ).grid(row=0, column=1, sticky="w", padx=(0, 16))
-        default_label = ttk.Label(selector_frame, text=t("label.using_builtin_file"), foreground="#666")
-        default_label.grid(row=0, column=2, sticky="w")
+        if mode_options == "3":
+            # 3 options: standard, fast, custom (for model path)
+            ttk.Radiobutton(
+                selector_frame,
+                text=t("label.model_standard"),
+                variable=mode_var,
+                value="standard",
+                command=lambda: (sync_var(), update_mode()),
+            ).grid(row=0, column=0, sticky="w", padx=(0, 12))
+            ttk.Radiobutton(
+                selector_frame,
+                text=t("label.model_fast"),
+                variable=mode_var,
+                value="fast",
+                command=lambda: (sync_var(), update_mode()),
+            ).grid(row=0, column=1, sticky="w", padx=(0, 12))
+            ttk.Radiobutton(
+                selector_frame,
+                text=t("label.path_custom"),
+                variable=mode_var,
+                value="custom",
+                command=lambda: (sync_var(), update_mode()),
+            ).grid(row=0, column=2, sticky="w", padx=(0, 12))
+            default_label = ttk.Label(selector_frame, text="", foreground="#666")
+            default_label.grid(row=0, column=3, sticky="w")
+        else:
+            # 2 options: default, custom (for katago and config paths)
+            ttk.Radiobutton(
+                selector_frame,
+                text=t("label.path_default"),
+                variable=mode_var,
+                value="default",
+                command=lambda: (sync_var(), update_mode()),
+            ).grid(row=0, column=0, sticky="w", padx=(0, 16))
+            ttk.Radiobutton(
+                selector_frame,
+                text=t("label.path_custom"),
+                variable=mode_var,
+                value="custom",
+                command=lambda: (sync_var(), update_mode()),
+            ).grid(row=0, column=1, sticky="w", padx=(0, 16))
+            default_label = ttk.Label(selector_frame, text=t("label.using_builtin_file"), foreground="#666")
+            default_label.grid(row=0, column=2, sticky="w")
 
         def update_mode():
-            if mode_var.get() == "custom":
+            mode = mode_var.get()
+            if mode == "custom":
                 default_label.grid_remove()
                 path_frame.grid()
                 if not custom_entry.get():
                     show_placeholder()
             else:
-                default_label.grid()
+                if mode_options == "3":
+                    # Show current model selection name
+                    if mode == "standard":
+                        default_label.config(text=t("label.model_standard"))
+                    elif mode == "fast":
+                        default_label.config(text=t("label.model_fast"))
+                    default_label.grid()
                 path_frame.grid_remove()
 
         set_entry_value(path_var.get().strip())
@@ -4668,6 +4710,7 @@ def show_settings_dialog():
             "dialog.model_title",
             [(t("filetype.gz"), "*.gz"), (t("filetype.all"), "*.*")],
             t("placeholder.model_path"),
+            "3",
         ),
         create_path_row(
             4,
@@ -4868,7 +4911,7 @@ loaded_sgf_overwrite_confirmed = False
 
 # 模型和配置文件路徑設定
 katago_path_mode_var = tk.StringVar(value="default")
-model_path_mode_var = tk.StringVar(value="default")
+model_path_mode_var = tk.StringVar(value="standard")
 config_path_mode_var = tk.StringVar(value="default")
 katago_path_var = tk.StringVar(value="")
 model_path_var = tk.StringVar(value="")
