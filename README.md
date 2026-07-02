@@ -185,7 +185,7 @@ py version.py 0.3.0-beta   # 更新版本號
 
 ## 授權
 
-本專案採用 MIT 授權條款。詳見 [LICENSE]() 檔案。
+本專案採用 MIT 授權條款。詳見 [LICENSE](LICENSE) 檔案。
 
 
 
