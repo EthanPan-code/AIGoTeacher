@@ -12,7 +12,7 @@
   "llm_tone": "strict",
   "github_model": "openai/gpt-4o-mini",
   "board_background": "",
-  "board_frame_background": "",
+  "board_frame_background": "C:/Program Files (x86)/MultiGo 4/board/board1.bmp",
   "black_stone_image": "",
   "white_stone_image": ""
 }

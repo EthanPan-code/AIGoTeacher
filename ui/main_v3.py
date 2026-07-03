@@ -333,6 +333,12 @@ def add_full_game_commentary_to_cache(cache_key, text):
 # 【Phase 1】全域狀態追蹤 — 追蹤當前正在生成的解說
 current_critical_event = None  # 當前正在生成解說的 critical_event
 current_generated_commentary = ""  # 累積生成的解說文本
+score_analyzer = None
+score_analyzer_initializing = False
+score_analyzer_ready_callback = None
+score_query_in_flight = False
+score_estimate_pending_start = False
+score_response_queue = queue.Queue()
 
 def render_winrate_text(key, kwargs):
     render_kwargs = dict(kwargs)
@@ -345,6 +351,14 @@ def set_winrate_text(key, **kwargs):
     winrate_display_state["key"] = key
     winrate_display_state["kwargs"] = kwargs
     winrate_label.config(text=render_winrate_text(key, kwargs))
+
+
+def update_score_estimate_button_label():
+    button = globals().get("btn_score_estimate")
+    if button is None:
+        return
+    label_key = "button.close_score_estimate" if getattr(board, "score_estimate_active", False) else "button.score_estimate"
+    button.config(text=t(label_key))
 
 class KataGoAnalyzer:
     def __init__(self, katago_path, model_path, config_path, startup_callback=None):
@@ -458,7 +472,17 @@ class KataGoAnalyzer:
             evicted_key, _ = self.analysis_cache.popitem(last=False)
             logger.debug("LRU 快取已移除最舊局面: key=%s cache_size=%s", evicted_key, len(self.analysis_cache))
 
-    def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="live", use_cache=True):
+    def send_query(
+        self,
+        stones,
+        analyze_turns=None,
+        response_queue=None,
+        query_kind="live",
+        use_cache=True,
+        max_visits=None,
+        include_ownership=False,
+        include_ownership_stdev=False,
+    ):
         if self.closed or self.process.poll() is not None:
             return None
 
@@ -497,8 +521,15 @@ class KataGoAnalyzer:
             "komi": 6.5,
             "boardXSize": 19,
             "boardYSize": 19,
-            "analyzeTurns": analyze_turns
+            "analyzeTurns": analyze_turns,
         }
+
+        if max_visits is not None:
+            query["maxVisits"] = max_visits
+        if include_ownership:
+            query["includeOwnership"] = True
+        if include_ownership_stdev:
+            query["includeOwnershipStdev"] = True
 
         with self.lock:
             self.pending_queries[query_id] = {
@@ -622,6 +653,28 @@ class KataGoAnalyzer:
         for worker in (getattr(self, "reader_thread", None), getattr(self, "startup_log_thread", None)):
             if worker and worker.is_alive():
                 worker.join(timeout=0.5)
+
+
+class ScoreAnalyzer(KataGoAnalyzer):
+    def __init__(self, startup_callback=None):
+        super().__init__(
+            get_katago_path(),
+            materialize_bundled_runtime_file(MODEL_FAST_PATH),
+            materialize_bundled_runtime_file(DEFAULT_CONFIG_PATH),
+            startup_callback=startup_callback,
+        )
+
+    def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="score", use_cache=False):
+        return super().send_query(
+            stones,
+            analyze_turns=analyze_turns,
+            response_queue=response_queue,
+            query_kind=query_kind,
+            use_cache=False,
+            max_visits=120,
+            include_ownership=True,
+            include_ownership_stdev=True,
+        )
 
 class GoDataFilter:
     def __init__(self, winrate_threshold=0.05, score_threshold=2.0):
@@ -1593,6 +1646,8 @@ class GoBoard(tk.Canvas):
         self.preview_id = None
         self.blue_point_ids = []
         self.recommendation_points = {}
+        self.score_estimate_active = False
+        self.score_estimate_data = None
         self.variation_timer = None
         self.variation_hover_coord = None
         
@@ -1821,6 +1876,41 @@ class GoBoard(tk.Canvas):
         self.recommendation_points = {}
         self.delete("blue_point")
 
+    def clear_score_estimate(self):
+        self.score_estimate_active = False
+        self.score_estimate_data = None
+        self.delete("score_estimate")
+
+    def _draw_score_estimate_overlay(self, ownership):
+        self.delete("score_estimate")
+        if not ownership:
+            return
+
+        margin = self.margin
+        limit = min(len(ownership), BOARD_SIZE * BOARD_SIZE)
+
+        for index in range(limit):
+            value = ownership[index]
+            if value is None:
+                continue
+
+            x = index % BOARD_SIZE
+            y = index // BOARD_SIZE
+            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+            stone = self.board[y][x]
+
+            if stone is None:
+                if value > 0.5:
+                    self.create_rectangle(px - 9, py - 9, px + 9, py + 9, fill="#000000", outline="#000000", stipple="gray50", width=1, tags="score_estimate")
+                elif value < -0.5:
+                    self.create_rectangle(px - 9, py - 9, px + 9, py + 9, fill="#ffffff", outline="#ffffff", stipple="gray50", width=1, tags="score_estimate")
+                continue
+
+            if (stone == "black" and value < -0.5) or (stone == "white" and value > 0.5):
+                marker_color = "#ffffff" if value < 0 else "#000000"
+                self.create_line(px - 9, py - 9, px + 9, py + 9, fill=marker_color, width=3, tags="score_estimate")
+                self.create_line(px - 9, py + 9, px + 9, py - 9, fill=marker_color, width=3, tags="score_estimate")
+
     def _cancel_variation_timer(self):
         if self.variation_timer:
             root.after_cancel(self.variation_timer)
@@ -1981,6 +2071,10 @@ class GoBoard(tk.Canvas):
             self.on_state_change()
 
     def on_state_change(self):
+        if self.score_estimate_active:
+            self.clear_score_estimate()
+            update_score_estimate_button_label()
+
         self.clear_blue_point()
         
         if not is_analyzer_ready():
@@ -2061,6 +2155,9 @@ class GoBoard(tk.Canvas):
             self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, y, text=row, font=font, fill=TEXT_MUTED)
 
     def preview(self, event):
+        if self.score_estimate_active:
+            self._handle_recommendation_hover(None)
+            return
         margin = self.margin
         x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
         if self.preview_id:
@@ -2125,6 +2222,8 @@ class GoBoard(tk.Canvas):
         return True
 
     def on_click(self, event):
+        if self.score_estimate_active:
+            return
         margin = self.margin
         x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
         self._handle_recommendation_hover(None)
@@ -2208,6 +2307,8 @@ class GoBoard(tk.Canvas):
             self.create_rectangle(px-5, py-5, px+5, py+5, outline="red", width=2)
 
         self._draw_move_numbers()
+        if self.score_estimate_data:
+            self._draw_score_estimate_overlay(self.score_estimate_data.get("ownership", []))
 
         # 3. 顯示目前手數 (選擇性：顯示在標籤或標題)
         total_moves = len(self.stones)
@@ -2519,6 +2620,269 @@ def new_game():
 
 def show_about():
     messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message", version=APP_VERSION))
+
+
+def summarize_score_estimate(ownership):
+    black_territory = 0
+    white_territory = 0
+    dead_black = 0
+    dead_white = 0
+
+    for index, value in enumerate(ownership[: BOARD_SIZE * BOARD_SIZE]):
+        if value is None:
+            continue
+        x = index % BOARD_SIZE
+        y = index // BOARD_SIZE
+        stone = board.board[y][x]
+
+        if value > 0.5:
+            if stone is None:
+                black_territory += 1
+            elif stone == "white":
+                dead_white += 1
+        elif value < -0.5:
+            if stone is None:
+                white_territory += 1
+            elif stone == "black":
+                dead_black += 1
+
+    return {
+        "black_territory": black_territory,
+        "white_territory": white_territory,
+        "dead_black": dead_black,
+        "dead_white": dead_white,
+    }
+
+
+def start_score_analyzer_async(on_ready=None):
+    global score_analyzer, score_analyzer_initializing, score_analyzer_ready_callback
+
+    if score_analyzer and not getattr(score_analyzer, "closed", False) and getattr(score_analyzer, "ready_event", None) and score_analyzer.ready_event.is_set():
+        if on_ready is not None:
+            try:
+                root.after(0, on_ready)
+            except tk.TclError:
+                pass
+        return
+
+    if score_analyzer_initializing:
+        if on_ready is not None:
+            score_analyzer_ready_callback = on_ready
+        return
+
+    score_analyzer_initializing = True
+    score_analyzer_ready_callback = on_ready
+
+    def finish_success(new_analyzer):
+        global score_analyzer, score_analyzer_initializing, score_analyzer_ready_callback
+        if is_shutting_down:
+            new_analyzer.close(timeout=1)
+            return
+        score_analyzer = new_analyzer
+        score_analyzer_initializing = False
+        callback = score_analyzer_ready_callback
+        score_analyzer_ready_callback = None
+        if callback is not None:
+            try:
+                root.after(0, callback)
+            except tk.TclError:
+                pass
+
+    def finish_failure(error):
+        global score_analyzer_initializing, score_analyzer_ready_callback, score_query_in_flight, score_estimate_pending_start
+        score_analyzer_initializing = False
+        score_analyzer_ready_callback = None
+        score_query_in_flight = False
+        score_estimate_pending_start = False
+        if not is_shutting_down:
+            status_var.set(t("status.reinit_failed"))
+            messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
+
+    def task():
+        try:
+            new_analyzer = ScoreAnalyzer()
+            while not new_analyzer.ready_event.is_set():
+                if is_shutting_down:
+                    new_analyzer.close(timeout=1)
+                    return
+                if new_analyzer.process.poll() is not None:
+                    error = new_analyzer.startup_error or t("error.katago_process_exited")
+                    raise RuntimeError(error)
+                time.sleep(0.1)
+
+            if not is_shutting_down:
+                try:
+                    root.after(0, finish_success, new_analyzer)
+                except tk.TclError:
+                    new_analyzer.close(timeout=1)
+        except (OSError, ValueError, RuntimeError) as e:
+            if not is_shutting_down:
+                try:
+                    root.after(0, finish_failure, e)
+                except tk.TclError:
+                    pass
+
+    threading.Thread(target=task, daemon=True).start()
+
+
+def _handle_score_estimate_result(result):
+    global score_query_in_flight, score_estimate_pending_start
+
+    score_query_in_flight = False
+    score_estimate_pending_start = False
+
+    if is_shutting_down or not getattr(board, "score_estimate_active", False):
+        return
+
+    root_info = result.get("rootInfo", {})
+    ownership = root_info.get("ownership") or result.get("ownership") or []
+    if not ownership:
+        board.clear_score_estimate()
+        update_score_estimate_button_label()
+        status_var.set(t("status.reinit_failed"))
+        return
+
+    score_lead = root_info.get("scoreLead", 0.0)
+    summary = summarize_score_estimate(ownership)
+    black_total = summary["black_territory"] + summary["dead_white"]
+    white_total = summary["white_territory"] + summary["dead_black"]
+    komi = 6.5
+    net = black_total - white_total - komi
+    if net >= 0:
+        leader = t("stone.black")
+        lead = net
+    else:
+        leader = t("stone.white")
+        lead = -net
+    board.score_estimate_data = {
+        "ownership": ownership,
+        "scoreLead": score_lead,
+        "summary": summary,
+        "black_total": black_total,
+        "white_total": white_total,
+        "komi": komi,
+        "leader": leader,
+        "lead": lead,
+    }
+    board.refresh_display()
+    status_var.set(t("status.score_estimate_ready"))
+    update_score_estimate_button_label()
+    show_score_estimate_popup(summary, black_total, white_total, komi, leader, lead)
+
+
+def show_score_estimate_popup(summary, black_total, white_total, komi, leader, lead):
+    popup = tk.Toplevel(root)
+    popup.title(t("dialog.score_estimate_title"))
+    popup.iconbitmap(resource_path("image/logo.ico"))
+    popup.resizable(False, False)
+    popup.transient(root)
+
+    def close_popup():
+        popup.destroy()
+        board.clear_score_estimate()
+        update_score_estimate_button_label()
+        status_var.set(t("status.score_estimate_cancelled"))
+
+    popup.protocol("WM_DELETE_WINDOW", close_popup)
+
+    frame = ttk.Frame(popup, padding=(20, 18, 20, 14))
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(frame, text=t("dialog.score_estimate_black",
+                            black_total=black_total,
+                            black_territory=summary["black_territory"],
+                            dead_white=summary["dead_white"]),
+              font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
+    ttk.Label(frame, text=t("dialog.score_estimate_white",
+                            white_total=white_total,
+                            white_territory=summary["white_territory"],
+                            dead_black=summary["dead_black"]),
+              font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
+    ttk.Label(frame, text=t("dialog.score_estimate_komi", komi=komi),
+              font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
+    ttk.Label(frame, text=t("dialog.score_estimate_lead", leader=leader, lead=lead),
+              font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
+    ttk.Label(frame, text=t("dialog.score_estimate_dead",
+                            dead_black=summary["dead_black"], dead_white=summary["dead_white"]),
+              font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 14))
+
+    ttk.Button(frame, text=t("dialog.score_estimate_ok"), command=close_popup).pack(anchor="center")
+
+    popup.update_idletasks()
+    w, h = popup.winfo_reqwidth(), popup.winfo_reqheight()
+    x = root.winfo_rootx() + max(40, (root.winfo_width() - w) // 2)
+    y = root.winfo_rooty() + max(40, (root.winfo_height() - h) // 2)
+    popup.geometry(f"+{x}+{y}")
+    popup.grab_set()
+    popup.focus_set()
+
+
+def _wait_for_score_estimate_response():
+    try:
+        result = score_response_queue.get()
+    except Exception:
+        result = None
+    if result is None or is_shutting_down:
+        return
+    try:
+        root.after(0, _handle_score_estimate_result, result)
+    except tk.TclError:
+        pass
+
+
+def _start_score_estimate_query():
+    global score_query_in_flight, score_estimate_pending_start
+
+    if is_shutting_down or not score_estimate_pending_start:
+        return
+    if score_query_in_flight:
+        return
+    if score_analyzer is None or not getattr(score_analyzer, "ready_event", None) or not score_analyzer.ready_event.is_set():
+        return
+
+    score_query_in_flight = True
+    board.score_estimate_active = True
+    update_score_estimate_button_label()
+    status_var.set(t("analysis.score_estimating"))
+
+    query_id = score_analyzer.send_query(
+        board.stones,
+        analyze_turns=[len(board.stones)],
+        response_queue=score_response_queue,
+        query_kind="score",
+        use_cache=False,
+    )
+    if query_id is None:
+        score_query_in_flight = False
+        score_estimate_pending_start = False
+        board.clear_score_estimate()
+        update_score_estimate_button_label()
+        status_var.set(t("status.reinit_failed"))
+        return
+
+    threading.Thread(target=_wait_for_score_estimate_response, daemon=True).start()
+
+
+def on_score_estimate_click():
+    global score_estimate_pending_start
+
+    if getattr(board, "score_estimate_active", False):
+        on_close_score_estimate_click()
+        return
+
+    if score_query_in_flight:
+        status_var.set(t("analysis.score_estimating"))
+        return
+
+    score_estimate_pending_start = True
+    status_var.set(t("analysis.score_estimating"))
+    start_score_analyzer_async(on_ready=_start_score_estimate_query)
+
+
+def on_close_score_estimate_click():
+    board.clear_score_estimate()
+    update_score_estimate_button_label()
+    status_var.set(t("status.score_estimate_cancelled"))
 
 def open_feedback_form():
     try:
@@ -4940,6 +5304,14 @@ def on_closing():
         except OSError as e:
             logger.warning("Error closing KataGo process: %s", e)
 
+    if score_analyzer and hasattr(score_analyzer, 'process'):
+        try:
+            score_analyzer.close(timeout=3)
+        except subprocess.TimeoutExpired:
+            logger.warning("Score KataGo process did not exit while closing")
+        except OSError as e:
+            logger.warning("Error closing Score KataGo process: %s", e)
+
     try:
         for child in root.winfo_children():
             if isinstance(child, tk.Toplevel):
@@ -5140,10 +5512,8 @@ btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load
 btn_load_sgf.grid(row=5, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
 btn_save_sgf_as = ttk.Button(info_frame, text=t("button.save_sgf_as"), command=save_game_as_sgf_dialog, style="Tool.TButton")
 btn_save_sgf_as.grid(row=5, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
-btn_save_json = ttk.Button(info_frame, text=t("button.save_json"), command=save_game_as_json, style="Tool.TButton")
-btn_save_json.grid(row=6, column=0, padx=(0, 4), pady=(0, 14), sticky="ew")
-btn_save_json_as = ttk.Button(info_frame, text=t("button.save_json_as"), command=save_game_as_json_dialog, style="Tool.TButton")
-btn_save_json_as.grid(row=6, column=1, padx=(4, 0), pady=(0, 14), sticky="ew")
+btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
+btn_score_estimate.grid(row=6, column=0, padx=(0, 4), pady=(0, 14), sticky="ew")
 
 branch_section = tk.Frame(info_frame, bg=PANEL_BG)
 branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
@@ -5538,8 +5908,7 @@ def refresh_language():
     btn_redo.config(text=t("button.redo"))
     btn_load_sgf.config(text=t("button.load_sgf"))
     btn_save_sgf_as.config(text=t("button.save_sgf_as"))
-    btn_save_json.config(text=t("button.save_json"))
-    btn_save_json_as.config(text=t("button.save_json_as"))
+    update_score_estimate_button_label()
     branch_title_label.config(text=t("label.branch_switch"))
     teacher_title_label.config(text=t("label.teacher"))
     update_llm_model_label()
