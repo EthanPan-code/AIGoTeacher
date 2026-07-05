@@ -1659,8 +1659,11 @@ class GoBoard(tk.Canvas):
         # 自訂圖片
         self.board_bg_image = None
         self.board_frame_image = None
+        self.board_frame_image_path = None  # 外框背景原始路徑（供 <Configure> 動態重縮放使用）
+        self._frame_bg_resize_after_id = None  # <Configure> 節流用的 after id
         self.black_stone_image = None
         self.white_stone_image = None
+        self.frame_bg_label = None  # 外框背景 Label（由 board_shell 注入）
         self._load_custom_images()
 
         self.draw_board()
@@ -1672,6 +1675,7 @@ class GoBoard(tk.Canvas):
         """載入自訂圖片（如果有的話）"""
         self.board_bg_image = None
         self.board_frame_image = None
+        self.board_frame_image_path = None
         self.black_stone_image = None
         self.white_stone_image = None
 
@@ -1684,10 +1688,15 @@ class GoBoard(tk.Canvas):
 
         frame_path = config_service.get_board_frame_background()
         if frame_path and os.path.exists(frame_path):
+            self.board_frame_image_path = frame_path
+            # 載入時 board_shell 尺寸可能尚未確定（winfo_width() 可能回傳 1），
+            # 先用 CANVAS_SIZE 作為預設尺寸載入；待 board_shell 首次 <Configure> 觸發時
+            # 再用實際尺寸重縮放（見 _resize_frame_background）。
             try:
                 self.board_frame_image = load_tk_image(frame_path, (CANVAS_SIZE, CANVAS_SIZE), fill_size=True)
             except Exception as e:
                 logger.warning(f"無法載入棋盤外框圖片 {frame_path}: {e}")
+        self._apply_frame_background()
 
         black_path = config_service.get_black_stone_image()
         if black_path and os.path.exists(black_path):
@@ -1710,6 +1719,45 @@ class GoBoard(tk.Canvas):
                 )
             except Exception as e:
                 logger.warning(f"無法載入白棋圖片 {white_path}: {e}")
+
+    def _apply_frame_background(self):
+        if self.frame_bg_label is None:
+            return
+        if self.board_frame_image:
+            self.frame_bg_label.config(image=self.board_frame_image, text="")
+            self.frame_bg_label.image = self.board_frame_image
+        else:
+            self.frame_bg_label.config(image="", text="")
+        # 除錯輸出：確認背景 Label 與棋盤 Canvas 是兩個不同物件、尺寸不同
+        try:
+            print("BACKGROUND:", self.frame_bg_label.winfo_x(), self.frame_bg_label.winfo_y(),
+                  self.frame_bg_label.winfo_width(), self.frame_bg_label.winfo_height())
+            print("BOARD:", self.winfo_x(), self.winfo_y(),
+                  self.winfo_width(), self.winfo_height())
+        except Exception:
+            pass
+
+    def _resize_frame_background(self, size):
+        """依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。
+
+        由 board_shell 的 <Configure> 事件回呼觸發，確保視窗縮放時背景圖片動態更新。
+        棋盤 Canvas 本身保持固定 620×620，不會被縮放。
+        """
+        if not self.board_frame_image_path or not os.path.exists(self.board_frame_image_path):
+            return
+        if not self.frame_bg_label:
+            return
+        w, h = size
+        # 尺寸無效時（例如初始化階段）退回 CANVAS_SIZE
+        if w < 10 or h < 10:
+            w, h = CANVAS_SIZE, CANVAS_SIZE
+        try:
+            new_img = load_tk_image(self.board_frame_image_path, (w, h), fill_size=True)
+            self.board_frame_image = new_img
+            self.frame_bg_label.config(image=new_img, text="")
+            self.frame_bg_label.image = new_img
+        except Exception as e:
+            logger.warning(f"無法重縮放棋盤外框圖片 {self.board_frame_image_path}: {e}")
 
     @property
     def stones(self):
@@ -2108,9 +2156,6 @@ class GoBoard(tk.Canvas):
         else:
             # 使用預設背景色
             self.create_rectangle(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill=BOARD_BG, outline="")
-
-        if self.board_frame_image:
-            self.create_image(0, 0, image=self.board_frame_image, anchor="nw")
 
         # 畫線
         for i in range(BOARD_SIZE):
@@ -5325,130 +5370,125 @@ def on_closing():
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
-menu_bar = tk.Menu(root)
-file_menu = tk.Menu(menu_bar, tearoff=0)
-file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
-file_menu.add_separator()
-file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
-file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
-file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
-file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
-file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
-file_menu.add_separator()
-file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
-menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
-
-edit_menu = tk.Menu(menu_bar, tearoff=0)
-edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
-edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
-edit_menu.add_separator()
-edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
-edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
-menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
-
-analysis_menu = tk.Menu(menu_bar, tearoff=0)
-analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
-analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
-
-# LLM 語氣子菜單
 from providers import tone_templates
 
 
-menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
+def build_menu_bar():
+    global menu_bar, file_menu, edit_menu, analysis_menu, settings_menu, language_menu
+    global view_menu, help_menu, dev_menu, tone_menu, current_tone_var
+    global show_teacher_var, show_branch_var, show_move_numbers_var, show_dev_var
 
-settings_menu = tk.Menu(menu_bar, tearoff=0)
-settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
-settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
-language_menu = tk.Menu(settings_menu, tearoff=0)
+    menu_bar = tk.Menu(root)
 
-def set_language(language):
-    i18n.set_language(language)
-    language_var.set(language)
-    refresh_language()
-    status_var.set(t("status.language_changed", language=t(f"language.{language}")))
+    def set_language(language):
+        i18n.set_language(language)
+        language_var.set(language)
+        refresh_language()
+        status_var.set(t("status.language_changed", language=t(f"language.{language}")))
 
-for language in i18n.available_languages:
-    language_menu.add_radiobutton(
-        label=t(f"language.{language}"),
-        value=language,
-        variable=language_var,
-        command=lambda lang=language: set_language(lang)
-    )
+    def toggle_teacher_panel():
+        if show_teacher_var.get():
+            teacher_section.grid()
+        else:
+            teacher_section.grid_remove()
 
-settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
-settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
-tone_menu = tk.Menu(analysis_menu, tearoff=0)
-current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
-for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
-    tone_menu.add_radiobutton(
-        label=tone_name,
-        value=tone_id,
-        variable=current_tone_var,
-        command=lambda t=tone_id: set_llm_tone(t)
-    )
-settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
-settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
-settings_menu.add_separator()
-settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
-menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
+    def toggle_branch_panel():
+        if show_branch_var.get():
+            branch_section.grid()
+        else:
+            branch_section.grid_remove()
 
-view_menu = tk.Menu(menu_bar, tearoff=0)
-show_teacher_var = tk.BooleanVar(value=True)
-show_branch_var = tk.BooleanVar(value=True)
-show_move_numbers_var = tk.BooleanVar(value=False)
-show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
+    def toggle_move_numbers():
+        board._handle_recommendation_hover(None)
+        board._draw_move_numbers()
 
-def toggle_teacher_panel():
-    if show_teacher_var.get():
-        teacher_section.grid()
-    else:
-        teacher_section.grid_remove()
+    def toggle_dev():
+        config_service.set_setting("show_developer", show_dev_var.get())
+        config_service.save()
+        rebuild_menu_bar()
 
-def toggle_branch_panel():
-    if show_branch_var.get():
-        branch_section.grid()
-    else:
-        branch_section.grid_remove()
+    file_menu = tk.Menu(menu_bar, tearoff=0)
+    file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
+    file_menu.add_separator()
+    file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
+    file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
+    file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
+    file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
+    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
+    file_menu.add_separator()
+    file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
+    menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
 
-def toggle_move_numbers():
-    board._handle_recommendation_hover(None)
-    board._draw_move_numbers()
+    edit_menu = tk.Menu(menu_bar, tearoff=0)
+    edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
+    edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
+    edit_menu.add_separator()
+    edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
+    edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
+    menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
 
-def toggle_dev():
+    analysis_menu = tk.Menu(menu_bar, tearoff=0)
+    analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
+    analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
+    menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
+
+    settings_menu = tk.Menu(menu_bar, tearoff=0)
+    settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
+    settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
+    language_menu = tk.Menu(settings_menu, tearoff=0)
+    for language in i18n.available_languages:
+        language_menu.add_radiobutton(
+            label=t(f"language.{language}"),
+            value=language,
+            variable=language_var,
+            command=lambda lang=language: set_language(lang)
+        )
+    settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
+    settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
+    tone_menu = tk.Menu(settings_menu, tearoff=0)
+    current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
+    for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
+        tone_menu.add_radiobutton(
+            label=tone_name,
+            value=tone_id,
+            variable=current_tone_var,
+            command=lambda tone=tone_id: set_llm_tone(tone)
+        )
+    settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
+    settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
+    settings_menu.add_separator()
+    settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
+    menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
+
+    view_menu = tk.Menu(menu_bar, tearoff=0)
+    show_teacher_var = tk.BooleanVar(value=True)
+    show_branch_var = tk.BooleanVar(value=True)
+    show_move_numbers_var = tk.BooleanVar(value=False)
+    show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
+    view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
+    view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
+    view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
+    view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
+    menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
+
+    help_menu = tk.Menu(menu_bar, tearoff=0)
+    help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
+        t("dialog.shortcuts_title"),
+        t("dialog.shortcuts_message")
+    ))
+    help_menu.add_command(label=t("menu.about"), command=show_about)
+    menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
+    menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
+
+    dev_menu = create_dev_menu(menu_bar)
     if show_dev_var.get():
         menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
-    else:
-        try:
-            menu_bar.delete(t("menu.dev"))
-        except tk.TclError:
-            logger.exception("Dev 選單移除失敗")
-    config_service.set_setting("show_developer", show_dev_var.get())
-    config_service.save()
 
-view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
-view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
-view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
-view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
-menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
-
-help_menu = tk.Menu(menu_bar, tearoff=0)
-help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
-    t("dialog.shortcuts_title"),
-    t("dialog.shortcuts_message")
-))
-help_menu.add_command(label=t("menu.about"), command=show_about)
-menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
-menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
-
-# 開發者選項
-dev_menu = create_dev_menu(menu_bar)
+    root.config(menu=menu_bar)
+    return menu_bar
 
 
-root.config(menu=menu_bar)
-
-# 根據設定套用開發者選項初始狀態
-if show_dev_var.get():
-    menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
+menu_bar = build_menu_bar()
 
 # 綁定方向鍵
 root.bind("<Up>", lambda e: board.undo())
@@ -5483,8 +5523,28 @@ main_frame.rowconfigure(0, weight=1)
 board_shell = tk.Frame(main_frame, bg=PANEL_BG, highlightbackground=PANEL_BORDER, highlightthickness=1, padx=14, pady=14)
 board_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
 
+# 外框背景層：顯示在棋盤四周的留白區域（不包含棋盤本身）
+board_frame_bg_label = tk.Label(board_shell, bd=0, highlightthickness=0)
+board_frame_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+
 board = GoBoard(board_shell)
 board.pack(anchor="center")
+board.frame_bg_label = board_frame_bg_label
+# board_frame_bg_label 在 board 之前建立，預設疊加順序已正確（Label在下、Canvas在上），
+# 無需額外 lift/tkraise。tk.Canvas 覆寫了 lift/tkraise（用於 canvas items），
+# 不接受無參數呼叫，故不可調用。
+
+# <Configure> 動態重縮放：視窗縮放導致 board_shell 尺寸改變時，重新縮放外框背景圖片。
+# 棋盤 Canvas 本身保持固定 620×620，不會被縮放。
+def _on_board_shell_configure(event):
+    # 節流：避免拖曳視窗時頻繁重算圖片，延遲 100ms 執行
+    if board._frame_bg_resize_after_id is not None:
+        board.after_cancel(board._frame_bg_resize_after_id)
+    board._frame_bg_resize_after_id = board.after(
+        100, lambda: board._resize_frame_background((event.width, event.height))
+    )
+
+board_shell.bind("<Configure>", _on_board_shell_configure)
 
 info_frame = ttk.Frame(main_frame, style="Panel.TFrame", padding=(14, 14, 14, 14))
 info_frame.grid(row=0, column=1, sticky="ns")
@@ -5825,75 +5885,7 @@ def on_commentary_generation_complete():
 
 
 def rebuild_menu_bar():
-    global menu_bar, file_menu, edit_menu, analysis_menu, ollama_model_menu
-    global settings_menu, language_menu, view_menu, help_menu, dev_menu
-
-    menu_bar = tk.Menu(root)
-
-    file_menu = tk.Menu(menu_bar, tearoff=0)
-    file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
-    file_menu.add_separator()
-    file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
-    file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
-    file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
-    file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
-    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
-    file_menu.add_separator()
-    file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
-    menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
-
-    edit_menu = tk.Menu(menu_bar, tearoff=0)
-    edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
-    edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
-    edit_menu.add_separator()
-    edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
-    edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
-    menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
-
-    analysis_menu = tk.Menu(menu_bar, tearoff=0)
-    analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
-    analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
-    analysis_menu.add_separator()
-    analysis_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
-    menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
-
-    settings_menu = tk.Menu(menu_bar, tearoff=0)
-    settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
-    settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
-    language_menu = tk.Menu(settings_menu, tearoff=0)
-    for language in i18n.available_languages:
-        language_menu.add_radiobutton(
-            label=t(f"language.{language}"),
-            value=language,
-            variable=language_var,
-            command=lambda lang=language: set_language(lang)
-        )
-    settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
-    settings_menu.add_separator()
-    settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
-    menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
-
-    view_menu = tk.Menu(menu_bar, tearoff=0)
-    view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
-    view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
-    view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
-    view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
-    menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
-
-    help_menu = tk.Menu(menu_bar, tearoff=0)
-    help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
-        t("dialog.shortcuts_title"),
-        t("dialog.shortcuts_message")
-    ))
-    help_menu.add_command(label=t("menu.about"), command=show_about)
-    menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
-    
-
-    menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
-    dev_menu = create_dev_menu(menu_bar)
-    if show_dev_var.get():
-        menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
-    root.config(menu=menu_bar)
+    return build_menu_bar()
 
 
 def refresh_language():

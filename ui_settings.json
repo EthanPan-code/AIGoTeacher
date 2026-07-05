@@ -1,8 +1,8 @@
 {
   "language": "zh_TW",
-  "show_developer": false,
+  "show_developer": true,
   "llm_provider": "nvidia",
-  "ollama_model": "gemma4:31b-cloud",
+  "ollama_model": "qwen2.5:7b",
   "nvidia_model": "moonshotai/kimi-k2.6",
   "llm_custom_prompts": {
     "system": "你是一位親切、鼓勵學生的圍棋老師。用簡單清晰的語言解釋棋理，強調學習過程而非完美棋手。",
@@ -12,7 +12,7 @@
   "llm_tone": "strict",
   "github_model": "openai/gpt-4o-mini",
   "board_background": "",
-  "board_frame_background": "C:/Program Files (x86)/MultiGo 4/board/board1.bmp",
+  "board_frame_background": "",
   "black_stone_image": "",
   "white_stone_image": ""
 }

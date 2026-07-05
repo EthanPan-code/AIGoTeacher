@@ -12,7 +12,7 @@ NVIDIA_MODELS = [
     "meta/llama-3.1-70b-instruct",
     "openai/gpt-oss-120b",
     "moonshotai/kimi-k2.6",
-    "mistralai/mistral-medium-3.5-128b",
+    "z-ai/glm-5.2",
     "google/gemma-4-31b-it",
     "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
 ]
