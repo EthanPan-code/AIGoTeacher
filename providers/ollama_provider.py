@@ -15,6 +15,18 @@ OLLAMA_MODELS = [
     if model not in OLLAMA_PAID_MODELS
 ]
 
+# 模型 ID → 顯示名稱對照表（UI 顯示用，ollama CLI 與 API 呼叫仍使用 ID）
+# 未列於此表的 ID 會 fallback 顯示原始 ID（支援使用者自行 ollama pull 的模型）
+OLLAMA_MODEL_DISPLAY_NAMES = {
+    "qwen2.5:1.5b": "Qwen2.5 1.5B",
+    "llama3.2:1b": "Llama3.2 1B",
+    "gemma2:2b": "Gemma2 2B",
+    "qwen2.5:3b": "Qwen2.5 3B",
+    "qwen2.5:7b": "Qwen2.5 7B",
+    "gemma4:31b-cloud": "Gemma4 31B",
+    "minimax-m2.1:cloud": "MiniMax M2.1",
+}
+
 
 class OllamaProvider(LLMProvider):
     def __init__(
@@ -36,6 +48,10 @@ class OllamaProvider(LLMProvider):
         return OLLAMA_MODELS
 
     @staticmethod
+    def get_model_display_name(model_id):
+        return OLLAMA_MODEL_DISPLAY_NAMES.get(model_id, model_id)
+
+    @staticmethod
     def is_cloud_model(model_name: str) -> bool:
         return "cloud" in (model_name or "").lower()
 
@@ -55,7 +71,7 @@ class OllamaProvider(LLMProvider):
     def set_model(self, model_name):
         self.model_name = model_name
         if self.status_callback:
-            self.status_callback(self.tr("status.ollama_model_changed", model=model_name))
+            self.status_callback(self.tr("status.ollama_model_changed", model=self.get_model_display_name(model_name)))
 
     def get_local_models(self):
         from services.ollama_manager import get_ollama_manager

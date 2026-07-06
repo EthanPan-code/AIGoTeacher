@@ -17,6 +17,16 @@ NVIDIA_MODELS = [
     "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
 ]
 
+# 模型 ID → 顯示名稱對照表（UI 顯示用，API 呼叫仍使用 ID）
+NVIDIA_MODEL_DISPLAY_NAMES = {
+    "meta/llama-3.1-70b-instruct": "Llama 3.1 70B Instruct",
+    "openai/gpt-oss-120b": "GPT-OSS 120B",
+    "moonshotai/kimi-k2.6": "Kimi K2.6",
+    "z-ai/glm-5.2": "GLM 5.2",
+    "google/gemma-4-31b-it": "Gemma 4 31B",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": "Nemotron Nano VL 8B",
+}
+
 
 class NvidiaProvider(LLMProvider):
     def __init__(
@@ -39,6 +49,10 @@ class NvidiaProvider(LLMProvider):
     def get_available_models(self):
         return NVIDIA_MODELS
 
+    @staticmethod
+    def get_model_display_name(model_id):
+        return NVIDIA_MODEL_DISPLAY_NAMES.get(model_id, model_id)
+
     def validate_config(self):
         if not self.api_key:
             return (False, self.tr("error.nvidia_api_key_missing_env"))
@@ -49,7 +63,7 @@ class NvidiaProvider(LLMProvider):
     def set_model(self, model_name):
         self.model_name = model_name
         if self.status_callback:
-            self.status_callback(self.tr("status.llm_provider_switched", provider="NVIDIA", model=model_name))
+            self.status_callback(self.tr("status.llm_provider_switched", provider="NVIDIA", model=self.get_model_display_name(model_name)))
 
     def start_commentary(self, critical_data):
         if self.is_generating:

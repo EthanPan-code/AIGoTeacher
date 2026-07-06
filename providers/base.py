@@ -89,6 +89,16 @@ class LLMProvider:
     def set_model(self, model_name):
         raise NotImplementedError("Subclass must implement set_model()")
 
+    @staticmethod
+    def get_model_display_name(model_id):
+        """Return a human-readable display name for the given model ID.
+
+        Subclasses should override this with a provider-specific lookup table.
+        The default implementation returns the raw ID so that unknown /
+        user-installed models still display gracefully.
+        """
+        return model_id
+
     def start_commentary(self, critical_data):
         raise NotImplementedError("Subclass must implement start_commentary()")
 

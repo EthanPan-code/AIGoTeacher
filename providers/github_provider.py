@@ -15,6 +15,14 @@ GITHUB_MODELS = [
     "openai/gpt-4.1",
 ]
 
+# 模型 ID → 顯示名稱對照表（UI 顯示用，API 呼叫仍使用 ID）
+GITHUB_MODEL_DISPLAY_NAMES = {
+    "openai/gpt-4o-mini": "GPT-4o mini",
+    "openai/gpt-4.1-mini": "GPT-4.1 mini",
+    "openai/gpt-4.1-nano": "GPT-4.1 nano",
+    "openai/gpt-4.1": "GPT-4.1",
+}
+
 GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference/chat/completions"
 
 
@@ -39,6 +47,10 @@ class GithubProvider(LLMProvider):
     def get_available_models(self):
         return GITHUB_MODELS
 
+    @staticmethod
+    def get_model_display_name(model_id):
+        return GITHUB_MODEL_DISPLAY_NAMES.get(model_id, model_id)
+
     def validate_config(self):
         if not self.api_key:
             return (False, self.tr("error.github_token_missing_env"))
@@ -47,7 +59,7 @@ class GithubProvider(LLMProvider):
     def set_model(self, model_name):
         self.model_name = model_name
         if self.status_callback:
-            self.status_callback(self.tr("status.llm_provider_switched", provider="GitHub Models", model=model_name))
+            self.status_callback(self.tr("status.llm_provider_switched", provider="GitHub Models", model=self.get_model_display_name(model_name)))
 
     def start_commentary(self, critical_data):
         if self.is_generating:

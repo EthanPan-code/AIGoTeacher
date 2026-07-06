@@ -3065,7 +3065,8 @@ def update_llm_model_label(provider=None, model=None):
     if model is None:
         model = ProviderFactory.get_configured_model(config_service, provider)
     provider_name = ProviderFactory.get_display_name(provider)
-    llm_model_var.set(f"{provider_name}: {model}")
+    model_display = ProviderFactory.get_model_display_name(provider, model)
+    llm_model_var.set(f"{model_display}")
 
 
 # ============== Ollama 模型管理輔助函數 ==============
@@ -3229,7 +3230,7 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
     # 模型名稱標籤
     model_label = tk.Label(
         row_frame,
-        text=model_name,
+        text=ProviderFactory.get_model_display_name("ollama", model_name),
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 10),
@@ -3294,7 +3295,7 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
 
     tk.Label(
         frame,
-        text=t("dialog.ollama_model_downloading_model", model=model_name, size=size_text),
+        text=t("dialog.ollama_model_downloading_model", model=ProviderFactory.get_model_display_name("ollama", model_name), size=size_text),
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 11, "bold")
@@ -3347,7 +3348,7 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
         if success:
             messagebox.showinfo(
                 t("dialog.success_title"),
-                t("dialog.ollama_model_download_success", model=model_name),
+                t("dialog.ollama_model_download_success", model=ProviderFactory.get_model_display_name("ollama", model_name)),
                 parent=parent,
             )
             refresh_callback(model_name)
@@ -3357,7 +3358,7 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
         else:
             messagebox.showerror(
                 t("dialog.error_title"),
-                t("dialog.ollama_model_download_failed", model=model_name, error=message),
+                t("dialog.ollama_model_download_failed", model=ProviderFactory.get_model_display_name("ollama", model_name), error=message),
                 parent=parent,
             )
 
@@ -3429,8 +3430,12 @@ def _show_llm_selection_dialog(parent):
     # ===== 狀態變數 =====
     provider_var = tk.StringVar(value=current_provider)
     ollama_model_var_local = tk.StringVar(value=current_ollama_model)
-    nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
-    github_model_var_local = tk.StringVar(value=current_github_model)
+    nvidia_model_var_local = tk.StringVar(
+        value=ProviderFactory.get_model_display_name("nvidia", current_nvidia_model)
+    )
+    github_model_var_local = tk.StringVar(
+        value=ProviderFactory.get_model_display_name("github", current_github_model)
+    )
     nvidia_api_key_var = tk.StringVar(value=current_nvidia_api_key)
     github_token_var = tk.StringVar(value=current_github_token)
     api_key_visible = tk.BooleanVar(value=False)
@@ -3587,7 +3592,7 @@ def _show_llm_selection_dialog(parent):
     try:
         selected_indicator = tk.Label(
             rescan_frame,
-            text=t("status.ollama_model_selected", model=current_ollama_model),
+            text=t("status.ollama_model_selected", model=ProviderFactory.get_model_display_name("ollama", current_ollama_model)),
             bg=PANEL_BG,
             fg=TEXT_MUTED,
             font=("Microsoft JhengHei", 9)
@@ -3595,7 +3600,12 @@ def _show_llm_selection_dialog(parent):
 
         def update_selected_indicator(*args):
             try:
-                selected_indicator.config(text=t("status.ollama_model_selected", model=ollama_model_var_local.get()))
+                selected_indicator.config(
+                    text=t(
+                        "status.ollama_model_selected",
+                        model=ProviderFactory.get_model_display_name("ollama", ollama_model_var_local.get()),
+                    )
+                )
             except Exception:
                 pass
 
@@ -3716,7 +3726,7 @@ def _show_llm_selection_dialog(parent):
     nvidia_model_combo = ttk.Combobox(
         nvidia_frame,
         textvariable=nvidia_model_var_local,
-        values=ProviderFactory.get_available_models("nvidia"),
+        values=[name for name, _ in ProviderFactory.get_available_models_with_names("nvidia")],
         state="readonly",
         width=40
     )
@@ -3794,7 +3804,7 @@ def _show_llm_selection_dialog(parent):
     github_model_combo = ttk.Combobox(
         github_frame,
         textvariable=github_model_var_local,
-        values=ProviderFactory.get_available_models("github"),
+        values=[name for name, _ in ProviderFactory.get_available_models_with_names("github")],
         state="readonly",
         width=40
     )
@@ -3857,7 +3867,8 @@ def _show_llm_selection_dialog(parent):
             custom_prompt=config_service.get_custom_prompt(""),
         )
         provider_name = ProviderFactory.get_display_name(provider)
-        status_var.set(t("status.llm_provider_switched", provider=provider_name, model=selected_model))
+        model_display = ProviderFactory.get_model_display_name(provider, selected_model)
+        status_var.set(t("status.llm_provider_switched", provider=provider_name, model=model_display))
         update_llm_model_label(provider, selected_model)
         ollama_worker = current_llm_worker
         update_teacher_ui(t("teacher.default_message"))
@@ -3874,10 +3885,13 @@ def _show_llm_selection_dialog(parent):
             if not api_key:
                 messagebox.showerror(t("dialog.error_title"), t("error.nvidia_api_key_empty"), parent=dialog_win)
                 return
+            # Combobox shows display name — map back to model ID for validation/storage
+            selected_display = nvidia_model_var_local.get()
+            model_id = ProviderFactory.get_model_id_by_display_name("nvidia", selected_display) or selected_display
             validator = ProviderFactory.create_provider(
                 "nvidia",
                 ui_callback=update_teacher_ui,
-                model_name=nvidia_model_var_local.get(),
+                model_name=model_id,
                 translator=t,
                 language_getter=lambda: i18n.language,
                 api_key=api_key
@@ -3886,16 +3900,19 @@ def _show_llm_selection_dialog(parent):
             if not is_valid:
                 messagebox.showwarning(t("dialog.error_title"), error_message or t("error.nvidia_api_key_invalid"), parent=dialog_win)
                 return
-            selected_model = nvidia_model_var_local.get()
+            selected_model = model_id
         elif provider == "github":
             github_token = normalize_api_key(github_token_var.get())
             if not github_token:
                 messagebox.showerror(t("dialog.error_title"), t("error.github_token_empty"), parent=dialog_win)
                 return
+            # Combobox shows display name — map back to model ID for validation/storage
+            selected_display = github_model_var_local.get()
+            model_id = ProviderFactory.get_model_id_by_display_name("github", selected_display) or selected_display
             validator = ProviderFactory.create_provider(
                 "github",
                 ui_callback=update_teacher_ui,
-                model_name=github_model_var_local.get(),
+                model_name=model_id,
                 translator=t,
                 language_getter=lambda: i18n.language,
                 api_key=github_token
@@ -3904,7 +3921,7 @@ def _show_llm_selection_dialog(parent):
             if not is_valid:
                 messagebox.showwarning(t("dialog.error_title"), error_message or t("error.github_token_invalid"), parent=dialog_win)
                 return
-            selected_model = github_model_var_local.get()
+            selected_model = model_id
         else:
             selected_model = ollama_model_var_local.get()
             if ollama_provider.is_paid_model(selected_model):
@@ -3913,7 +3930,7 @@ def _show_llm_selection_dialog(parent):
             if not ollama_provider.is_cloud_model(selected_model) and not ollama_provider.is_model_available(selected_model):
                 choice = messagebox.askyesnocancel(
                     t("dialog.confirm_title"),
-                    t("dialog.ollama_model_missing_prompt", model=selected_model),
+                    t("dialog.ollama_model_missing_prompt", model=ProviderFactory.get_model_display_name("ollama", selected_model)),
                     parent=dialog_win,
                 )
                 if choice is None:
@@ -5145,6 +5162,10 @@ def show_settings_dialog():
     def apply_settings():
         for sync_path_entry in sync_path_entries:
             sync_path_entry()
+        config_service.set_setting("katago_path_mode", katago_path_mode_var.get())
+        config_service.set_setting("model_path_mode", model_path_mode_var.get())
+        config_service.set_setting("config_path_mode", config_path_mode_var.get())
+        config_service.save()
         if reinitialize_analyzer():
             settings_win.destroy()
 
@@ -5319,9 +5340,9 @@ current_sgf_path = None
 loaded_sgf_overwrite_confirmed = False
 
 # 模型和配置文件路徑設定
-katago_path_mode_var = tk.StringVar(value="default")
-model_path_mode_var = tk.StringVar(value="standard")
-config_path_mode_var = tk.StringVar(value="default")
+katago_path_mode_var = tk.StringVar(value=config_service.get_setting("katago_path_mode", "default"))
+model_path_mode_var = tk.StringVar(value=config_service.get_setting("model_path_mode", "standard"))
+config_path_mode_var = tk.StringVar(value=config_service.get_setting("config_path_mode", "default"))
 katago_path_var = tk.StringVar(value="")
 model_path_var = tk.StringVar(value="")
 config_path_var = tk.StringVar(value="")

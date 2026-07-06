@@ -1,6 +1,9 @@
 {
   "language": "zh_TW",
   "show_developer": true,
+  "katago_path_mode": "default",
+  "model_path_mode": "fast",
+  "config_path_mode": "default",
   "llm_provider": "nvidia",
   "ollama_model": "qwen2.5:7b",
   "nvidia_model": "moonshotai/kimi-k2.6",
