@@ -8,6 +8,7 @@ class LLMProvider:
         translator=None,
         language_getter=None,
         on_complete_callback=None,
+        error_callback=None,
         tone="friendly",
         custom_prompt=None,
     ):
@@ -17,6 +18,7 @@ class LLMProvider:
         self.language_getter = language_getter or (lambda: "zh_TW")
         self.is_generating = False
         self.on_complete_callback = on_complete_callback
+        self.error_callback = error_callback
         self.tone = tone
         self.custom_prompt = custom_prompt or ""
 
@@ -60,10 +62,19 @@ class LLMProvider:
         turn = data.get("turn", "?")
         user_move = data.get("user_move", "?")
         winrate_drop = data.get("winrate_drop", 0) * 100
+        player = data.get("player", "")  # "Black" or "White"
         best_moves = data.get("current_best_moves") or []
         best_move = self.tr("teacher.best_unknown")
         if best_moves:
             best_move = best_moves[0].get("move", best_move)
+
+        # Get localized player name (stone.black or stone.white)
+        player_name = ""
+        if player:
+            if player == "Black":
+                player_name = self.tr("stone.black")
+            elif player == "White":
+                player_name = self.tr("stone.white")
 
         if self.language_getter() == "en":
             info_block = (
@@ -71,6 +82,10 @@ class LLMProvider:
                 f"Move: {turn}\n"
                 f"Student move: {user_move}\n"
                 f"Winrate drop: {winrate_drop:.1f}%\n"
+            )
+            if player_name:
+                info_block += f"Mistake by: {player_name}\n"
+            info_block += (
                 f"KataGo recommendation: {best_move}\n"
                 "Please give teaching feedback based on the information above."
             )
@@ -80,6 +95,10 @@ class LLMProvider:
                 f"第 {turn} 手\n"
                 f"學生下在：{user_move}\n"
                 f"勝率下降：{winrate_drop:.1f}%\n"
+            )
+            if player_name:
+                info_block += f"失誤方：{player_name}\n"
+            info_block += (
                 f"KataGo 推薦：{best_move}\n"
                 "請根據以上資訊給出教學解說。"
             )
@@ -108,3 +127,23 @@ class LLMProvider:
     def validate_config(self):
         """Return (is_valid, error_message)."""
         raise NotImplementedError("Subclass must implement validate_config()")
+
+    def chat_stream(self, prompt: str):
+        """Send a raw prompt to the LLM for a plain chat conversation.
+
+        This is used by the LLM Chat Sandbox to test provider connectivity
+        without any Go-specific prompt engineering.
+
+        Args:
+            prompt: The raw user message to send.
+
+        The default implementation wraps the prompt in a minimal data dict
+        and calls start_commentary, relying on build_commentary_prompt's
+        full_prompt bypass. Subclasses may override for provider-specific
+        chat implementations.
+        """
+        data = {
+            "full_prompt": prompt,
+            "thinking_text": self.tr("chat.thinking", default="Assistant is thinking..."),
+        }
+        self.start_commentary(data)

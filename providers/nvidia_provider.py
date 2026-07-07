@@ -1,5 +1,6 @@
 import json
 import threading
+import traceback
 
 from opencc import OpenCC
 
@@ -123,6 +124,11 @@ class NvidiaProvider(LLMProvider):
 
         except Exception as e:
             print(f"NVIDIA API commentary failed: {e}")
+            if getattr(self, "error_callback", None):
+                try:
+                    self.error_callback(e, traceback.format_exc())
+                except Exception as callback_error:
+                    print(f"NVIDIA error callback failed: {callback_error}")
             self.ui_callback(self._fallback_commentary(data, e))
             if self.status_callback:
                 self.status_callback(self.tr("status.nvidia_fallback"))

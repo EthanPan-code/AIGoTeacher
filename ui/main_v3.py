@@ -1334,13 +1334,42 @@ def plot_window(winrates, scoreLeads):
 
     def build_summary_prompt(language):
         data = build_full_game_summary_data()
+        
+        # Helper: extract player (Black/White) from move string like "1. B R16" or "1. W R16"
+        def get_player_from_move(move_str):
+            """Extract player from move string format '1. B R16' or '1. W R16'"""
+            if " B " in move_str:
+                return "Black"
+            elif " W " in move_str:
+                return "White"
+            return None
+        
+        # Helper: get localized player name
+        def get_player_name(move_str):
+            """Get localized player name (石頭.黑/石頭.白 or stone.black/stone.white)"""
+            player = get_player_from_move(move_str)
+            if player == "Black":
+                return t("stone.black")
+            elif player == "White":
+                return t("stone.white")
+            return ""
+        
         mistake_lines = []
         for item in data["mistakes"]:
-            mistake_lines.append(
-                f"- {item['move']}: loss {item['loss']:.1f}%, black winrate {item['before']:.1f}% -> {item['after']:.1f}%, KataGo: {item['suggestions']}"
-            )
+            player_name = get_player_name(item['move'])
+            if language == "en":
+                mistake_lines.append(
+                    f"- Move {item['move'].split()[0][:-1]}: ({player_name}) loss {item['loss']:.1f}%, black winrate {item['before']:.1f}% -> {item['after']:.1f}%, KataGo: {item['suggestions']}"
+                )
+            else:
+                mistake_lines.append(
+                    f"- {item['move']}（{player_name}）: 失誤 {item['loss']:.1f}%，黑勝率 {item['before']:.1f}% → {item['after']:.1f}%，KataGo 推薦：{item['suggestions']}"
+                )
         if not mistake_lines:
-            mistake_lines.append("- No move exceeded the 30% mistake threshold.")
+            if language == "en":
+                mistake_lines.append("- No move exceeded the 30% mistake threshold.")
+            else:
+                mistake_lines.append("- 無超過 30% 的失誤。")
 
         sharp_lines = [
             f"- Move {idx}: black winrate changed {delta:+.1f}%"
@@ -1350,16 +1379,24 @@ def plot_window(winrates, scoreLeads):
         blunder_text = "None"
         if data["blunder"]:
             b = data["blunder"]
-            blunder_text = (
-                f"{b['move']}, loss {b['loss']:.1f}%, black winrate {b['before']:.1f}% -> {b['after']:.1f}%, "
-                f"KataGo: {b['suggestions']}"
-            )
+            player_name = get_player_name(b['move'])
+            if language == "en":
+                blunder_text = (
+                    f"Move {b['move'].split()[0][:-1]} ({player_name}): loss {b['loss']:.1f}%, black winrate {b['before']:.1f}% -> {b['after']:.1f}%, "
+                    f"KataGo: {b['suggestions']}"
+                )
+            else:
+                blunder_text = (
+                    f"{b['move']}（{player_name}）：失誤 {b['loss']:.1f}%，黑勝率 {b['before']:.1f}% → {b['after']:.1f}%，"
+                    f"KataGo 推薦：{b['suggestions']}"
+                )
 
         if language == "en":
-            system_prompt = "You are a calm, practical Go teacher. Give concise teaching feedback based on KataGo analysis."
+            system_prompt = "You are a calm, practical Go teacher. Give concise teaching feedback based on KataGo analysis. Each mistake is marked with the player who made it (Black or White)."
             user_prompt = (
                 "Summarize this full Go game in 3-5 short teaching sentences.\n"
-                "Focus on the overall trend, the decisive mistake, turning points, and one practical study suggestion.\n\n"
+                "Focus on the overall trend, the decisive mistake, turning points, and one practical study suggestion.\n"
+                "Explain mistakes from the perspective of the player who made them.\n\n"
                 f"Overall trend: opening black winrate {data['opening_wr']:.1f}%, peak move {data['peak'][0]} at {data['peak'][1]:.1f}%, "
                 f"low move {data['low'][0]} at {data['low'][1]:.1f}%, final black winrate {data['final_wr']:.1f}%.\n"
                 f"Mistakes over 30%:\n{chr(10).join(mistake_lines)}\n"
@@ -1382,18 +1419,21 @@ def plot_window(winrates, scoreLeads):
             - 關鍵失誤造成的影響
             - 可執行的學習建議
 
+            每個失誤都會標明是黑棋或白棋的失誤，請以該方的角度說明失誤對局勢的影響。
+
             請用自然、人類化的語氣，
             不要逐條朗讀數據，
             不要重複大量百分比。
             """
             user_prompt = (
-                "請以圍棋老師的角度，用 4~6 句話總6結這盤棋。\n\n"
+                "請以圍棋老師的角度，用 4~6 句話總結這盤棋。\n\n"
 
                 "要求：\n"
                 "- 不要逐條列出數據。\n"
                 "- 不要重複大量勝率百分比。\n"
                 "- 不要假裝看得到棋盤內容。\n"
                 "- 可以根據勝率變化判斷局勢起伏。\n"
+                "- 以失誤方的角度解說失誤如何影響局面。\n"
                 "- 語氣自然，像老師下課後給學生的評語。\n\n"
 
                 "請依序涵蓋：\n"
@@ -4757,6 +4797,23 @@ def export_diagnostic_report():
         messagebox.showerror(t("dialog.error_title"), t("dialog.diagnostics_export_error"))
 
 
+def show_chat_sandbox():
+    """Open the LLM Chat Sandbox window for provider connectivity testing."""
+    from ui.chat_sandbox import LLMChatWindow
+    win = LLMChatWindow(
+        root,
+        current_llm_worker,
+        provider_name=llm_provider,
+        provider_display_name=ProviderFactory.get_display_name(llm_provider),
+        model_display_name=ProviderFactory.get_model_display_name(
+            llm_provider,
+            getattr(current_llm_worker, "model_name", ""),
+        ),
+        translator=t,
+        language_getter=lambda: i18n.language,
+    )
+
+
 def create_dev_menu(parent_menu):
     """建立 Dev 選單；初始建置與語言重建共用同一份項目。"""
     menu = tk.Menu(parent_menu, tearoff=0)
@@ -4764,6 +4821,8 @@ def create_dev_menu(parent_menu):
     menu.add_command(label=t("menu.export_diagnostics"), command=export_diagnostic_report)
     menu.add_separator()
     menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
+    menu.add_separator()
+    menu.add_command(label=t("menu.chat_sandbox"), command=show_chat_sandbox)
     return menu
 
 

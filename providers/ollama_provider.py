@@ -1,4 +1,5 @@
 import threading
+import traceback
 from typing import Callable, Dict, Optional
 
 from opencc import OpenCC
@@ -156,6 +157,11 @@ class OllamaProvider(LLMProvider):
 
         except Exception as e:
             print(f"Ollama commentary failed: {e}")
+            if getattr(self, "error_callback", None):
+                try:
+                    self.error_callback(e, traceback.format_exc())
+                except Exception as callback_error:
+                    print(f"Ollama error callback failed: {callback_error}")
             self.ui_callback(self._fallback_commentary(data, e))
             if self.status_callback:
                 self.status_callback(self.tr("status.ollama_fallback"))
