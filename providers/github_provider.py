@@ -75,6 +75,7 @@ class GithubProvider(LLMProvider):
             import requests
 
             user_prompt = self.build_commentary_prompt(data)
+            conversation = data.get("conversation")
             stream = True
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -82,11 +83,16 @@ class GithubProvider(LLMProvider):
                 "Content-Type": "application/json",
             }
 
+            # Build messages list from conversation history + current prompt
+            messages = []
+            if conversation:
+                for msg in conversation:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": user_prompt})
+
             payload = {
                 "model": self.model_name,
-                "messages": [
-                    {"role": "user", "content": user_prompt},
-                ],
+                "messages": messages,
                 "max_tokens": 512,
                 "temperature": 0.60,
                 "top_p": 0.95,

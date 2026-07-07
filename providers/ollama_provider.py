@@ -138,12 +138,18 @@ class OllamaProvider(LLMProvider):
             import ollama
 
             prompt = self.build_commentary_prompt(data)
+            conversation = data.get("conversation")
+
+            # Build messages list from conversation history + current prompt
+            messages = []
+            if conversation:
+                for msg in conversation:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": prompt})
 
             response = ollama.chat(
                 model=self.model_name,
-                messages=[
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 stream=True,
             )
 

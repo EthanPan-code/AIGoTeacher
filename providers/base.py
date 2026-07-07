@@ -128,7 +128,7 @@ class LLMProvider:
         """Return (is_valid, error_message)."""
         raise NotImplementedError("Subclass must implement validate_config()")
 
-    def chat_stream(self, prompt: str):
+    def chat_stream(self, prompt: str, conversation: list = None):
         """Send a raw prompt to the LLM for a plain chat conversation.
 
         This is used by the LLM Chat Sandbox to test provider connectivity
@@ -136,6 +136,8 @@ class LLMProvider:
 
         Args:
             prompt: The raw user message to send.
+            conversation: Optional list of prior messages in format
+                [{"role": "user"/"assistant", "content": "..."}].
 
         The default implementation wraps the prompt in a minimal data dict
         and calls start_commentary, relying on build_commentary_prompt's
@@ -145,5 +147,6 @@ class LLMProvider:
         data = {
             "full_prompt": prompt,
             "thinking_text": self.tr("chat.thinking", default="Assistant is thinking..."),
+            "conversation": conversation,
         }
         self.start_commentary(data)

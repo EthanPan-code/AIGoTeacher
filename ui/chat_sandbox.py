@@ -1,10 +1,3 @@
-"""
-LLM Chat Sandbox
-
-Standalone Toplevel chat window for testing the currently selected LLM provider.
-It uses a cloned provider instance so the main teacher UI is not touched.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -13,21 +6,21 @@ import traceback
 import tkinter as tk
 from tkinter import ttk
 
+# --- 現代感莫蘭迪/科技風配色方案 ---
+_CHAT_BG = "#f8f9fa"          # 極淺灰背景
+_CHAT_PANEL = "#ffffff"       # 純白輸入框背景
+_CHAT_BORDER = "#e2e8f0"      # 淺灰邊框
+_CHAT_TEXT = "#1e293b"        # 深藍灰文字
+_CHAT_MUTED = "#64748b"       # 靜音灰
+_CHAT_ACCENT = "#0ea5e9"      # 天藍色主調（發送按鈕）
+_CHAT_ACCENT_D = "#0284c7"    # 深天藍
 
-_CHAT_BG = "#f5f0e8"
-_CHAT_PANEL = "#fffaf2"
-_CHAT_BORDER = "#d7c8ad"
-_CHAT_TEXT = "#2f271f"
-_CHAT_MUTED = "#786858"
-_CHAT_ACCENT = "#1f6f78"
-_CHAT_ACCENT_D = "#15565d"
+_USER_BUBBLE_BG = "#e0f2fe"   # 使用者氣泡（淺藍）
+_ASSISTANT_BUBBLE = "#f1f5f9" # 助手氣泡（淺灰）
+_ERROR_BUBBLE = "#fee2e2"     # 錯誤氣泡（淺紅）
 
-_USER_BUBBLE_BG = "#d4edf0"
-_ASSISTANT_BUBBLE = "#ffffff"
-_ERROR_BUBBLE = "#fce8e8"
-
-_FONT_MAIN = ("Microsoft JhengHei", 11)
-_FONT_BOLD = ("Microsoft JhengHei", 11, "bold")
+_FONT_MAIN = ("Microsoft JhengHei", 10)
+_FONT_BOLD = ("Microsoft JhengHei", 10, "bold")
 _FONT_SMALL = ("Microsoft JhengHei", 9)
 
 
@@ -56,10 +49,30 @@ class LLMChatWindow(tk.Toplevel):
         self._thinking_start = None
         self._thinking_text = self._tr("chat.thinking", default="Assistant is thinking...")
 
+        self._conversation = []
+        self._max_messages = 40 
+
         self.title(f"{self._tr('chat.title', default='LLM Chat Sandbox')} - {self.model_display_name}")
-        self.geometry("840x560")
-        self.minsize(480, 380)
+        self.geometry("850x650")  # 微調初始比例
+        self.minsize(500, 450)    # 限制最小尺寸，防止組件疊加
         self.configure(bg=_CHAT_BG)
+
+        # 設定 ttk 按鈕樣式（讓按鈕更好看）
+        self.style = ttk.Style()
+        self.style.theme_use("clam")
+        self.style.configure(
+            "Send.TButton",
+            font=_FONT_BOLD,
+            background=_CHAT_ACCENT,
+            foreground="white",
+            borderwidth=0,
+            focuscolor="none"
+        )
+        self.style.map(
+            "Send.TButton",
+            background=[("active", _CHAT_ACCENT_D), ("disabled", _CHAT_BORDER)],
+            foreground=[("disabled", _CHAT_MUTED)]
+        )
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -78,34 +91,36 @@ class LLMChatWindow(tk.Toplevel):
         return self.provider.__class__.__name__.replace("Provider", "") or "LLM"
 
     def _build_ui(self):
-        outer = tk.Frame(self, bg=_CHAT_BG)
-        outer.pack(fill="both", expand=True)
+        # 使用 grid 佈局權重，確保縮放時各區域比例正確
+        self.rowconfigure(0, weight=0)  # Header 不縮放
+        self.rowconfigure(1, weight=1)  # 對話歷史 垂直連動縮放
+        self.rowconfigure(2, weight=0)  # 輸入框區域 不縮放
+        self.columnconfigure(0, weight=1)
 
-        header = tk.Frame(outer, bg=_CHAT_BG)
-        header.pack(fill="x", padx=12, pady=(12, 6))
-
-        top_row = tk.Frame(header, bg=_CHAT_BG)
-        top_row.pack(fill="x")
+        # 1. Header 區域
+        header = tk.Frame(self, bg=_CHAT_BG)
+        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 10))
+        header.columnconfigure(0, weight=1)
 
         title_label = tk.Label(
-            top_row,
+            header,
             text=self._tr("chat.title", default="LLM Chat Sandbox"),
-            font=("Microsoft JhengHei", 15, "bold"),
+            font=("Microsoft JhengHei", 14, "bold"),
             fg=_CHAT_TEXT,
             bg=_CHAT_BG,
             anchor="w",
         )
-        title_label.pack(side="left", anchor="w")
+        title_label.grid(row=0, column=0, sticky="w")
 
         model_label = tk.Label(
-            top_row,
+            header,
             text=f"{self._tr('chat.model_label', default='Model')}: {self.model_display_name}",
             font=_FONT_SMALL,
             fg=_CHAT_MUTED,
             bg=_CHAT_BG,
             anchor="e",
         )
-        model_label.pack(side="right", anchor="e")
+        model_label.grid(row=0, column=1, sticky="e")
 
         provider_label = tk.Label(
             header,
@@ -115,44 +130,56 @@ class LLMChatWindow(tk.Toplevel):
             bg=_CHAT_BG,
             anchor="w",
         )
-        provider_label.pack(fill="x", pady=(2, 0))
+        provider_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        history_wrap = tk.Frame(outer, bg=_CHAT_BG)
-        history_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+# 2. 對話歷史區域（外層加卡片框線感）
+
+        history_wrap = tk.Frame(self, bg=_CHAT_PANEL, highlightbackground=_CHAT_BORDER, highlightthickness=1)
+        history_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=5)
 
         self._history_text = tk.Text(
             history_wrap,
             wrap="word",
             font=_FONT_MAIN,
-            bg=_CHAT_BG,
+            bg=_CHAT_PANEL,
             fg=_CHAT_TEXT,
             insertbackground=_CHAT_ACCENT,
             relief="flat",
             bd=0,
             highlightthickness=0,
-            padx=4,
-            pady=4,
+            padx=15,
+            pady=15,
             state="disabled",
         )
         history_scroll = ttk.Scrollbar(history_wrap, command=self._history_text.yview)
         self._history_text.configure(yscrollcommand=history_scroll.set)
+        
         self._history_text.pack(side="left", fill="both", expand=True)
         history_scroll.pack(side="right", fill="y")
 
-        self._history_text.tag_configure("assistant_role", foreground=_CHAT_ACCENT, font=_FONT_BOLD, spacing1=8, spacing3=2, justify="left")
-        self._history_text.tag_configure("assistant_body", foreground=_CHAT_TEXT, background=_ASSISTANT_BUBBLE, spacing3=10, justify="left")
-        self._history_text.tag_configure("user_role", foreground=_CHAT_ACCENT_D, font=_FONT_BOLD, spacing1=8, spacing3=2, justify="right")
-        self._history_text.tag_configure("user_body", foreground=_CHAT_TEXT, background=_USER_BUBBLE_BG, spacing3=10, justify="left")
-        self._history_text.tag_configure("error_role", foreground="#c0392b", font=_FONT_BOLD, spacing1=8, spacing3=2, justify="left")
-        self._history_text.tag_configure("error_body", foreground="#b03a2e", background=_ERROR_BUBBLE, spacing3=10, justify="left")
-        self._history_text.tag_configure("thinking", foreground=_CHAT_MUTED, font=("Microsoft JhengHei", 10, "italic"), spacing1=6, spacing3=6)
+        # --- 美化對話標籤與氣泡間距 (調整 rmargin/lmargin 與 spacing) ---
+        # 使用者訊息靠右
+        self._history_text.tag_configure("user_role", foreground=_CHAT_MUTED, font=_FONT_SMALL, spacing1=15, spacing3=2, justify="right")
+        self._history_text.tag_configure("user_body", foreground=_CHAT_TEXT, background=_USER_BUBBLE_BG, spacing3=5, justify="right", rmargin=10, lmargin1=150, lmargin2=150)
+        
+        # 助手訊息靠左
+        self._history_text.tag_configure("assistant_role", foreground=_CHAT_MUTED, font=_FONT_SMALL, spacing1=15, spacing3=2, justify="left")
+        self._history_text.tag_configure("assistant_body", foreground=_CHAT_TEXT, background=_ASSISTANT_BUBBLE, spacing3=5, justify="left", lmargin1=25, lmargin2=25, rmargin=150)
+        
+        # 錯誤訊息
+        self._history_text.tag_configure("error_role", foreground="#c0392b", font=_FONT_BOLD, spacing1=15, spacing3=2, justify="left")
+        self._history_text.tag_configure("error_body", foreground="#b03a2e", background=_ERROR_BUBBLE, spacing3=5, justify="left", lmargin1=10, lmargin2=10, rmargin=10)
+        
+        self._history_text.tag_configure("thinking", foreground=_CHAT_MUTED, font=("Microsoft JhengHei", 10, "italic"), spacing1=10, spacing3=10)
 
         self._history_text.bind("<MouseWheel>", self._on_mousewheel)
         self._history_text.bind("<Button-4>", self._on_mousewheel_linux)
         self._history_text.bind("<Button-5>", self._on_mousewheel_linux)
 
-        input_wrap = tk.Frame(outer, bg=_CHAT_BG)
-        input_wrap.pack(side="bottom", fill="x", padx=20, pady=(0, 12))
+        # 3. 輸入框與按鈕區域
+        input_wrap = tk.Frame(self, bg=_CHAT_BG)
+        input_wrap.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 15))
+        input_wrap.columnconfigure(0, weight=1)
 
         self._input_text = tk.Text(
             input_wrap,
@@ -164,18 +191,23 @@ class LLMChatWindow(tk.Toplevel):
             insertbackground=_CHAT_ACCENT,
             relief="solid",
             bd=1,
-            highlightthickness=1,
+            highlightthickness=0,
             highlightbackground=_CHAT_BORDER,
-            highlightcolor=_CHAT_ACCENT,
-            padx=8,
-            pady=6,
+            padx=10,
+            pady=8,
         )
-        self._input_text.pack(side="left", fill="x", expand=True)
+        self._input_text.grid(row=0, column=0, sticky="ew")
         self._input_text.bind("<Return>", self._on_enter)
         self._input_text.bind("<Shift-Return>", self._on_shift_enter)
 
-        send_btn = ttk.Button(input_wrap, text=self._tr("chat.send", default="Send"), command=self._on_send, width=10)
-        send_btn.pack(side="right", padx=(8, 0))
+        # 改用 grid 控制按鈕，並加上固定寬高與邊距
+        self.send_btn = ttk.Button(
+            input_wrap, 
+            text=self._tr("chat.send", default="Send"), 
+            command=self._on_send, 
+            style="Send.TButton"
+        )
+        self.send_btn.grid(row=0, column=1, sticky="ns", padx=(12, 0))
 
     def _on_enter(self, event):
         self._on_send()
@@ -194,6 +226,7 @@ class LLMChatWindow(tk.Toplevel):
             return
 
         self._input_text.delete("1.0", "end")
+        self._remember("user", raw)
         self._add_message("user", raw)
         self._start_generation(raw)
 
@@ -202,8 +235,10 @@ class LLMChatWindow(tk.Toplevel):
 
     def _append_history(self, role_text, content, tag):
         self._history_text.configure(state="normal")
+        padding_content = f"{content.strip()}  "
+        
         self._history_text.insert("end", f"{role_text}\n", f"{tag}_role")
-        self._history_text.insert("end", f"{content}\n\n", f"{tag}_body")
+        self._history_text.insert("end", f"{padding_content}\n\n", f"{tag}_body")
         self._history_text.configure(state="disabled")
         self._history_text.see("end")
 
@@ -224,7 +259,7 @@ class LLMChatWindow(tk.Toplevel):
             return
         self._history_text.configure(state="normal")
         self._thinking_start = self._history_text.index("end-1c")
-        self._history_text.insert("end", f"{self._thinking_text}\n\n", "thinking")
+        self._history_text.insert("end", f"💬 {self._thinking_text}\n\n", "thinking")
         self._history_text.configure(state="disabled")
         self._history_text.see("end")
 
@@ -246,6 +281,7 @@ class LLMChatWindow(tk.Toplevel):
         self._hide_thinking()
         self._history_text.configure(state="normal")
         self._history_text.insert("end", f"{self._tr('chat.role_assistant', default='Assistant')}\n", "assistant_role")
+        self._history_text.insert("end", "  \n\n", "assistant_body") 
         self._history_text.configure(state="disabled")
         self._assistant_started = True
         self._history_text.see("end")
@@ -268,12 +304,24 @@ class LLMChatWindow(tk.Toplevel):
             return
 
         self._history_text.configure(state="normal")
-        self._history_text.insert("end", delta, "assistant_body")
+        # 由於串流是一字字塞入，我們移除結尾換行，交給完成時處理
+        self._history_text.insert("end-2c", delta, "assistant_body")
         self._history_text.configure(state="disabled")
         self._stream_text = chunk_text
         self._history_text.see("end")
 
     def _finish_generation(self):
+
+        if self._stream_text.strip():
+            self._remember(
+                "assistant",
+                self._stream_text,
+            )
+        # 補上最後的對話尾隨換行
+        self._history_text.configure(state="normal")
+        self._history_text.insert("end", "  \n\n", "assistant_body")
+        self._history_text.configure(state="disabled")
+        
         self._busy = False
         self._hide_thinking()
         self._assistant_started = False
@@ -287,6 +335,7 @@ class LLMChatWindow(tk.Toplevel):
             self._tr("chat.error_log", default="完整 Exception Log："),
             trace_text.strip(),
         ]
+        self._remember("assistant", "\n".join(error_message))
         self._add_message("assistant", "\n".join(error_message), is_error=True)
 
     def _create_sandbox_provider(self, ui_callback, on_complete, on_error):
@@ -322,7 +371,7 @@ class LLMChatWindow(tk.Toplevel):
 
         def run():
             try:
-                provider.chat_stream(user_text)
+                provider.chat_stream(user_text, conversation=self._conversation)
             except Exception:
                 self._schedule(lambda: self._show_error(Exception("Unexpected provider failure"), traceback.format_exc()))
                 self._schedule(self._finish_generation)
@@ -343,3 +392,15 @@ class LLMChatWindow(tk.Toplevel):
         except Exception:
             pass
         return "break"
+    
+    def _remember(self, role, content):
+        """加入聊天記憶"""
+
+        self._conversation.append({
+            "role": role,
+            "content": content,
+        })
+
+        # 超過限制時，只保留最新 N 則
+        if len(self._conversation) > self._max_messages:
+            self._conversation = self._conversation[-self._max_messages:]
