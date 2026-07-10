@@ -4,24 +4,32 @@ import copy
 import threading
 import traceback
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, font as tkfont
 
-# --- 現代感莫蘭迪/科技風配色方案 ---
-_CHAT_BG = "#f8f9fa"          # 極淺灰背景
-_CHAT_PANEL = "#ffffff"       # 純白輸入框背景
-_CHAT_BORDER = "#e2e8f0"      # 淺灰邊框
-_CHAT_TEXT = "#1e293b"        # 深藍灰文字
-_CHAT_MUTED = "#64748b"       # 靜音灰
-_CHAT_ACCENT = "#0ea5e9"      # 天藍色主調（發送按鈕）
-_CHAT_ACCENT_D = "#0284c7"    # 深天藍
+# --- 深色主題配色方案 (移植自 llm_chat_gui_tkinter.py) ---
+_CHAT_BG = "#0f172a"          # slate-950  主背景
+_CHAT_PANEL = "#1e293b"       # slate-800  側邊欄/輸入框背景
+_CHAT_BORDER = "#334155"      # slate-700  邊框
+_CHAT_TEXT = "#f8fafc"        # slate-50   主文字
+_CHAT_MUTED = "#94a3b8"       # slate-400  次要文字
+_CHAT_DIM = "#64748b"         # slate-500  暗淡文字
+_CHAT_ACCENT = "#2563eb"      # blue-600   主調（發送按鈕）
+_CHAT_ACCENT_D = "#3b82f6"    # blue-500   hover
+_CHAT_ACCENT_HOVER = "#3b82f6"  # blue-500
 
-_USER_BUBBLE_BG = "#e0f2fe"   # 使用者氣泡（淺藍）
-_ASSISTANT_BUBBLE = "#f1f5f9" # 助手氣泡（淺灰）
-_ERROR_BUBBLE = "#fee2e2"     # 錯誤氣泡（淺紅）
+_USER_BUBBLE_BG = "#1e293b"   # slate-800  使用者氣泡
+_ASSISTANT_BUBBLE = "#1e293b" # slate-800  助手氣泡
+_ERROR_BUBBLE = "#7f1d1d"     # red-900    錯誤氣泡
+_THINKING_BG = "#1e293b"      # slate-800  思考中氣泡
+_AVATAR_USER = "#334155"      # slate-700  使用者頭像
+_AVATAR_AI = "#2563eb"        # blue-600   AI 頭像
+_BULLET = "#60a5fa"           # blue-400   列表項目符號
 
-_FONT_MAIN = ("Microsoft JhengHei", 10)
-_FONT_BOLD = ("Microsoft JhengHei", 10, "bold")
-_FONT_SMALL = ("Microsoft JhengHei", 9)
+_FONT_MAIN = ("Segoe UI", 10)
+_FONT_BOLD = ("Segoe UI", 10, "bold")
+_FONT_SMALL = ("Segoe UI", 8)
+_FONT_TITLE = ("Segoe UI", 14, "bold")
+_FONT_TINY = ("Segoe UI", 7)
 
 
 class LLMChatWindow(tk.Toplevel):
@@ -53,11 +61,11 @@ class LLMChatWindow(tk.Toplevel):
         self._max_messages = 40 
 
         self.title(f"{self._tr('chat.title', default='LLM Chat Sandbox')} - {self.model_display_name}")
-        self.geometry("850x650")  # 微調初始比例
-        self.minsize(500, 450)    # 限制最小尺寸，防止組件疊加
+        self.geometry("1100x720")  # 配合側邊欄加寬
+        self.minsize(900, 600)    # 限制最小尺寸
         self.configure(bg=_CHAT_BG)
 
-        # 設定 ttk 按鈕樣式（讓按鈕更好看）
+        # 設定 ttk 按鈕樣式（深色主題）
         self.style = ttk.Style()
         self.style.theme_use("clam")
         self.style.configure(
@@ -66,12 +74,21 @@ class LLMChatWindow(tk.Toplevel):
             background=_CHAT_ACCENT,
             foreground="white",
             borderwidth=0,
-            focuscolor="none"
+            focuscolor="none",
+            padding=(20, 6),
         )
         self.style.map(
             "Send.TButton",
             background=[("active", _CHAT_ACCENT_D), ("disabled", _CHAT_BORDER)],
             foreground=[("disabled", _CHAT_MUTED)]
+        )
+        # 捲軸樣式（深色）
+        self.style.configure(
+            "Dark.Vertical.TScrollbar",
+            background=_CHAT_BORDER,
+            troughcolor=_CHAT_PANEL,
+            borderwidth=0,
+            arrowcolor=_CHAT_MUTED,
         )
 
         self._build_ui()
@@ -91,123 +108,397 @@ class LLMChatWindow(tk.Toplevel):
         return self.provider.__class__.__name__.replace("Provider", "") or "LLM"
 
     def _build_ui(self):
-        # 使用 grid 佈局權重，確保縮放時各區域比例正確
-        self.rowconfigure(0, weight=0)  # Header 不縮放
-        self.rowconfigure(1, weight=1)  # 對話歷史 垂直連動縮放
-        self.rowconfigure(2, weight=0)  # 輸入框區域 不縮放
-        self.columnconfigure(0, weight=1)
+        # 外層水平容器：側邊欄 + 主內容區
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=0)  # 側邊欄固定寬度
+        self.columnconfigure(1, weight=1)  # 主內容區縮放
 
-        # 1. Header 區域
-        header = tk.Frame(self, bg=_CHAT_BG)
-        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 10))
-        header.columnconfigure(0, weight=1)
+        # ---- 側邊欄 ----
+        self._build_sidebar()
+
+        # ---- 主內容區 ----
+        main = tk.Frame(self, bg=_CHAT_BG)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.rowconfigure(0, weight=0)   # Header
+        main.rowconfigure(1, weight=1)   # 聊天區
+        main.rowconfigure(2, weight=0)   # 輸入區
+        main.columnconfigure(0, weight=1)
+
+        self._build_header(main)
+        self._build_chat_area(main)
+        self._build_input_area(main)
+
+    # ============================================================
+    # 側邊欄（靜態介面，暫不啟用功能）
+    # ============================================================
+    def _build_sidebar(self):
+        sidebar = tk.Frame(self, bg=_CHAT_PANEL, width=288)
+        sidebar.grid(row=0, column=0, sticky="ns")
+        sidebar.pack_propagate(False)
+        sidebar.grid_propagate(False)
+
+        # ---- Logo & New Chat ----
+        top_frame = tk.Frame(sidebar, bg=_CHAT_PANEL)
+        top_frame.pack(fill=tk.X, padx=16, pady=16)
+
+        logo_label = tk.Label(
+            top_frame,
+            text="LLM Chat",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_TEXT,
+            font=_FONT_TITLE,
+            anchor="w",
+        )
+        logo_label.pack(anchor="w")
+
+        # New Chat 按鈕（靜態，暫不啟用）
+        new_chat_btn = tk.Label(
+            top_frame,
+            text="  +  New Chat",
+            bg=_CHAT_ACCENT,
+            fg="white",
+            font=_FONT_MAIN,
+            padx=16,
+            pady=8,
+            cursor="hand2",
+        )
+        new_chat_btn.pack(fill=tk.X, pady=(16, 0))
+
+        # ---- Recent Conversations ----
+        recent_header = tk.Frame(sidebar, bg=_CHAT_PANEL)
+        recent_header.pack(fill=tk.X, padx=12, pady=(24, 4))
+
+        recent_label = tk.Label(
+            recent_header,
+            text="RECENT CONVERSATIONS",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_DIM,
+            font=_FONT_SMALL,
+        )
+        recent_label.pack(side=tk.LEFT)
+
+        search_icon = tk.Label(
+            recent_header,
+            text="🔍",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_DIM,
+            font=_FONT_SMALL,
+            cursor="hand2",
+        )
+        search_icon.pack(side=tk.RIGHT)
+
+        # 對話列表容器（靜態，暫不啟用）
+        list_container = tk.Frame(sidebar, bg=_CHAT_PANEL)
+        list_container.pack(fill=tk.BOTH, expand=True, padx=12)
+
+        conversations = [
+            ("Understanding Quantum Computing", "2 min ago", True),
+            ("Python Function Optimization", "1 hour ago", False),
+            ("Creative Story Ideas", "3 hours ago", False),
+            ("Marketing Strategy Brainstorm", "Yesterday", False),
+            ("Daily Task Automation", "2 days ago", False),
+        ]
+        for title, time_str, is_active in conversations:
+            self._build_conversation_item(list_container, title, time_str, is_active)
+
+        # ---- Footer / Settings ----
+        border_line = tk.Frame(sidebar, bg=_CHAT_BORDER, height=1)
+        border_line.pack(fill=tk.X, side=tk.BOTTOM)
+
+        settings_frame = tk.Frame(sidebar, bg=_CHAT_PANEL)
+        settings_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=16, pady=16)
+
+        settings_icon = tk.Label(
+            settings_frame,
+            text="⚙",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_DIM,
+            font=_FONT_MAIN,
+            cursor="hand2",
+        )
+        settings_icon.pack(anchor="w")
+
+    def _build_conversation_item(self, parent, title, time_str, is_active):
+        """建立單一對話項目（靜態，暫不啟用）。"""
+        bg = "#0f172a" if is_active else _CHAT_PANEL  # 選中項用深色
+        fg = _CHAT_TEXT if is_active else _CHAT_MUTED
+
+        item = tk.Frame(parent, bg=bg, padx=12, pady=8, cursor="hand2")
+        item.pack(fill=tk.X, pady=2)
 
         title_label = tk.Label(
-            header,
+            item,
+            text=title,
+            bg=bg,
+            fg=fg,
+            font=_FONT_MAIN,
+            anchor="w",
+        )
+        title_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        time_label = tk.Label(
+            item,
+            text=time_str,
+            bg=bg,
+            fg=_CHAT_DIM,
+            font=_FONT_TINY,
+        )
+        time_label.pack(side=tk.RIGHT)
+
+    # ============================================================
+    # Header
+    # ============================================================
+    def _build_header(self, parent):
+        header = tk.Frame(parent, bg=_CHAT_PANEL, height=64)
+        header.grid(row=0, column=0, sticky="ew")
+        header.pack_propagate(False)
+        header.columnconfigure(0, weight=1)
+
+        # 左側：下拉箭頭 + 標題 + 模型/提供商資訊
+        left = tk.Frame(header, bg=_CHAT_PANEL)
+        left.grid(row=0, column=0, sticky="w", padx=24, pady=16)
+
+        chevron = tk.Label(
+            left,
+            text="▾",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_MUTED,
+            font=_FONT_SMALL,
+        )
+        chevron.pack(side=tk.LEFT, padx=(0, 8))
+
+        title_text = tk.Label(
+            left,
             text=self._tr("chat.title", default="LLM Chat Sandbox"),
-            font=("Microsoft JhengHei", 14, "bold"),
+            bg=_CHAT_PANEL,
             fg=_CHAT_TEXT,
-            bg=_CHAT_BG,
-            anchor="w",
+            font=_FONT_BOLD,
         )
-        title_label.grid(row=0, column=0, sticky="w")
+        title_text.pack(side=tk.LEFT)
 
-        model_label = tk.Label(
-            header,
-            text=f"{self._tr('chat.model_label', default='Model')}: {self.model_display_name}",
+        # 模型與提供商資訊（次要文字）
+        info_label = tk.Label(
+            left,
+            text=f"  ·  {self.model_display_name}  ·  {self.provider_display_name}",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_DIM,
             font=_FONT_SMALL,
-            fg=_CHAT_MUTED,
-            bg=_CHAT_BG,
-            anchor="e",
         )
-        model_label.grid(row=0, column=1, sticky="e")
+        info_label.pack(side=tk.LEFT, padx=(8, 0))
 
-        provider_label = tk.Label(
-            header,
-            text=f"{self._tr('chat.provider_label', default='Provider')}: {self.provider_display_name}",
-            font=_FONT_SMALL,
+        # 右側：更多按鈕（靜態，暫不啟用）
+        right = tk.Frame(header, bg=_CHAT_PANEL)
+        right.grid(row=0, column=1, sticky="e", padx=24, pady=16)
+
+        more_btn = tk.Label(
+            right,
+            text="⋮",
+            bg=_CHAT_PANEL,
             fg=_CHAT_MUTED,
-            bg=_CHAT_BG,
-            anchor="w",
+            font=_FONT_MAIN,
+            cursor="hand2",
+            padx=8,
         )
-        provider_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        more_btn.pack()
 
-# 2. 對話歷史區域（外層加卡片框線感）
+        # 底部邊框線
+        border = tk.Frame(parent, bg=_CHAT_BORDER, height=1)
+        border.grid(row=0, column=0, sticky="ews")
 
-        history_wrap = tk.Frame(self, bg=_CHAT_PANEL, highlightbackground=_CHAT_BORDER, highlightthickness=1)
-        history_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=5)
+    # ============================================================
+    # 聊天區
+    # ============================================================
+    def _build_chat_area(self, parent):
+        history_wrap = tk.Frame(parent, bg=_CHAT_BG)
+        history_wrap.grid(row=1, column=0, sticky="nsew", padx=24, pady=12)
 
         self._history_text = tk.Text(
             history_wrap,
             wrap="word",
             font=_FONT_MAIN,
-            bg=_CHAT_PANEL,
+            bg=_CHAT_BG,
             fg=_CHAT_TEXT,
             insertbackground=_CHAT_ACCENT,
             relief="flat",
             bd=0,
             highlightthickness=0,
-            padx=15,
-            pady=15,
+            padx=16,
+            pady=16,
             state="disabled",
         )
-        history_scroll = ttk.Scrollbar(history_wrap, command=self._history_text.yview)
+        history_scroll = ttk.Scrollbar(
+            history_wrap,
+            command=self._history_text.yview,
+            style="Dark.Vertical.TScrollbar",
+        )
         self._history_text.configure(yscrollcommand=history_scroll.set)
-        
+
         self._history_text.pack(side="left", fill="both", expand=True)
         history_scroll.pack(side="right", fill="y")
 
-        # --- 美化對話標籤與氣泡間距 (調整 rmargin/lmargin 與 spacing) ---
+        # --- 深色主題對話標籤與氣泡 ---
         # 使用者訊息靠右
-        self._history_text.tag_configure("user_role", foreground=_CHAT_MUTED, font=_FONT_SMALL, spacing1=15, spacing3=2, justify="right")
-        self._history_text.tag_configure("user_body", foreground=_CHAT_TEXT, background=_USER_BUBBLE_BG, spacing3=5, justify="right", rmargin=10, lmargin1=150, lmargin2=150)
-        
+        self._history_text.tag_configure(
+            "user_role",
+            foreground=_CHAT_DIM,
+            font=_FONT_SMALL,
+            spacing1=15,
+            spacing3=2,
+            justify="right",
+        )
+        self._history_text.tag_configure(
+            "user_body",
+            foreground="#e2e8f0",
+            background=_USER_BUBBLE_BG,
+            spacing3=5,
+            justify="right",
+            rmargin=10,
+            lmargin1=150,
+            lmargin2=150,
+        )
+
         # 助手訊息靠左
-        self._history_text.tag_configure("assistant_role", foreground=_CHAT_MUTED, font=_FONT_SMALL, spacing1=15, spacing3=2, justify="left")
-        self._history_text.tag_configure("assistant_body", foreground=_CHAT_TEXT, background=_ASSISTANT_BUBBLE, spacing3=5, justify="left", lmargin1=25, lmargin2=25, rmargin=150)
-        
+        self._history_text.tag_configure(
+            "assistant_role",
+            foreground=_CHAT_DIM,
+            font=_FONT_SMALL,
+            spacing1=15,
+            spacing3=2,
+            justify="left",
+        )
+        self._history_text.tag_configure(
+            "assistant_body",
+            foreground="#e2e8f0",
+            background=_ASSISTANT_BUBBLE,
+            spacing3=5,
+            justify="left",
+            lmargin1=25,
+            lmargin2=25,
+            rmargin=150,
+        )
+
         # 錯誤訊息
-        self._history_text.tag_configure("error_role", foreground="#c0392b", font=_FONT_BOLD, spacing1=15, spacing3=2, justify="left")
-        self._history_text.tag_configure("error_body", foreground="#b03a2e", background=_ERROR_BUBBLE, spacing3=5, justify="left", lmargin1=10, lmargin2=10, rmargin=10)
-        
-        self._history_text.tag_configure("thinking", foreground=_CHAT_MUTED, font=("Microsoft JhengHei", 10, "italic"), spacing1=10, spacing3=10)
+        self._history_text.tag_configure(
+            "error_role",
+            foreground="#fca5a5",
+            font=_FONT_BOLD,
+            spacing1=15,
+            spacing3=2,
+            justify="left",
+        )
+        self._history_text.tag_configure(
+            "error_body",
+            foreground="#fecaca",
+            background=_ERROR_BUBBLE,
+            spacing3=5,
+            justify="left",
+            lmargin1=10,
+            lmargin2=10,
+            rmargin=10,
+        )
+
+        self._history_text.tag_configure(
+            "thinking",
+            foreground=_CHAT_MUTED,
+            font=("Segoe UI", 10, "italic"),
+            spacing1=10,
+            spacing3=10,
+        )
 
         self._history_text.bind("<MouseWheel>", self._on_mousewheel)
         self._history_text.bind("<Button-4>", self._on_mousewheel_linux)
         self._history_text.bind("<Button-5>", self._on_mousewheel_linux)
 
-        # 3. 輸入框與按鈕區域
-        input_wrap = tk.Frame(self, bg=_CHAT_BG)
-        input_wrap.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 15))
-        input_wrap.columnconfigure(0, weight=1)
+    # ============================================================
+    # 輸入區
+    # ============================================================
+    def _build_input_area(self, parent):
+        input_container = tk.Frame(parent, bg=_CHAT_BG)
+        input_container.grid(row=2, column=0, sticky="ew", padx=24, pady=24)
+
+        # 輸入框外框（深色圓角風格）
+        input_frame = tk.Frame(
+            input_container,
+            bg=_CHAT_PANEL,
+            highlightbackground=_CHAT_BORDER,
+            highlightthickness=1,
+        )
+        input_frame.pack(fill=tk.X)
+        input_frame.columnconfigure(0, weight=1)
 
         self._input_text = tk.Text(
-            input_wrap,
-            height=3,
+            input_frame,
+            height=4,
             wrap="word",
             font=_FONT_MAIN,
             bg=_CHAT_PANEL,
             fg=_CHAT_TEXT,
-            insertbackground=_CHAT_ACCENT,
-            relief="solid",
-            bd=1,
+            insertbackground=_CHAT_TEXT,
+            relief="flat",
+            bd=0,
             highlightthickness=0,
-            highlightbackground=_CHAT_BORDER,
-            padx=10,
-            pady=8,
+            padx=12,
+            pady=12,
         )
         self._input_text.grid(row=0, column=0, sticky="ew")
         self._input_text.bind("<Return>", self._on_enter)
         self._input_text.bind("<Shift-Return>", self._on_shift_enter)
 
-        # 改用 grid 控制按鈕，並加上固定寬高與邊距
-        self.send_btn = ttk.Button(
-            input_wrap, 
-            text=self._tr("chat.send", default="Send"), 
-            command=self._on_send, 
-            style="Send.TButton"
+        # Placeholder 行為
+        self._placeholder_text = self._tr("chat.placeholder", default="Message LLM Chat...")
+        self._input_text.insert("1.0", self._placeholder_text)
+        self._input_text.config(fg=_CHAT_DIM)
+        self._input_text.bind("<FocusIn>", self._on_input_focus_in)
+        self._input_text.bind("<FocusOut>", self._on_input_focus_out)
+
+        # 底部按鈕列
+        button_bar = tk.Frame(input_frame, bg=_CHAT_PANEL)
+        button_bar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+
+        # 分隔線
+        sep = tk.Frame(button_bar, bg=_CHAT_BORDER, height=1)
+        sep.pack(fill=tk.X, side=tk.TOP, pady=(0, 8))
+
+        button_row = tk.Frame(button_bar, bg=_CHAT_PANEL)
+        button_row.pack(fill=tk.X)
+        button_row.columnconfigure(0, weight=1)
+
+        # 左側 + 按鈕（靜態，暫不啟用）
+        plus_btn = tk.Label(
+            button_row,
+            text="  +  ",
+            bg=_CHAT_BG,
+            fg=_CHAT_MUTED,
+            font=_FONT_SMALL,
+            padx=12,
+            pady=4,
+            cursor="hand2",
         )
-        self.send_btn.grid(row=0, column=1, sticky="ns", padx=(12, 0))
+        plus_btn.pack(side=tk.LEFT)
+
+        # 右側 Send 按鈕
+        self.send_btn = ttk.Button(
+            button_row,
+            text=f"  {self._tr('chat.send', default='Send')}  ➤  ",
+            command=self._on_send,
+            style="Send.TButton",
+        )
+        self.send_btn.pack(side=tk.RIGHT)
+
+    def _on_input_focus_in(self, event):
+        """輸入框獲得焦點時清除 placeholder。"""
+        current = self._input_text.get("1.0", "end-1c")
+        if current == self._placeholder_text:
+            self._input_text.delete("1.0", "end")
+            self._input_text.config(fg=_CHAT_TEXT)
+
+    def _on_input_focus_out(self, event):
+        """輸入框失去焦點時恢復 placeholder。"""
+        current = self._input_text.get("1.0", "end-1c").strip()
+        if not current:
+            self._input_text.delete("1.0", "end")
+            self._input_text.insert("1.0", self._placeholder_text)
+            self._input_text.config(fg=_CHAT_DIM)
 
     def _on_enter(self, event):
         self._on_send()

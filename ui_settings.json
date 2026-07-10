@@ -4,9 +4,9 @@
   "katago_path_mode": "default",
   "model_path_mode": "fast",
   "config_path_mode": "default",
-  "llm_provider": "nvidia",
+  "llm_provider": "github",
   "ollama_model": "qwen2.5:7b",
-  "nvidia_model": "moonshotai/kimi-k2.6",
+  "nvidia_model": "z-ai/glm-5.2",
   "llm_custom_prompts": {
     "system": "你是一位親切、鼓勵學生的圍棋老師。用簡單清晰的語言解釋棋理，強調學習過程而非完美棋手。",
     "user": "第 {turn} 手時，學生選擇下在 {user_move}，結果勝率掉了 {winrate_drop:.1f}%。AI 建議的最佳著法是 {best_move}。請溫和地解釋為什麼 {best_move} 更好，以及 {user_move} 可以如何改進。字數 80 以內，語氣友善鼓勵"
