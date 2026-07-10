@@ -12,20 +12,20 @@ from .base import LLMProvider
 NVIDIA_MODELS = [
     "meta/llama-3.1-70b-instruct",
     "openai/gpt-oss-120b",
-    "moonshotai/kimi-k2.6",
+    "moonshotai/kimi-k2.7-code",
     "z-ai/glm-5.2",
     "google/gemma-4-31b-it",
-    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+    "nvidia/nemotron-3-nano-30b-a3b",
 ]
 
 # 模型 ID → 顯示名稱對照表（UI 顯示用，API 呼叫仍使用 ID）
 NVIDIA_MODEL_DISPLAY_NAMES = {
     "meta/llama-3.1-70b-instruct": "Llama 3.1 70B Instruct",
     "openai/gpt-oss-120b": "GPT-OSS 120B",
-    "moonshotai/kimi-k2.6": "Kimi K2.6",
+    "moonshotai/kimi-k2.7-code": "Kimi K2.7 Code",
     "z-ai/glm-5.2": "GLM 5.2",
-    "google/gemma-4-31b-it": "Gemma 4 31B",
-    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": "Nemotron Nano VL 8B",
+    "google/gemma-4-31b-it": "Gemma 4 31B IT",
+    "nvidia/nemotron-3-nano-30b-a3b": "Nemotron 3 Nano 30B A3B",
 }
 
 

@@ -190,14 +190,21 @@ class LLMChatWindow(tk.Toplevel):
         # 對話列表容器（靜態，暫不啟用）
         list_container = tk.Frame(sidebar, bg=_CHAT_PANEL)
         list_container.pack(fill=tk.BOTH, expand=True, padx=12)
-
+        
         conversations = [
-            ("Understanding Quantum Computing", "2 min ago", True),
+            ("新對話", "Now", True),
+            ("", "", False),
+            ("大部分功能尚未啟用，", "", False),
+            ("Many functions are unavailable.", "", False),
+            ("敬請等候開放。", "", False),
+            ("Please wait for the upcoming launch.", "", False),
+        ]
+        ''' 範例
             ("Python Function Optimization", "1 hour ago", False),
             ("Creative Story Ideas", "3 hours ago", False),
             ("Marketing Strategy Brainstorm", "Yesterday", False),
             ("Daily Task Automation", "2 days ago", False),
-        ]
+        '''
         for title, time_str, is_active in conversations:
             self._build_conversation_item(list_container, title, time_str, is_active)
 
