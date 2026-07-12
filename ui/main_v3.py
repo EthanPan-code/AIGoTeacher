@@ -333,6 +333,11 @@ def add_full_game_commentary_to_cache(cache_key, text):
 # 【Phase 1】全域狀態追蹤 — 追蹤當前正在生成的解說
 current_critical_event = None  # 當前正在生成解說的 critical_event
 current_generated_commentary = ""  # 累積生成的解說文本
+
+# 【修復】回放模式旗標 — 當為 True 時，auto_analyze 不觸發新的 LLM 解說，
+# 只更新勝率/AI 建議點；解說文字由 jump_to_specific_move 負責從快取顯示。
+# play_move（正常落子）和 on_analyze_button_click 會設為 False。
+is_playback_mode = False
 score_analyzer = None
 score_analyzer_initializing = False
 score_analyzer_ready_callback = None
@@ -723,16 +728,16 @@ class GoDataFilter:
                     turn, prev_turn, board_hash[:50])
         return None
 
-    def process_analysis(self, current_turn, raw_result, last_move_gtp):
+    def process_analysis(self, current_turn, raw_result, last_move_gtp, *, is_playback=False):
         root_info = raw_result.get("rootInfo", {})
         
         # 1. 取得原始數據 (永遠是黑棋勝率/領先目數)
         current_black_winrate = root_info.get("winrate", 0.5)
         current_black_scoreLead = root_info.get("scoreLead", 0.0)
 
-        # 2. 處理手數切換：當手數增加時，優先從快取查詢上一手的數據作為基準
+        # 2. 處理手數切換
         if current_turn > self.current_turn:
-            # 【改進】先嘗試從快取查詢上一手 (current_turn - 1) 的分析結果
+            # 前進：從快取查詢上一手的數據作為基準
             cache_result = self.load_baseline_from_cache(current_turn, analyzer)
             if cache_result:
                 baseline_wr, baseline_sl = cache_result
@@ -742,12 +747,10 @@ class GoDataFilter:
                     logger.info("基準值來自快取: turn=%s baseline_wr=%s baseline_sl=%s", 
                                current_turn, baseline_wr, baseline_sl)
                 else:
-                    # 快取中有結果但 winrate 為 None，使用內存備選
                     self.baseline_black_winrate = self.latest_black_winrate
                     self.baseline_black_scoreLead = self.latest_black_scoreLead
                     logger.info("快取中無有效 winrate，使用內存備選: turn=%s", current_turn)
             else:
-                # 快取查詢失敗，使用內存備選（舊邏輯）
                 self.baseline_black_winrate = self.latest_black_winrate
                 self.baseline_black_scoreLead = self.latest_black_scoreLead
                 logger.info("快取查詢失敗，使用內存備選: turn=%s baseline_wr=%s baseline_sl=%s", 
@@ -755,10 +758,25 @@ class GoDataFilter:
             
             self.current_turn = current_turn
             self.has_triggered_this_turn = False
+        elif current_turn < self.current_turn:
+            # 後退（Undo / 跳轉到過去）：重設基準為當前手數的觀測值，禁止觸發解說
+            # 因為後退是在「回顧」而非「下棋」，不應該觸發失誤判定
+            self.current_turn = current_turn
+            self.baseline_black_winrate = current_black_winrate
+            self.baseline_black_scoreLead = current_black_scoreLead
+            self.latest_black_winrate = current_black_winrate
+            self.latest_black_scoreLead = current_black_scoreLead
+            self.has_triggered_this_turn = True  # 防止本次觸發
+            logger.info("後退到手數 %s，重設基準並禁止觸發解說", current_turn)
+            return None
 
         # 更新最新觀測值
         self.latest_black_winrate = current_black_winrate
         self.latest_black_scoreLead = current_black_scoreLead
+
+        # 回放模式（跳轉到特定手數）不觸發新的 LLM 解說
+        if is_playback:
+            return None
 
         if self.has_triggered_this_turn or current_turn == 0:
             return None
@@ -1635,7 +1653,9 @@ def update_ui_with_data(result):
             last_move_gtp = board.to_gtp_coord(last_x, last_y)
 
         # 檢查是否需要叫老師出來說話
-        critical_event = data_filter.process_analysis(current_turn, result, last_move_gtp)
+        critical_event = data_filter.process_analysis(
+            current_turn, result, last_move_gtp, is_playback=is_playback_mode
+        )
         if critical_event:
             # 【Phase 1】檢查是否已有快取的解說，若有則直接顯示，否則呼叫 LLM 生成新的
             cached_commentary = get_commentary_from_cache(critical_event["turn"], critical_event["user_move"])
@@ -1650,6 +1670,11 @@ def update_ui_with_data(result):
                 current_generated_commentary = ""
                 # 呼叫 LLM 生成解說
                 current_llm_worker.start_commentary(critical_event)
+        else:
+            # 【修復】沒有失誤時，清空舊解說（僅在非回放模式下）
+            # 回放模式下解說由 jump_to_specific_move 負責，這裡不覆蓋
+            if not is_playback_mode:
+                update_teacher_ui("")
 
     except KeyError as e:
         logger.warning("UI 更新失敗，分析結果缺少必要欄位: missing=%s result=%s", e, result)
@@ -1660,6 +1685,10 @@ def on_analyze_button_click():
     if not is_analyzer_ready():
         show_analyzer_not_ready()
         return
+
+    # 【修復】手動分析 → 非回放模式，允許觸發 LLM 解說
+    global is_playback_mode
+    is_playback_mode = False
 
     # 不再需要 threading.Thread(target=task)，因為發送請求是瞬間的
     board.clear_blue_point()
@@ -2137,26 +2166,38 @@ class GoBoard(tk.Canvas):
         # 這裡為了簡化，標準落子邏輯在 play_move 裡處理 redo_stack 的清空。
     def undo(self, event=None):
         if self.current_node.parent is not None:
+            # 【修復】後退 → 回放模式，不觸發新的 LLM 解說
+            global is_playback_mode
+            is_playback_mode = True
             self.current_node = self.current_node.parent
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def redo(self, event=None):
         if self.current_node.children:
+            # 【修復】前進到已存在的分支 → 回放模式，不觸發新的 LLM 解說
+            global is_playback_mode
+            is_playback_mode = True
             idx = self.current_node.active_child_idx
             self.current_node = self.current_node.children[idx]
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def switch_branch(self, direction):
         """切換同一手棋的不同變化圖 (direction: 1 或 -1)"""
         if self.current_node.parent and len(self.current_node.parent.children) > 1:
+            # 【修復】切換分支 → 回放模式
+            global is_playback_mode
+            is_playback_mode = True
             parent = self.current_node.parent
             new_idx = (parent.active_child_idx + direction) % len(parent.children)
             parent.active_child_idx = new_idx
             self.current_node = parent.children[new_idx]
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def on_state_change(self):
         if self.score_estimate_active:
@@ -2267,6 +2308,10 @@ class GoBoard(tk.Canvas):
     def play_move(self, x, y, forced_color=None):
         if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or self.board[y][x]:
             return False
+
+        # 【修復】正常落子 → 非回放模式，允許觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = False
 
         color = forced_color if forced_color else self.current_color
         
@@ -2573,6 +2618,9 @@ class GoBoard(tk.Canvas):
                 self.current_node = node
         
         self.rebuild_board()
+        # 【修復】載入棋譜 → 回放模式，不觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = True
         logger.info(f"SGF 已載入並重建節點，恢復了 {len(commentary_cache)} 條註解")
         print("SGF 已載入並重建節點")
 
@@ -2581,6 +2629,10 @@ class GoBoard(tk.Canvas):
         current_idx = len(self.stones)
         if target_idx == current_idx:
             return
+
+        # 【修復】跳轉 → 回放模式，不觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = True
 
         if target_idx < current_idx:
             # 目標在過去：不斷往回退 (Undo 邏輯)
@@ -2602,27 +2654,41 @@ class GoBoard(tk.Canvas):
         # 重建盤面並觸發更新
         self.rebuild_board()
         self.on_state_change()
-        
-        # 【Phase 4】遊戲回放時，優先從快取查詢並顯示該手的解說
-        if target_idx > 0 and self.current_node.move:
-            x, y, color = self.current_node.move
-            last_move_gtp = self.to_gtp_coord(x, y)
-            cached_commentary = get_commentary_from_cache(target_idx, last_move_gtp)
-            if cached_commentary:
-                update_teacher_ui(cached_commentary)
-            else:
-                # 若沒有解說，清空 teacher_text
-                update_teacher_ui("")
+        # 顯示該手的快取解說（若有）
+        self._show_playback_commentary()
 
     def jump_to_branch(self, idx):
         """點擊分支圖時跳轉"""
         if self.current_node.parent:
+            # 【修復】切換分支 → 回放模式
+            global is_playback_mode
+            is_playback_mode = True
             parent = self.current_node.parent
             if 0 <= idx < len(parent.children):
                 parent.active_child_idx = idx
                 self.current_node = parent.children[idx]
                 self.rebuild_board()
                 self.on_state_change()
+                self._show_playback_commentary()
+
+    def _show_playback_commentary(self):
+        """【修復】回放模式下，從快取顯示當前手數的解說；無快取則清空。
+        
+        此方法統一處理 undo / redo / switch_branch / jump_to_specific_move /
+        jump_to_branch 的解說顯示，避免與 auto_analyze 觸發的 LLM 解說互相覆蓋。
+        """
+        turn = len(self.stones)
+        if turn > 0 and self.current_node.move:
+            x, y, _ = self.current_node.move
+            last_move_gtp = self.to_gtp_coord(x, y)
+            cached_commentary = get_commentary_from_cache(turn, last_move_gtp)
+            if cached_commentary:
+                update_teacher_ui(cached_commentary)
+            else:
+                update_teacher_ui("")
+        else:
+            # 空盤面，清空解說
+            update_teacher_ui("")
 
 # --- 主介面與事件綁定 ---
 def save_game_as_json():
@@ -2687,12 +2753,14 @@ def on_load_sgf_click():
         status_var.set(t("status.loaded_sgf", path=file_path))
 
 def new_game():
-    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    global current_sgf_path, loaded_sgf_overwrite_confirmed, is_playback_mode
 
     if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
         return
     current_sgf_path = None
     loaded_sgf_overwrite_confirmed = False
+    # 【修復】新局開始 → 非回放模式
+    is_playback_mode = False
     board.root_node = GameNode()
     board.current_node = board.root_node
     board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
