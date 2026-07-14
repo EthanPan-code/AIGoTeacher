@@ -1661,7 +1661,7 @@ def update_ui_with_data(result):
             cached_commentary = get_commentary_from_cache(critical_event["turn"], critical_event["user_move"])
             if cached_commentary:
                 logger.debug(f"快取命中：第 {critical_event['turn']} 手 ({critical_event['user_move']}) 已有解說，直接顯示")
-                update_teacher_ui(cached_commentary)
+                render_teacher_ui(cached_commentary)
             else:
                 logger.debug(f"快取未命中：第 {critical_event['turn']} 手 ({critical_event['user_move']})，呼叫 LLM 生成")
                 # 【Phase 1】設置全域狀態，準備快取生成的解說
@@ -1674,7 +1674,7 @@ def update_ui_with_data(result):
             # 【修復】沒有失誤時，清空舊解說（僅在非回放模式下）
             # 回放模式下解說由 jump_to_specific_move 負責，這裡不覆蓋
             if not is_playback_mode:
-                update_teacher_ui("")
+                render_teacher_ui("")
 
     except KeyError as e:
         logger.warning("UI 更新失敗，分析結果缺少必要欄位: missing=%s result=%s", e, result)
@@ -2683,12 +2683,12 @@ class GoBoard(tk.Canvas):
             last_move_gtp = self.to_gtp_coord(x, y)
             cached_commentary = get_commentary_from_cache(turn, last_move_gtp)
             if cached_commentary:
-                update_teacher_ui(cached_commentary)
+                render_teacher_ui(cached_commentary)
             else:
-                update_teacher_ui("")
+                render_teacher_ui("")
         else:
             # 空盤面，清空解說
-            update_teacher_ui("")
+            render_teacher_ui("")
 
 # --- 主介面與事件綁定 ---
 def save_game_as_json():
@@ -2768,7 +2768,7 @@ def new_game():
     board.clear_blue_point()
     board.refresh_display()
     board.on_state_change()
-    update_teacher_ui(t("teacher.default_message"))
+    render_teacher_ui(t("teacher.default_message"))
     status_var.set(t("status.new_game"))
 
 def show_about():
@@ -3979,7 +3979,7 @@ def _show_llm_selection_dialog(parent):
         status_var.set(t("status.llm_provider_switched", provider=provider_name, model=model_display))
         update_llm_model_label(provider, selected_model)
         ollama_worker = current_llm_worker
-        update_teacher_ui(t("teacher.default_message"))
+        render_teacher_ui(t("teacher.default_message"))
         return True
 
     def apply_settings():
@@ -5987,8 +5987,25 @@ def start_analyzer_async(show_success=False, replacing=False):
 
     threading.Thread(target=task, daemon=True).start()
 
+def render_teacher_ui(message):
+    """只更新老師解說區，不改動生成中的快取狀態。"""
+    if is_shutting_down:
+        return
+    if threading.current_thread() is not threading.main_thread():
+        try:
+            root.after(0, render_teacher_ui, message)
+        except tk.TclError:
+            pass
+        return
+
+    teacher_text.config(state="normal")
+    teacher_text.delete("1.0", tk.END)
+    teacher_text.insert(tk.END, message)
+    teacher_text.config(state="disabled")
+
+
 def update_teacher_ui(message):
-    """給 LLM Provider 呼叫的回呼函數，用來更新文字框"""
+    """LLM Provider 的串流回呼；累積全文但在回放時不覆蓋既有解說。"""
     if is_shutting_down:
         return
     if threading.current_thread() is not threading.main_thread():
@@ -5997,17 +6014,21 @@ def update_teacher_ui(message):
         except tk.TclError:
             pass
         return
-    
+
     global current_generated_commentary
-    
-    # 【Phase 1】累積生成的解說文本（用於快取存儲）
+
+    # Provider 每次回呼都傳「目前累積的全文」，不能再次使用 +=，
+    # 否則快取會變成「第一段 + 前兩段全文 + 前三段全文...」。
     if current_critical_event and message and not message.startswith(("思考", "thinking")):
-        current_generated_commentary += message
-    
-    teacher_text.config(state="normal")
-    teacher_text.delete("1.0", tk.END)
-    teacher_text.insert(tk.END, message)
-    teacher_text.config(state="disabled")
+        current_generated_commentary = message
+
+    # 切換手數時，回放快取內容由 render_teacher_ui 顯示；
+    # 舊的背景生成回呼不得把「正在生成」或舊解說寫回畫面。
+    if is_playback_mode:
+        return
+
+    render_teacher_ui(message)
+
 
 
 def on_commentary_generation_complete():
@@ -6084,7 +6105,7 @@ elif llm_provider == "github" and not get_github_token():
 ollama_worker = current_llm_worker
 update_llm_model_label(llm_provider)
 
-update_teacher_ui(t("teacher.default_message"))
+render_teacher_ui(t("teacher.default_message"))
 branch_ui.draw_branches()
 start_analyzer_async()
 
