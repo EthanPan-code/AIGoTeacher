@@ -8,12 +8,332 @@
 
 ![framework](.github/framework.png)
 
-**AI 圍棋老師 v0.3.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+## 🌐 選擇語言 / Select Language
+
+[Read in English](#English)
+
+[閱讀繁體中文版](#Chinese)
+
+---
+
+<a id="English"></a>
 
 **AI Go Teacher v0.3.0-beta** is an interactive Go teaching system powered by the **KataGo v1.16.4** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
 
-🌐 **選擇語言 / Select Language**
+## Contents
+- Features
+- Quick Start
+- Technical Architecture
+- LLM Integration
+- i18n
+- Development Directives
 
-[Read in English](.github/README_EN.md)
+---
 
-[閱讀繁體中文版](.github/README_ZH.md)
+## Features
+### Core Capabilities
+| Feature | Description |
+|------|------|
+| **Interactive Board** | Tkinter-based visualized Go board supporting click-to-play, dragging, and zooming |
+| **Real-time Analysis** | Synchronously displays AI-recommended moves, win rates, and predicted variations |
+| **Full-game Analysis** | Win rate curve chart for the entire game |
+| **SGF Support** | Import/Export game records (SGF) with support for branch navigation |
+| **LLM Commentary** | Multi-provider AI Go commentary and explanations |
+### Supported LLM Providers
+| Provider | Type | Default Model |
+|--------|------|----------|
+| **Ollama** | Local / Cloud API | `qwen2.5:3b` |
+| **NVIDIA NIM** | Cloud API | `meta/llama-3.1-8b-instruct` |
+| **GitHub Models** | Cloud API | `GPT-4o` |
+
+---
+
+## Quick Start
+### Prerequisites
+- Windows Operating System
+- Python 3.14+
+- KataGo Model File (Requires download from [katagotraining.org](https://katagotraining.org/))
+### Installation Steps
+```bash
+# 1. Clone the repository
+git clone [https://github.com/EthanPan-code/AIGoTeacher.git](https://github.com/EthanPan-code/AIGoTeacher.git)
+cd AIGoTeacher
+# 2. Install dependencies
+pip install -r requirements.txt
+# 3. Download KataGo model
+'''
+Go to [https://katagotraining.org/](https://katagotraining.org/) to download the neural network weight file.
+Place it inside the 'models/' directory.
+'''
+# 4. Run the application
+python ui/main_v3.py
+```
+
+---
+
+## Technical Architecture
+### Go Engine
+| Technology | Description |
+| ------------------ | --------------------- |
+| **KataGo v1.16.4** | State-of-the-art neural network Go engine |
+| **Neural Network Weights** | Policy and value networks supporting GPU/CPU acceleration |
+### Frontend and Application Layer
+| Technology | Purpose |
+| ------------------ | ----------- |
+| **Python 3.14** | Primary development language |
+| **Python 3.13 & PyInstaller** | Packaging into a standalone executable file |
+| **Tkinter / ttk** | Cross-platform desktop GUI framework |
+| **Matplotlib** | Visualization for win rate and score lead (Komi/Point differential) charts |
+| **Pillow (PIL)** | Image asset processing and board textures |
+### Core Modules
+| Module | Responsibilities |
+|------|------|
+| `main_v3.py` | Main application: Board rendering, analysis engine integration, and event handling |
+| `providers/*.py` | LLM provider implementations (Ollama/NVIDIA/GitHub) |
+| `services/` | Configuration management and secure API key storage |
+| `i18n.py` | Internationalization (i18n) system |
+### Communication Protocols
+- **Asynchronous JSON Protocol**: Communicates with the KataGo engine via stdin/stdout.
+- **Response Matching**: Uses a unique `id` field to match requests with corresponding responses.
+- **Thread Safety**: Employs `queue.Queue` for safe inter-thread communication.
+
+## Python Dependencies
+```text
+matplotlib >= 3.7
+pillow >= 10.0
+python-dotenv >= 1.0
+keyring >= 24.0
+requests >= 2.31
+opencc-python-reimplemented
+```
+
+---
+
+## LLM Integration
+### Setting Up API Keys
+**Ollama(Local)**
+```bash
+# Automatically detected after installation; no API key required
+ollama pull qwen2.5:3b
+```
+**NVIDIA NIM**
+api key：
+```
+nvapi-xxxxx
+```
+**GitHub Models**
+api key：
+```
+github_pat_xxxxx
+```
+
+### Custom Teaching Tones
+The LLM commentary feature supports multiple tone templates, allowing the depth and style of explanations to be adjusted based on the learner's skill level.
+
+---
+
+## i18n
+| Language | File |
+|------|------|
+| Traditional Chinese | zh_TW.json |
+| English | en.json |
+**Switch Language**: Instantly switch languages via the UI menu `Settings` > `Language`.
+
+---
+
+## Development Commands
+### KataGo Engine Commands
+| Command | Purpose |
+|------|------|
+| `katago.exe benchmark -model <model>.bin.gz` | Test GPU performance |
+| `katago.exe analysis -model <model>.bin.gz -config analysis.cfg` | Launch analysis mode |
+| `katago.exe gtp -model <model>.bin.gz -config gtp.cfg` | Launch GTP mode |
+### Python Commands
+```bash
+py ui/main_v3.py           # Launch the main application
+py version.py 0.3.0-beta   # Update the version number
+```
+
+---
+
+## License
+This project is licensed under the MIT License. See the [LICENSE](../LICENSE) file for details.
+
+---
+
+<a id="Chinese"></a>
+
+**AI 圍棋老師 v0.3.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+
+## 目錄
+- 功能特色
+- 快速開始
+- 技術架構
+- LLM 整合
+- i18n
+- 開發指令
+
+---
+
+## 功能特色
+
+### 核心功能
+
+| 功能 | 說明 |
+|------|------|
+| **互動棋盤** | Tkinter 視覺化棋盤，支援點擊下棋、拖曳、縮放 |
+| **即時分析** | 同步顯示 AI 推薦手、勝率、預測變化 |
+| **全局分析** | 整盤棋局勝率曲線圖 |
+| **SGF 支援** | 匯入/匯出棋譜，支援分支導航 |
+| **LLM 評論** | 多提供商 AI 圍棋解說 |
+
+### LLM 提供商支援
+
+| 提供商 | 類型 | 預設模型 |
+|--------|------|----------|
+| **Ollama** | 本機 / 雲端 API | `qwen2.5:3b` |
+| **NVIDIA NIM** | 雲端 API | `meta/llama-3.1-8b-instruct` |
+| **GitHub Models** | 雲端 API | `GPT-4o` |
+
+---
+
+## 快速開始
+
+### 前置需求
+
+- Windows 作業系統
+- Python 3.14+
+- KataGo 模型檔案（需從 [katagotraining.org](https://katagotraining.org/) 下載）
+
+### 安裝步驟
+
+```bash
+# 1. 複製專案
+git clone https://github.com/EthanPan-code/AIGoTeacher.git
+cd AIGoTeacher
+
+# 2. 安裝依賴
+pip install -r requirements.txt
+
+# 3. 下載 KataGo 模型
+'''
+前往 https://katagotraining.org/ 下載神經網路權重檔案
+放置於 models/ 目錄下
+'''
+
+# 4. 執行
+py ui/main_v3.py
+```
+
+---
+
+## 技術架構
+### 圍棋引擎
+
+| 技術                 | 說明                    |
+| ------------------ | --------------------- |
+| **KataGo v1.16.4** | 頂尖神經網路圍棋引擎            |
+| **神經網路權重模型**       | 支援 GPU／CPU 加速的策略與價值網路 |
+### 前端與應用程式層
+
+| 技術                | 用途          |
+| ----------------- | ----------- |
+| **Python 3.14**   | 主要開發語言      |
+| **Python 3.13 & PyInstaller**   |  打包成單一執行檔  |
+| **Tkinter / ttk** | 跨平台桌面圖形介面框架 |
+| **Matplotlib**    | 勝率與目差圖表視覺化  |
+| **Pillow (PIL)**  | 棋盤材質與圖片資源處理 |
+
+
+### 核心模組
+
+| 模組 | 職責 |
+|------|------|
+| `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
+| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/GitHub） |
+| services | 設定管理、API 金鑰安全儲存 |
+| `i18n.py` | 國際化系統 |
+
+### 通訊協定
+
+- **非同步 JSON 協定**：透過 stdin/stdout 與 KataGo 引擎溝通
+- **響應匹配**：使用 unique `id` 欄位匹配請求與回應
+- **執行緒安全**：使用 `queue.Queue` 進行執行緒間通訊
+
+## Python 相依套件
+
+```text
+matplotlib >= 3.7
+pillow >= 10.0
+python-dotenv >= 1.0
+keyring >= 24.0
+requests >= 2.31
+opencc-python-reimplemented
+```
+
+---
+
+## LLM 整合
+
+### 設定 API 金鑰
+
+**Ollama（本地）**
+```bash
+# 安裝後自動偵測，無需 API 金鑰
+ollama pull qwen2.5:3b
+```
+
+**NVIDIA NIM**
+
+api key：
+```
+nvapi-xxxxx
+```
+
+**GitHub Models**
+
+api key：
+```
+github_pat_xxxxx
+```
+
+### 自訂教學語氣
+
+LLM 評論支援多種語氣模板，可根據學習者程度調整解說深度。
+
+---
+
+## i18n
+
+| 語言 | 檔案 |
+|------|------|
+| 繁體中文 | zh_TW.json |
+| English | en.json |
+
+**切換語言**：透過 UI 選單 `設定` > `語言` 即時切換
+
+---
+
+## 開發指令
+
+### KataGo 引擎指令
+
+| 指令 | 用途 |
+|------|------|
+| `katago.exe benchmark -model <model>.bin.gz` | 測試 GPU 效能 |
+| `katago.exe analysis -model <model>.bin.gz -config analysis.cfg` | 啟動分析模式 |
+| `katago.exe gtp -model <model>.bin.gz -config gtp.cfg` | 啟動 GTP 模式 |
+
+### Python 指令
+
+```bash
+py ui/main_v3.py           # 啟動主程式
+py version.py 0.3.0-beta   # 更新版本號
+```
+
+---
+
+## 授權
+
+本專案採用 MIT 授權條款。詳見 [LICENSE](LICENSE) 檔案。
+
