@@ -1,7 +1,4 @@
 import subprocess
-import shutil
-
-
 
 subprocess.run(
     [
@@ -9,6 +6,7 @@ subprocess.run(
         "-3.13",
         "-m",
         "PyInstaller",
+        "--clean",
         "GoTeacher.spec"
     ],
     check=True
