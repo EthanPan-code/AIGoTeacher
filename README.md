@@ -4,13 +4,14 @@
 [![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)](https://katagotraining.org/)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/)
 ![License](https://img.shields.io/badge/License-MIT-red)
-![Version](https://img.shields.io/badge/Version-0.3.0--beta-blue)
+![Version](https://img.shields.io/badge/Version-0.4.0--beta-blue)
 
 ![framework](.github/framework.png)
 
 ## 🌐 選擇語言 / Select Language
 
 [Read in English](#English)
+**AI 圍棋老師 v0.4.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
 
 [閱讀繁體中文版](#Chinese)
 

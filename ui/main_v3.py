@@ -333,6 +333,11 @@ def add_full_game_commentary_to_cache(cache_key, text):
 # 【Phase 1】全域狀態追蹤 — 追蹤當前正在生成的解說
 current_critical_event = None  # 當前正在生成解說的 critical_event
 current_generated_commentary = ""  # 累積生成的解說文本
+
+# 【修復】回放模式旗標 — 當為 True 時，auto_analyze 不觸發新的 LLM 解說，
+# 只更新勝率/AI 建議點；解說文字由 jump_to_specific_move 負責從快取顯示。
+# play_move（正常落子）和 on_analyze_button_click 會設為 False。
+is_playback_mode = False
 score_analyzer = None
 score_analyzer_initializing = False
 score_analyzer_ready_callback = None
@@ -723,16 +728,16 @@ class GoDataFilter:
                     turn, prev_turn, board_hash[:50])
         return None
 
-    def process_analysis(self, current_turn, raw_result, last_move_gtp):
+    def process_analysis(self, current_turn, raw_result, last_move_gtp, *, is_playback=False):
         root_info = raw_result.get("rootInfo", {})
         
         # 1. 取得原始數據 (永遠是黑棋勝率/領先目數)
         current_black_winrate = root_info.get("winrate", 0.5)
         current_black_scoreLead = root_info.get("scoreLead", 0.0)
 
-        # 2. 處理手數切換：當手數增加時，優先從快取查詢上一手的數據作為基準
+        # 2. 處理手數切換
         if current_turn > self.current_turn:
-            # 【改進】先嘗試從快取查詢上一手 (current_turn - 1) 的分析結果
+            # 前進：從快取查詢上一手的數據作為基準
             cache_result = self.load_baseline_from_cache(current_turn, analyzer)
             if cache_result:
                 baseline_wr, baseline_sl = cache_result
@@ -742,12 +747,10 @@ class GoDataFilter:
                     logger.info("基準值來自快取: turn=%s baseline_wr=%s baseline_sl=%s", 
                                current_turn, baseline_wr, baseline_sl)
                 else:
-                    # 快取中有結果但 winrate 為 None，使用內存備選
                     self.baseline_black_winrate = self.latest_black_winrate
                     self.baseline_black_scoreLead = self.latest_black_scoreLead
                     logger.info("快取中無有效 winrate，使用內存備選: turn=%s", current_turn)
             else:
-                # 快取查詢失敗，使用內存備選（舊邏輯）
                 self.baseline_black_winrate = self.latest_black_winrate
                 self.baseline_black_scoreLead = self.latest_black_scoreLead
                 logger.info("快取查詢失敗，使用內存備選: turn=%s baseline_wr=%s baseline_sl=%s", 
@@ -755,10 +758,25 @@ class GoDataFilter:
             
             self.current_turn = current_turn
             self.has_triggered_this_turn = False
+        elif current_turn < self.current_turn:
+            # 後退（Undo / 跳轉到過去）：重設基準為當前手數的觀測值，禁止觸發解說
+            # 因為後退是在「回顧」而非「下棋」，不應該觸發失誤判定
+            self.current_turn = current_turn
+            self.baseline_black_winrate = current_black_winrate
+            self.baseline_black_scoreLead = current_black_scoreLead
+            self.latest_black_winrate = current_black_winrate
+            self.latest_black_scoreLead = current_black_scoreLead
+            self.has_triggered_this_turn = True  # 防止本次觸發
+            logger.info("後退到手數 %s，重設基準並禁止觸發解說", current_turn)
+            return None
 
         # 更新最新觀測值
         self.latest_black_winrate = current_black_winrate
         self.latest_black_scoreLead = current_black_scoreLead
+
+        # 回放模式（跳轉到特定手數）不觸發新的 LLM 解說
+        if is_playback:
+            return None
 
         if self.has_triggered_this_turn or current_turn == 0:
             return None
@@ -851,6 +869,293 @@ class BranchCanvas(tk.Canvas):
                 idx = int(tag.split("_")[1])
                 self.board_ref.jump_to_branch(idx)
                 break
+
+
+class BranchTreeView(tk.Canvas):
+    def __init__(self, master, board_ref, **kwargs):
+        super().__init__(master, **kwargs)
+        self.board_ref = board_ref
+        self.node_radius = 14
+        self.collapsed_nodes = set()
+        self.node_positions = {}
+        self.drag_data = None
+        self.layout_cache = None
+        self.configure(xscrollincrement=20, yscrollincrement=20)
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<ButtonRelease-1>", self.on_release)
+        self.bind("<B1-Motion>", self.on_drag)
+        self.bind("<MouseWheel>", self.on_scroll)
+        self.bind("<Button-4>", self.on_scroll)
+        self.bind("<Button-5>", self.on_scroll)
+        self.bind("<Double-Button-1>", self.on_double_click)
+
+    def _count_descendants(self, node):
+        total = 0
+        stack = list(node.children)
+        while stack:
+            child = stack.pop()
+            total += 1
+            stack.extend(child.children)
+        return total
+
+    def _visible_children(self, node):
+        protected_nodes = getattr(self, "_protected_node_ids", set())
+        if id(node) in self.collapsed_nodes and id(node) not in protected_nodes:
+            return []
+        return list(node.children)
+
+    def _compute_layout(self):
+        root = self.board_ref.root_node
+        if not root:
+            self.node_positions = {}
+            self.layout_cache = None
+            return {}
+
+        h_gap = 40
+        v_gap = 40
+        top_margin = 30
+        side_margin = 24
+        metrics = {}
+
+        def measure(node):
+            children = self._visible_children(node)
+            if not children:
+                metrics[node] = (1, 1)
+                return metrics[node]
+
+            widths = []
+            depths = []
+            for child in children:
+                child_width, child_depth = measure(child)
+                widths.append(child_width)
+                depths.append(child_depth)
+
+            total_width = max(sum(widths), 1)
+            total_depth = 1 + max(depths)
+            metrics[node] = (total_width, total_depth)
+            return metrics[node]
+
+        total_width, total_depth = measure(root)
+        layout = {}
+
+        def assign(node, left_units, depth):
+            width_units, _ = metrics[node]
+            x = side_margin + (left_units + width_units / 2) * h_gap
+            y = top_margin + depth * v_gap
+            layout[node] = (x, y)
+            children = self._visible_children(node)
+            cursor = left_units
+            for child in children:
+                child_width, _ = metrics[child]
+                assign(child, cursor, depth + 1)
+                cursor += child_width
+
+        assign(root, 0, 0)
+        max_x = side_margin * 2 + total_width * h_gap
+        max_y = top_margin + total_depth * v_gap + 20
+        self.node_positions = layout
+        self.layout_cache = {
+            "positions": layout,
+            "scrollregion": (0, 0, max_x, max_y),
+            "metrics": metrics,
+        }
+        return layout
+
+    def _current_path_set(self):
+        return set(self.board_ref._current_node_path())
+
+    def _current_path_ids(self):
+        return {id(node) for node in self.board_ref._current_node_path()}
+
+    def _node_tag(self, node):
+        return f"node_{id(node)}"
+
+    def _get_node_at(self, canvas_x, canvas_y):
+        for node, (x, y) in self.node_positions.items():
+            dx = canvas_x - x
+            dy = canvas_y - y
+            if dx * dx + dy * dy <= (self.node_radius + 5) * (self.node_radius + 5):
+                return node
+        return None
+
+    def _focus_current_node(self):
+        node = self.board_ref.current_node
+        if node not in self.node_positions:
+            return
+        x, y = self.node_positions[node]
+        scrollregion = self.bbox("all")
+        if not scrollregion:
+            return
+        x1, y1, x2, y2 = scrollregion
+        visible_width = max(self.winfo_width(), 1)
+        visible_height = max(self.winfo_height(), 1)
+        max_x = max(x2 - x1 - visible_width, 1)
+        max_y = max(y2 - y1 - visible_height, 1)
+        target_x = (x - visible_width / 2) / max_x if max_x else 0
+        target_y = (y - visible_height / 2) / max_y if max_y else 0
+        self.xview_moveto(max(0.0, min(target_x, 1.0)))
+        self.yview_moveto(max(0.0, min(target_y, 1.0)))
+
+    def draw_tree(self):
+        self.delete("all")
+        self.drag_data = None
+        root = self.board_ref.root_node
+        if not root:
+            self.configure(scrollregion=(0, 0, 1, 1))
+            self.create_text(120, 60, text=t("branch.opening"), fill=TEXT_MUTED, font=("Microsoft JhengHei", 10))
+            return
+
+        self._protected_node_ids = self._current_path_ids()
+        layout = self._compute_layout()
+        if not layout:
+            self.configure(scrollregion=(0, 0, 1, 1))
+            self.create_text(120, 60, text=t("branch.opening"), fill=TEXT_MUTED, font=("Microsoft JhengHei", 10))
+            return
+
+        current_path = self._current_path_set()
+        scrollregion = self.layout_cache["scrollregion"] if self.layout_cache else (0, 0, 1, 1)
+        self.configure(scrollregion=scrollregion)
+
+        for node, (x, y) in layout.items():
+            if node.parent is None:
+                continue
+            if node.parent not in layout:
+                continue
+            px, py = layout[node.parent]
+            edge_color = ACCENT if (node in current_path and node.parent in current_path) else "#9d8f7f"
+            edge_width = 3 if edge_color == ACCENT else 1
+            self.create_line(px, py + self.node_radius, x, y - self.node_radius, fill=edge_color, width=edge_width)
+
+        for node, (x, y) in layout.items():
+            node_id = self._node_tag(node)
+            is_current = node is self.board_ref.current_node
+            is_on_path = node in current_path
+            is_root = node.parent is None
+            node_move = node.move
+            if is_root:
+                fill_color = PANEL_BG
+                outline_color = ACCENT if is_current else TEXT_MUTED
+                text_color = TEXT_MAIN
+            else:
+                stone_color = STONE_BLACK if node_move and node_move[2] == "black" else STONE_WHITE
+                fill_color = stone_color if not is_on_path else ("#1f1f1f" if node_move and node_move[2] == "black" else "#f7f2e9")
+                outline_color = ACCENT if is_current else ("#111111" if node_move and node_move[2] == "black" else "#b8ab9b")
+                text_color = "#ffffff" if node_move and node_move[2] == "black" else "#111111"
+
+            width = 3 if is_current else 1
+            self.create_oval(
+                x - self.node_radius,
+                y - self.node_radius,
+                x + self.node_radius,
+                y + self.node_radius,
+                fill=fill_color,
+                outline=outline_color,
+                width=width,
+                tags=(node_id,)
+            )
+
+            if is_root:
+                self.create_text(
+                    x,
+                    y,
+                    text=t("branch.opening"),
+                    fill=text_color,
+                    font=("Microsoft JhengHei", 8, "bold"),
+                    tags=(node_id,)
+                )
+            else:
+                move_no = 0
+                current = node
+                while current.parent is not None:
+                    move_no += 1
+                    current = current.parent
+                coord = self.board_ref.to_gtp_coord(node_move[0], node_move[1]) if node_move else "Pass"
+                self.create_text(
+                    x,
+                    y - 4,
+                    text=str(move_no),
+                    fill=text_color,
+                    font=("Arial", 7, "bold"),
+                    tags=(node_id,)
+                )
+                self.create_text(
+                    x,
+                    y + 6,
+                    text=coord,
+                    fill=text_color,
+                    font=("Arial", 7, "bold"),
+                    tags=(node_id,)
+                )
+
+                if id(node) in self.collapsed_nodes:
+                    hidden_count = self._count_descendants(node)
+                    self.create_text(
+                        x + self.node_radius + 10,
+                        y + self.node_radius - 4,
+                        text=t("branch.collapsed_count", n=hidden_count),
+                        fill=TEXT_MUTED,
+                        font=("Microsoft JhengHei", 8, "bold"),
+                    )
+
+        self._focus_current_node()
+
+    def draw_branches(self):
+        self.draw_tree()
+
+    def on_click(self, event):
+        canvas_x = self.canvasx(event.x)
+        canvas_y = self.canvasy(event.y)
+        node = self._get_node_at(canvas_x, canvas_y)
+        if node:
+            self.board_ref.jump_to_node(node)
+            return
+        self.drag_data = {
+            "start_x": event.x,
+            "start_y": event.y,
+            "orig_xview": self.xview()[0],
+            "orig_yview": self.yview()[0],
+        }
+
+    def on_release(self, event):
+        self.drag_data = None
+
+    def on_drag(self, event):
+        if not self.drag_data:
+            return
+        scrollregion = self.bbox("all")
+        if not scrollregion:
+            return
+        x1, y1, x2, y2 = scrollregion
+        visible_width = max(self.winfo_width(), 1)
+        visible_height = max(self.winfo_height(), 1)
+        max_x = max(x2 - x1 - visible_width, 1)
+        max_y = max(y2 - y1 - visible_height, 1)
+        dx = event.x - self.drag_data["start_x"]
+        dy = event.y - self.drag_data["start_y"]
+        new_x = self.drag_data["orig_xview"] - (dx / max_x)
+        new_y = self.drag_data["orig_yview"] - (dy / max_y)
+        self.xview_moveto(max(0.0, min(new_x, 1.0)))
+        self.yview_moveto(max(0.0, min(new_y, 1.0)))
+
+    def on_scroll(self, event):
+        delta = getattr(event, "delta", 0)
+        if getattr(event, "num", None) == 4 or delta > 0:
+            self.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5 or delta < 0:
+            self.yview_scroll(3, "units")
+
+    def on_double_click(self, event):
+        canvas_x = self.canvasx(event.x)
+        canvas_y = self.canvasy(event.y)
+        node = self._get_node_at(canvas_x, canvas_y)
+        if not node or node.parent is None:
+            return
+        node_id = id(node)
+        if node_id in self.collapsed_nodes:
+            self.collapsed_nodes.remove(node_id)
+        else:
+            self.collapsed_nodes.add(node_id)
+        self.draw_tree()
 
 def auto_analyze():
     if not is_analyzer_ready():
@@ -1635,13 +1940,15 @@ def update_ui_with_data(result):
             last_move_gtp = board.to_gtp_coord(last_x, last_y)
 
         # 檢查是否需要叫老師出來說話
-        critical_event = data_filter.process_analysis(current_turn, result, last_move_gtp)
+        critical_event = data_filter.process_analysis(
+            current_turn, result, last_move_gtp, is_playback=is_playback_mode
+        )
         if critical_event:
             # 【Phase 1】檢查是否已有快取的解說，若有則直接顯示，否則呼叫 LLM 生成新的
             cached_commentary = get_commentary_from_cache(critical_event["turn"], critical_event["user_move"])
             if cached_commentary:
                 logger.debug(f"快取命中：第 {critical_event['turn']} 手 ({critical_event['user_move']}) 已有解說，直接顯示")
-                update_teacher_ui(cached_commentary)
+                render_teacher_ui(cached_commentary)
             else:
                 logger.debug(f"快取未命中：第 {critical_event['turn']} 手 ({critical_event['user_move']})，呼叫 LLM 生成")
                 # 【Phase 1】設置全域狀態，準備快取生成的解說
@@ -1650,6 +1957,11 @@ def update_ui_with_data(result):
                 current_generated_commentary = ""
                 # 呼叫 LLM 生成解說
                 current_llm_worker.start_commentary(critical_event)
+        else:
+            # 【修復】沒有失誤時，清空舊解說（僅在非回放模式下）
+            # 回放模式下解說由 jump_to_specific_move 負責，這裡不覆蓋
+            if not is_playback_mode:
+                render_teacher_ui("")
 
     except KeyError as e:
         logger.warning("UI 更新失敗，分析結果缺少必要欄位: missing=%s result=%s", e, result)
@@ -1660,6 +1972,10 @@ def on_analyze_button_click():
     if not is_analyzer_ready():
         show_analyzer_not_ready()
         return
+
+    # 【修復】手動分析 → 非回放模式，允許觸發 LLM 解說
+    global is_playback_mode
+    is_playback_mode = False
 
     # 不再需要 threading.Thread(target=task)，因為發送請求是瞬間的
     board.clear_blue_point()
@@ -2137,26 +2453,38 @@ class GoBoard(tk.Canvas):
         # 這裡為了簡化，標準落子邏輯在 play_move 裡處理 redo_stack 的清空。
     def undo(self, event=None):
         if self.current_node.parent is not None:
+            # 【修復】後退 → 回放模式，不觸發新的 LLM 解說
+            global is_playback_mode
+            is_playback_mode = True
             self.current_node = self.current_node.parent
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def redo(self, event=None):
         if self.current_node.children:
+            # 【修復】前進到已存在的分支 → 回放模式，不觸發新的 LLM 解說
+            global is_playback_mode
+            is_playback_mode = True
             idx = self.current_node.active_child_idx
             self.current_node = self.current_node.children[idx]
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def switch_branch(self, direction):
         """切換同一手棋的不同變化圖 (direction: 1 或 -1)"""
         if self.current_node.parent and len(self.current_node.parent.children) > 1:
+            # 【修復】切換分支 → 回放模式
+            global is_playback_mode
+            is_playback_mode = True
             parent = self.current_node.parent
             new_idx = (parent.active_child_idx + direction) % len(parent.children)
             parent.active_child_idx = new_idx
             self.current_node = parent.children[new_idx]
             self.rebuild_board()
             self.on_state_change()
+            self._show_playback_commentary()
 
     def on_state_change(self):
         if self.score_estimate_active:
@@ -2169,7 +2497,7 @@ class GoBoard(tk.Canvas):
             set_winrate_text("analysis.engine_not_ready")
             status_var.set(t("status.katago_initializing"))
             if hasattr(self, 'branch_ui'):
-                self.branch_ui.draw_branches()
+                self.branch_ui.draw_tree()
             return
 
         # 只有在非整盤分析狀態下才顯示「盤面更新中」
@@ -2178,7 +2506,7 @@ class GoBoard(tk.Canvas):
             set_winrate_text("analysis.board_updating")
             
         if hasattr(self, 'branch_ui'):
-            self.branch_ui.draw_branches()
+            self.branch_ui.draw_tree()
                 
         if self.analyze_timer:
             root.after_cancel(self.analyze_timer)
@@ -2267,6 +2595,10 @@ class GoBoard(tk.Canvas):
     def play_move(self, x, y, forced_color=None):
         if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or self.board[y][x]:
             return False
+
+        # 【修復】正常落子 → 非回放模式，允許觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = False
 
         color = forced_color if forced_color else self.current_color
         
@@ -2573,6 +2905,9 @@ class GoBoard(tk.Canvas):
                 self.current_node = node
         
         self.rebuild_board()
+        # 【修復】載入棋譜 → 回放模式，不觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = True
         logger.info(f"SGF 已載入並重建節點，恢復了 {len(commentary_cache)} 條註解")
         print("SGF 已載入並重建節點")
 
@@ -2581,6 +2916,10 @@ class GoBoard(tk.Canvas):
         current_idx = len(self.stones)
         if target_idx == current_idx:
             return
+
+        # 【修復】跳轉 → 回放模式，不觸發新的 LLM 解說
+        global is_playback_mode
+        is_playback_mode = True
 
         if target_idx < current_idx:
             # 目標在過去：不斷往回退 (Undo 邏輯)
@@ -2602,27 +2941,81 @@ class GoBoard(tk.Canvas):
         # 重建盤面並觸發更新
         self.rebuild_board()
         self.on_state_change()
-        
-        # 【Phase 4】遊戲回放時，優先從快取查詢並顯示該手的解說
-        if target_idx > 0 and self.current_node.move:
-            x, y, color = self.current_node.move
-            last_move_gtp = self.to_gtp_coord(x, y)
-            cached_commentary = get_commentary_from_cache(target_idx, last_move_gtp)
-            if cached_commentary:
-                update_teacher_ui(cached_commentary)
-            else:
-                # 若沒有解說，清空 teacher_text
-                update_teacher_ui("")
+        # 顯示該手的快取解說（若有）
+        self._show_playback_commentary()
 
     def jump_to_branch(self, idx):
         """點擊分支圖時跳轉"""
         if self.current_node.parent:
+            # 【修復】切換分支 → 回放模式
+            global is_playback_mode
+            is_playback_mode = True
             parent = self.current_node.parent
             if 0 <= idx < len(parent.children):
-                parent.active_child_idx = idx
-                self.current_node = parent.children[idx]
-                self.rebuild_board()
-                self.on_state_change()
+                self.jump_to_node(parent.children[idx])
+
+    def jump_to_node(self, target_node):
+        """跳轉到樹上的任意節點，並回填各層 active_child_idx。"""
+        if target_node is None:
+            return
+
+        def path_to_root(node):
+            path = []
+            current = node
+            while current is not None:
+                path.append(current)
+                current = current.parent
+            return path[::-1]
+
+        current_path = path_to_root(self.current_node)
+        target_path = path_to_root(target_node)
+
+        common_length = 0
+        for current_node_item, target_node_item in zip(current_path, target_path):
+            if current_node_item is not target_node_item:
+                break
+            common_length += 1
+
+        global is_playback_mode
+        is_playback_mode = True
+
+        for child_node in reversed(current_path[common_length:]):
+            parent_node = child_node.parent
+            if parent_node is not None:
+                parent_node.active_child_idx = parent_node.children.index(child_node)
+
+        for child_node in target_path[common_length:]:
+            parent_node = child_node.parent
+            if parent_node is not None:
+                parent_node.active_child_idx = parent_node.children.index(child_node)
+
+        if hasattr(self, "branch_ui") and hasattr(self.branch_ui, "collapsed_nodes"):
+            for ancestor in target_path[:-1]:
+                self.branch_ui.collapsed_nodes.discard(id(ancestor))
+
+        self.current_node = target_node
+        self.rebuild_board()
+        self.on_state_change()
+        self._show_playback_commentary()
+
+    def _show_playback_commentary(self):
+        """【修復】回放模式下，從快取顯示當前手數的解說；無快取則清空。
+        
+        此方法統一處理 undo / redo / switch_branch / jump_to_specific_move /
+        jump_to_branch 的解說顯示，避免與 auto_analyze 觸發的 LLM 解說互相覆蓋。
+        """
+        turn = len(self.stones)
+        if turn > 0 and self.current_node.move:
+            x, y, _ = self.current_node.move
+            last_move_gtp = self.to_gtp_coord(x, y)
+            cached_commentary = get_commentary_from_cache(turn, last_move_gtp)
+            if cached_commentary:
+                render_teacher_ui(cached_commentary)
+            else:
+                render_teacher_ui("")
+        else:
+            # 空盤面，清空解說
+            render_teacher_ui("")
 
 # --- 主介面與事件綁定 ---
 def save_game_as_json():
@@ -2687,12 +3080,14 @@ def on_load_sgf_click():
         status_var.set(t("status.loaded_sgf", path=file_path))
 
 def new_game():
-    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    global current_sgf_path, loaded_sgf_overwrite_confirmed, is_playback_mode
 
     if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
         return
     current_sgf_path = None
     loaded_sgf_overwrite_confirmed = False
+    # 【修復】新局開始 → 非回放模式
+    is_playback_mode = False
     board.root_node = GameNode()
     board.current_node = board.root_node
     board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
@@ -2700,7 +3095,7 @@ def new_game():
     board.clear_blue_point()
     board.refresh_display()
     board.on_state_change()
-    update_teacher_ui(t("teacher.default_message"))
+    render_teacher_ui(t("teacher.default_message"))
     status_var.set(t("status.new_game"))
 
 def show_about():
@@ -3911,7 +4306,7 @@ def _show_llm_selection_dialog(parent):
         status_var.set(t("status.llm_provider_switched", provider=provider_name, model=model_display))
         update_llm_model_label(provider, selected_model)
         ollama_worker = current_llm_worker
-        update_teacher_ui(t("teacher.default_message"))
+        render_teacher_ui(t("teacher.default_message"))
         return True
 
     def apply_settings():
@@ -5659,17 +6054,39 @@ branch_section = tk.Frame(info_frame, bg=PANEL_BG)
 branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
 branch_title_label = tk.Label(
     branch_section,
-    text=t("label.branch_switch"),
+    text=t("branch.tree_title"),
     bg=PANEL_BG,
     fg=TEXT_MAIN,
     font=("Microsoft JhengHei", 10, "bold"),
     bd=0,
     padx=0,
-    pady=0
+    pady=8
 )
 branch_title_label.pack(anchor="w")
-branch_ui = BranchCanvas(branch_section, board_ref=board, width=220, height=96, bg=PANEL_BG, highlightbackground=PANEL_BORDER, highlightthickness=1)
-branch_ui.pack(fill="x", pady=(6, 0))
+'''
+branch_hint_label = tk.Label(
+    branch_section,
+    text=t("branch.collapse_hint"),
+    bg=PANEL_BG,
+    fg=TEXT_MUTED,
+    font=("Microsoft JhengHei", 8),
+    bd=0,
+    padx=0,
+    pady=0,
+    wraplength=240,
+    justify="left"
+)
+
+branch_hint_label.pack(anchor="w", pady=(2, 6))
+'''
+branch_view_frame = tk.Frame(branch_section, bg=PANEL_BG)
+branch_view_frame.pack(fill="both", expand=True)
+
+branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, height=90, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
+branch_scrollbar = ttk.Scrollbar(branch_view_frame, orient="vertical", command=branch_ui.yview)
+branch_ui.configure(yscrollcommand=branch_scrollbar.set)
+branch_ui.pack(side="left", fill="both", expand=True)
+branch_scrollbar.pack(side="right", fill="y")
 
 board.branch_ui = branch_ui
 
@@ -5702,7 +6119,7 @@ teacher_model_label.pack(side="right")
 teacher_text = tk.Text(
     teacher_section,
     width=30,
-    height=9,
+    height=7,
     font=("Microsoft JhengHei", 10),
     wrap="word",
     bg=TEACHER_TEXT_BG,
@@ -5718,7 +6135,7 @@ teacher_text = tk.Text(
 )
 teacher_text.pack(fill="both", expand=True, pady=(6, 0))
 
-status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 5), background="#e8dfd2", foreground=TEXT_MUTED)
+status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 2), background="#e8dfd2", foreground=TEXT_MUTED)
 status_bar.pack(side="bottom", fill="x")
 
 def update_status(message):
@@ -5919,8 +6336,25 @@ def start_analyzer_async(show_success=False, replacing=False):
 
     threading.Thread(target=task, daemon=True).start()
 
+def render_teacher_ui(message):
+    """只更新老師解說區，不改動生成中的快取狀態。"""
+    if is_shutting_down:
+        return
+    if threading.current_thread() is not threading.main_thread():
+        try:
+            root.after(0, render_teacher_ui, message)
+        except tk.TclError:
+            pass
+        return
+
+    teacher_text.config(state="normal")
+    teacher_text.delete("1.0", tk.END)
+    teacher_text.insert(tk.END, message)
+    teacher_text.config(state="disabled")
+
+
 def update_teacher_ui(message):
-    """給 LLM Provider 呼叫的回呼函數，用來更新文字框"""
+    """LLM Provider 的串流回呼；累積全文但在回放時不覆蓋既有解說。"""
     if is_shutting_down:
         return
     if threading.current_thread() is not threading.main_thread():
@@ -5929,17 +6363,21 @@ def update_teacher_ui(message):
         except tk.TclError:
             pass
         return
-    
+
     global current_generated_commentary
-    
-    # 【Phase 1】累積生成的解說文本（用於快取存儲）
+
+    # Provider 每次回呼都傳「目前累積的全文」，不能再次使用 +=，
+    # 否則快取會變成「第一段 + 前兩段全文 + 前三段全文...」。
     if current_critical_event and message and not message.startswith(("思考", "thinking")):
-        current_generated_commentary += message
-    
-    teacher_text.config(state="normal")
-    teacher_text.delete("1.0", tk.END)
-    teacher_text.insert(tk.END, message)
-    teacher_text.config(state="disabled")
+        current_generated_commentary = message
+
+    # 切換手數時，回放快取內容由 render_teacher_ui 顯示；
+    # 舊的背景生成回呼不得把「正在生成」或舊解說寫回畫面。
+    if is_playback_mode:
+        return
+
+    render_teacher_ui(message)
+
 
 
 def on_commentary_generation_complete():
@@ -5981,11 +6419,12 @@ def refresh_language():
     btn_load_sgf.config(text=t("button.load_sgf"))
     btn_save_sgf_as.config(text=t("button.save_sgf_as"))
     update_score_estimate_button_label()
-    branch_title_label.config(text=t("label.branch_switch"))
+    branch_title_label.config(text=t("branch.tree_title"))
+    # branch_hint_label.config(text=t("branch.collapse_hint"))
     teacher_title_label.config(text=t("label.teacher"))
     update_llm_model_label()
     winrate_label.config(text=render_winrate_text(winrate_display_state["key"], winrate_display_state["kwargs"]))
-    branch_ui.draw_branches()
+    branch_ui.draw_tree()
 
 
 # 初始化 LLM Provider - 根據配置選擇提供商
@@ -6016,8 +6455,8 @@ elif llm_provider == "github" and not get_github_token():
 ollama_worker = current_llm_worker
 update_llm_model_label(llm_provider)
 
-update_teacher_ui(t("teacher.default_message"))
-branch_ui.draw_branches()
+render_teacher_ui(t("teacher.default_message"))
+branch_ui.draw_tree()
 start_analyzer_async()
 
 def poll_ai():
