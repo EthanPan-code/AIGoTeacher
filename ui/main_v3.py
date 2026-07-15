@@ -6119,7 +6119,7 @@ teacher_model_label.pack(side="right")
 teacher_text = tk.Text(
     teacher_section,
     width=30,
-    height=9,
+    height=7,
     font=("Microsoft JhengHei", 10),
     wrap="word",
     bg=TEACHER_TEXT_BG,
@@ -6135,7 +6135,7 @@ teacher_text = tk.Text(
 )
 teacher_text.pack(fill="both", expand=True, pady=(6, 0))
 
-status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 5), background="#e8dfd2", foreground=TEXT_MUTED)
+status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 2), background="#e8dfd2", foreground=TEXT_MUTED)
 status_bar.pack(side="bottom", fill="x")
 
 def update_status(message):
