@@ -6,14 +6,13 @@
 ![License](https://img.shields.io/badge/License-MIT-red)
 ![Version](https://img.shields.io/badge/Version-0.4.0--beta-blue)
 
-![framework](.github/framework.png)
+---
 
-## 選擇語言 / Select Language
+[English](#English) [繁體中文](#Chinese)
 
-[Read in English](#English)
+---
 
-
-[閱讀繁體中文版](#Chinese)
+![framework](.github/image/ui.png)
 
 ---
 
