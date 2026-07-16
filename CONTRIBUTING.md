@@ -28,7 +28,6 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 - [Improving the Documentation](#improving-the-documentation)
 - [Style Guides](#style-guides)
 - [Commit Messages](#commit-messages)
-- [Join the Project Team](#join-the-project-team)
 
 ## I Have a Question
 
@@ -210,15 +209,14 @@ This guide is adapted from [contributing.md](https://contributing.md/generator).
 <!-- omit in toc -->
 ## 目錄
 
-- [我有問題](#i-have-a-question)
-- [我想貢獻](#i-want-to-contribute)
-- [回報錯誤](#reporting-bugs)
-- [提出功能建議](#suggesting-enhancements)
-- [第一次提交程式碼](#your-first-code-contribution)
-- [改善文件](#improving-the-documentation)
-- [程式風格指南](#styleguides)
-- [Commit 訊息](#commit-messages)
-- [加入專案團隊](#join-the-project-team)
+- [我有問題](#我有問題)
+- [我想貢獻](#我想貢獻)
+- [回報錯誤](#回報錯誤)
+- [提出功能建議](#提出功能建議)
+- [第一次提交程式碼](#第一次提交程式碼)
+- [改善文件](#改善文件)
+- [程式風格指南](#程式風格指南)
+- [Commit 訊息](#commit-訊息)
 
 
 ## 我有問題
