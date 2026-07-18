@@ -56,7 +56,7 @@
 ### Installation Steps
 ```bash
 # 1. Clone the repository
-git clone [https://github.com/EthanPan-code/AIGoTeacher.git](https://github.com/EthanPan-code/AIGoTeacher.git)
+git clone https://github.com/EthanPan-code/AIGoTeacher.git
 cd AIGoTeacher
 # 2. Install dependencies
 pip install -r requirements.txt
