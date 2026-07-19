@@ -23,6 +23,7 @@
 ## Contents
 - Features
 - Quick Start
+- Download the Executable
 - Technical Architecture
 - LLM Integration
 - i18n
@@ -49,6 +50,18 @@
 ---
 
 ## Quick Start
+### Download the Executable (Windows)
+
+If you only want to use AI Go Teacher, you can download a pre-built Windows version from the [GitHub Releases page](https://github.com/EthanPan-code/AIGoTeacher/releases):
+
+1. Open the [Releases page](https://github.com/EthanPan-code/AIGoTeacher/releases) and select the version you want to use. Pre-release versions are marked as **Pre-release**.
+2. Expand **Assets** and download the packaged executable file, usually a `.exe` file. Do not download **Source code (zip)** or **Source code (tar.gz)** unless you intend to run the project from source.
+3. Double-click `AIGoTeacher_vX.X.X.exe` to launch the application.
+
+The first launch may take a little longer while the bundled components are initialized. If Windows Defender displays a warning, verify that the file was downloaded from the official [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) page before choosing **More info** > **Run anyway**.
+
+For advanced users who want to modify the source code, follow the installation steps below instead.
+
 ### Prerequisites
 - Windows Operating System
 - Python 3.14+
@@ -168,6 +181,7 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 ## 目錄
 - 功能特色
 - 快速開始
+- 下載執行檔
 - 技術架構
 - LLM 整合
 - i18n
@@ -198,6 +212,18 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 ---
 
 ## 快速開始
+
+### 下載執行檔（Windows）
+
+如果只想直接使用 AI 圍棋老師，不需要安裝 Python 或自行設定開發環境，可以從 [GitHub Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 下載預先打包好的 Windows 執行版本：
+
+1. 開啟 [Releases](https://github.com/EthanPan-code/AIGoTeacher/releases)，選擇要使用的版本。標示 **Pre-release** 的版本代表預發布測試版。
+2. 展開該版本的 **Assets**，下載打包好的執行檔，通常是 `.exe` 檔案。除非要從原始碼執行，否則不要下載 **Source code (zip)** 或 **Source code (tar.gz)**。
+3. 雙擊 `AIGoTeacher_vX.X.X.exe` 啟動程式。
+
+第一次啟動時，程式可能需要較長時間初始化內含元件。如果 Windows Defender 顯示警告，請先確認檔案確實來自官方的 [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 頁面，再點選 **更多資訊** > **仍要執行**。
+
+若要修改原始碼或自行開發，請改參考下方的原始碼安裝步驟。
 
 ### 前置需求
 
