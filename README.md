@@ -50,6 +50,8 @@
 ---
 
 ## Quick Start
+
+
 ### Download the Executable (Windows)
 
 If you only want to use AI Go Teacher, you can download a pre-built Windows version from the [GitHub Releases page](https://github.com/EthanPan-code/AIGoTeacher/releases):
@@ -60,7 +62,9 @@ If you only want to use AI Go Teacher, you can download a pre-built Windows vers
 
 The first launch may take a little longer while the bundled components are initialized. If Windows Defender displays a warning, verify that the file was downloaded from the official [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) page before choosing **More info** > **Run anyway**.
 
-For advanced users who want to modify the source code, follow the installation steps below instead.
+> For advanced users who want to modify the source code, follow the installation steps below instead.
+
+---
 
 ### Prerequisites
 - Windows Operating System
@@ -223,7 +227,9 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 第一次啟動時，程式可能需要較長時間初始化內含元件。如果 Windows Defender 顯示警告，請先確認檔案確實來自官方的 [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 頁面，再點選 **更多資訊** > **仍要執行**。
 
-若要修改原始碼或自行開發，請改參考下方的原始碼安裝步驟。
+> 若要修改原始碼或自行開發，請改參考下方的原始碼安裝步驟。
+
+---
 
 ### 前置需求
 
