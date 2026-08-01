@@ -233,10 +233,8 @@ LOADED_DOTENV_PATHS = load_runtime_dotenv()
 
 from services.config_service import ConfigService
 from services.keyring_service import (
-    get_github_token,
     get_nvidia_api_key,
     normalize_api_key,
-    set_github_token,
     set_nvidia_api_key,
 )
 from services.provider_factory import ProviderFactory
@@ -249,6 +247,11 @@ i18n = I18n(
     settings_path=get_runtime_file_path("ui_settings.json")
 )
 config_service = ConfigService(i18n)
+
+
+config_service.migrate_removed_github_provider(
+    ProviderFactory.get_default_model("ollama")
+)
 
 
 def t(key, **kwargs):
@@ -3858,9 +3861,7 @@ def _show_llm_selection_dialog(parent):
     current_provider = config_service.get_setting("llm_provider", "ollama")
     current_ollama_model = config_service.get_setting("ollama_model", ProviderFactory.get_default_model("ollama"))
     current_nvidia_model = config_service.get_setting("nvidia_model", ProviderFactory.get_default_model("nvidia"))
-    current_github_model = config_service.get_setting("github_model", ProviderFactory.get_default_model("github"))
     current_nvidia_api_key = get_nvidia_api_key()
-    current_github_token = get_github_token()
     
     # ===== 狀態變數 =====
     provider_var = tk.StringVar(value=current_provider)
@@ -3872,13 +3873,8 @@ def _show_llm_selection_dialog(parent):
     nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
     # 動態探索的 NIM 模型清單（開窗時自動刷新）
     nvidia_discovered_models = {"models": list(ProviderFactory.get_available_models("nvidia"))}
-    github_model_var_local = tk.StringVar(
-        value=ProviderFactory.get_model_display_name("github", current_github_model)
-    )
     nvidia_api_key_var = tk.StringVar(value=current_nvidia_api_key)
-    github_token_var = tk.StringVar(value=current_github_token)
     api_key_visible = tk.BooleanVar(value=False)
-    github_token_visible = tk.BooleanVar(value=False)
     
     # ===== 主框架 =====
     main_frame = tk.Frame(dialog_win, bg=PANEL_BG)
@@ -3913,8 +3909,6 @@ def _show_llm_selection_dialog(parent):
     tk.Radiobutton(provider_frame, text=t("dialog.provider_ollama"), variable=provider_var, value="ollama",
                    command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
     tk.Radiobutton(provider_frame, text=t("dialog.provider_nvidia"), variable=provider_var, value="nvidia",
-                   command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
-    tk.Radiobutton(provider_frame, text=t("dialog.provider_github"), variable=provider_var, value="github",
                    command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
     
     # ===== Ollama 配置區塊 =====
@@ -4270,98 +4264,18 @@ def _show_llm_selection_dialog(parent):
     # 開窗時自動刷新 NIM 模型清單
     refresh_nim_models_async()
 
-    # ===== GitHub Models 配置區塊 =====
-    github_frame = tk.LabelFrame(
-        main_frame,
-        text="GitHub Models",
-        bg=PANEL_BG,
-        fg=TEXT_MAIN,
-        font=("Microsoft JhengHei", 10, "bold"),
-        bd=1,
-        relief="solid",
-        padx=10,
-        pady=10
-    )
-
-    tk.Label(
-        github_frame,
-        text=t("dialog.provider_github_token"),
-        bg=PANEL_BG,
-        fg=TEXT_MAIN,
-        font=("Microsoft JhengHei", 10),
-        bd=0,
-        padx=0,
-        pady=0
-    ).pack(anchor="w", pady=(0, 5))
-    github_token_frame = tk.Frame(github_frame, bg=PANEL_BG)
-    github_token_frame.pack(fill="x", pady=(0, 10))
-
-    github_token_entry = ttk.Entry(
-        github_token_frame,
-        textvariable=github_token_var,
-        show="●",
-        width=35
-    )
-    github_token_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
-
-    def toggle_github_token_visibility():
-        github_token_visible.set(not github_token_visible.get())
-        if github_token_visible.get():
-            github_token_entry.config(show="")
-            github_toggle_btn.config(text="◉")
-        else:
-            github_token_entry.config(show="●")
-            github_toggle_btn.config(text="◌")
-
-    github_toggle_btn = ttk.Button(github_token_frame, text="◌", width=3, command=toggle_github_token_visibility)
-    github_toggle_btn.pack(side="left")
-
-    tk.Label(
-        github_frame,
-        text=t("dialog.provider_github_token_env_hint"),
-        bg=PANEL_BG,
-        fg=TEXT_MUTED,
-        font=("Microsoft JhengHei", 8),
-        wraplength=420,
-        justify="left",
-        bd=0,
-        padx=0,
-        pady=0
-    ).pack(anchor="w", pady=(0, 10))
-
-    tk.Label(
-        github_frame,
-        text=t("dialog.provider_github_model"),
-        bg=PANEL_BG,
-        fg=TEXT_MAIN,
-        font=("Microsoft JhengHei", 10),
-        bd=0,
-        padx=0,
-        pady=0
-    ).pack(anchor="w", pady=(0, 5))
-    github_model_combo = ttk.Combobox(
-        github_frame,
-        textvariable=github_model_var_local,
-        values=[name for name, _ in ProviderFactory.get_available_models_with_names("github")],
-        state="readonly",
-        width=40
-    )
-    github_model_combo.pack(fill="x", pady=(0, 10))
-    
     # ===== 更新對話框可見性 =====
     def update_dialog_visibility():
         if provider_var.get() == "ollama":
             ollama_frame.pack(fill="x", pady=(0, 10))
             nvidia_frame.pack_forget()
-            github_frame.pack_forget()
         elif provider_var.get() == "nvidia":
             ollama_frame.pack_forget()
             nvidia_frame.pack(fill="x", pady=(0, 10))
-            github_frame.pack_forget()
         else:
-            ollama_frame.pack_forget()
+            provider_var.set("ollama")
+            ollama_frame.pack(fill="x", pady=(0, 10))
             nvidia_frame.pack_forget()
-            github_frame.pack(fill="x", pady=(0, 10))
     
     update_dialog_visibility()
     
@@ -4369,7 +4283,7 @@ def _show_llm_selection_dialog(parent):
     button_frame = tk.Frame(main_frame, bg=PANEL_BG)
     button_frame.pack(fill="x", pady=(20, 0))
     
-    def save_and_apply_settings(provider, selected_model, api_key=None, github_token=None):
+    def save_and_apply_settings(provider, selected_model, api_key=None):
         config_service.set_setting("llm_provider", provider)
         if provider == "ollama":
             config_service.set_setting("ollama_model", selected_model)
@@ -4381,15 +4295,6 @@ def _show_llm_selection_dialog(parent):
                 logger.error("NVIDIA API Key 寫入 keyring 失敗: %s", e)
                 messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
                 return False
-        else:
-            config_service.set_setting("github_model", selected_model)
-            try:
-                set_github_token(github_token)
-            except Exception as e:
-                logger.error("GitHub token 寫入 keyring 失敗: %s", e)
-                messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
-                return False
-
         config_service.save()
 
         global current_llm_worker, ollama_worker
@@ -4415,7 +4320,6 @@ def _show_llm_selection_dialog(parent):
     def apply_settings():
         provider = provider_var.get()
         api_key = None
-        github_token = None
         selected_model = None
         
         if provider == "nvidia":
@@ -4439,27 +4343,6 @@ def _show_llm_selection_dialog(parent):
             is_valid, error_message = validator.validate_config()
             if not is_valid:
                 messagebox.showwarning(t("dialog.error_title"), error_message or t("error.nvidia_api_key_invalid"), parent=dialog_win)
-                return
-            selected_model = model_id
-        elif provider == "github":
-            github_token = normalize_api_key(github_token_var.get())
-            if not github_token:
-                messagebox.showerror(t("dialog.error_title"), t("error.github_token_empty"), parent=dialog_win)
-                return
-            # Combobox shows display name — map back to model ID for validation/storage
-            selected_display = github_model_var_local.get()
-            model_id = ProviderFactory.get_model_id_by_display_name("github", selected_display) or selected_display
-            validator = ProviderFactory.create_provider(
-                "github",
-                ui_callback=update_teacher_ui,
-                model_name=model_id,
-                translator=t,
-                language_getter=lambda: i18n.language,
-                api_key=github_token
-            )
-            is_valid, error_message = validator.validate_config()
-            if not is_valid:
-                messagebox.showwarning(t("dialog.error_title"), error_message or t("error.github_token_invalid"), parent=dialog_win)
                 return
             selected_model = model_id
         else:
@@ -4488,7 +4371,7 @@ def _show_llm_selection_dialog(parent):
                     return
                 # If the user chooses No, keep the old behavior: save anyway.
 
-        if save_and_apply_settings(provider, selected_model, api_key=api_key, github_token=github_token):
+        if save_and_apply_settings(provider, selected_model, api_key=api_key):
             dialog_win.destroy()
     
     ttk.Button(button_frame, text=t("button.apply"), command=apply_settings, width=12).pack(side="right", padx=(5, 0))
@@ -6548,12 +6431,6 @@ if llm_provider == "nvidia" and not get_nvidia_api_key():
     root.after(0, lambda: messagebox.showwarning(
         t("dialog.error_title"),
         t("error.nvidia_api_key_missing_env")
-    ))
-elif llm_provider == "github" and not get_github_token():
-    logger.warning("GitHub token 未設置，仍保留 GitHub Models 設定；請設定 GITHUB_TOKEN、KATAGO_GITHUB_TOKEN 或在 LLM 對話框設定")
-    root.after(0, lambda: messagebox.showwarning(
-        t("dialog.error_title"),
-        t("error.github_token_missing_env")
     ))
 
 # 向後相容性：ollama_worker 指向 current_llm_worker

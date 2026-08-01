@@ -1,4 +1,3 @@
-from providers.github_provider import GITHUB_MODELS, GITHUB_MODEL_DISPLAY_NAMES, GithubProvider
 from providers.nvidia_provider import (
     NVIDIA_MODELS,
     NVIDIA_MODEL_DISPLAY_NAMES,
@@ -26,14 +25,6 @@ class ProviderFactory:
             "default_model": NVIDIA_MODELS[0],
             "models": NVIDIA_MODELS,
             "model_display_names": NVIDIA_MODEL_DISPLAY_NAMES,
-        },
-        "github": {
-            "class": GithubProvider,
-            "display_name": "GitHub Models",
-            "setting_key": "github_model",
-            "default_model": GITHUB_MODELS[0],
-            "models": GITHUB_MODELS,
-            "model_display_names": GITHUB_MODEL_DISPLAY_NAMES,
         },
     }
 

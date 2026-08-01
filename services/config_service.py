@@ -13,6 +13,22 @@ class ConfigService:
     def save(self):
         self._backend.save_settings()
 
+    def migrate_removed_github_provider(self, ollama_default_model):
+        """Migrate settings from the removed GitHub Models provider."""
+        provider = self.get_setting("llm_provider", "ollama")
+        has_legacy_settings = provider == "github" or "github_model" in self._backend.settings
+        if not has_legacy_settings:
+            return False
+
+        if provider == "github":
+            self.set_setting("llm_provider", "ollama")
+            if not self.get_setting("ollama_model"):
+                self.set_setting("ollama_model", ollama_default_model)
+
+        self._backend.settings.pop("github_model", None)
+        self.save()
+        return True
+
     def get_llm_tone(self, default="friendly"):
         return self.get_setting("llm_tone", default)
 

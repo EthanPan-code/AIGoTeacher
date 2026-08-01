@@ -45,7 +45,6 @@
 |--------|------|----------|
 | **Ollama** | Local / Cloud API | `qwen2.5:3b` |
 | **NVIDIA NIM** | Cloud API | `meta/llama-3.1-8b-instruct` |
-| **GitHub Models** | Cloud API | `GPT-4o` |
 
 ---
 
@@ -106,7 +105,7 @@ python ui/main_v3.py
 | Module | Responsibilities |
 |------|------|
 | `main_v3.py` | Main application: Board rendering, analysis engine integration, and event handling |
-| `providers/*.py` | LLM provider implementations (Ollama/NVIDIA/GitHub) |
+| `providers/*.py` | LLM provider implementations (Ollama/NVIDIA) |
 | `services/` | Configuration management and secure API key storage |
 | `i18n.py` | Internationalization (i18n) system |
 ### Communication Protocols
@@ -137,11 +136,6 @@ ollama pull qwen2.5:3b
 api key：
 ```
 nvapi-xxxxx
-```
-**GitHub Models**
-api key：
-```
-github_pat_xxxxx
 ```
 
 ### Custom Teaching Tones
@@ -211,7 +205,6 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 |--------|------|----------|
 | **Ollama** | 本機 / 雲端 API | `qwen2.5:3b` |
 | **NVIDIA NIM** | 雲端 API | `meta/llama-3.1-8b-instruct` |
-| **GitHub Models** | 雲端 API | `GPT-4o` |
 
 ---
 
@@ -282,7 +275,7 @@ py ui/main_v3.py
 | 模組 | 職責 |
 |------|------|
 | `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
-| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/GitHub） |
+| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA） |
 | services | 設定管理、API 金鑰安全儲存 |
 | `i18n.py` | 國際化系統 |
 
@@ -322,12 +315,6 @@ api key：
 nvapi-xxxxx
 ```
 
-**GitHub Models**
-
-api key：
-```
-github_pat_xxxxx
-```
 
 ### 自訂教學語氣
 

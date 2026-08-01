@@ -103,8 +103,6 @@ class LLMChatWindow(tk.Toplevel):
             return "Ollama"
         if "nvidia" in class_name:
             return "NVIDIA NIM"
-        if "github" in class_name:
-            return "GitHub Models"
         return self.provider.__class__.__name__.replace("Provider", "") or "LLM"
 
     def _build_ui(self):
