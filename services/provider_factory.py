@@ -1,5 +1,11 @@
 from providers.github_provider import GITHUB_MODELS, GITHUB_MODEL_DISPLAY_NAMES, GithubProvider
-from providers.nvidia_provider import NVIDIA_MODELS, NVIDIA_MODEL_DISPLAY_NAMES, NvidiaProvider
+from providers.nvidia_provider import (
+    NVIDIA_MODELS,
+    NVIDIA_MODEL_DISPLAY_NAMES,
+    NvidiaProvider,
+    discover_nim_models,
+    group_models_by_publisher,
+)
 from providers.ollama_provider import OLLAMA_MODELS, OLLAMA_MODEL_DISPLAY_NAMES, OllamaProvider
 
 
@@ -139,3 +145,39 @@ class ProviderFactory:
         models = provider["models"]
         display_names = provider.get("model_display_names", {})
         return [(display_names.get(mid, mid), mid) for mid in models]
+
+    # ===== NIM 動態模型探索專用 helper =====
+    # 僅供 NVIDIA NIM 使用，其他 provider 不受影響。
+    # 動態模式下 model_id 直接作為顯示名稱，不再做重新命名。
+
+    @classmethod
+    def discover_nim_models(cls, api_key=None):
+        """向 NIM 端點探索可用模型，失敗時降級至內建清單。
+
+        回傳 (model_ids, used_fallback, error_message)：
+          - model_ids：最終使用的 model_id 清單
+          - used_fallback：是否使用了內建 fallback
+          - error_message：探索失敗時的錯誤訊息（成功時為 None）
+        """
+        ok, result = discover_nim_models(api_key, timeout=8)
+        if ok:
+            return (result, False, None)
+        return (NVIDIA_MODELS, True, result)
+
+    @classmethod
+    def get_nim_publishers(cls, model_ids):
+        """從 model_id 清單取出 publisher 清單（已排序、去重）。"""
+        grouped = group_models_by_publisher(model_ids)
+        return sorted(grouped.keys())
+
+    @classmethod
+    def get_nim_models_by_publisher(cls, model_ids, publisher):
+        """取得指定 publisher 下的 model_id 清單（保持原始順序）。"""
+        grouped = group_models_by_publisher(model_ids)
+        return grouped.get(publisher, [])
+
+    @classmethod
+    def get_nim_publisher_for_model(cls, model_id):
+        """從 model_id 拆出 publisher（供 UI 還原選擇用）。"""
+        from providers.nvidia_provider import get_publisher_from_model_id
+        return get_publisher_from_model_id(model_id)

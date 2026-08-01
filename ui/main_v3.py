@@ -3865,9 +3865,13 @@ def _show_llm_selection_dialog(parent):
     # ===== 狀態變數 =====
     provider_var = tk.StringVar(value=current_provider)
     ollama_model_var_local = tk.StringVar(value=current_ollama_model)
-    nvidia_model_var_local = tk.StringVar(
-        value=ProviderFactory.get_model_display_name("nvidia", current_nvidia_model)
+    # NVIDIA：兩段式選擇（Publisher → Model），model_id 直接作為顯示名稱
+    nvidia_publisher_var = tk.StringVar(
+        value=ProviderFactory.get_nim_publisher_for_model(current_nvidia_model)
     )
+    nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
+    # 動態探索的 NIM 模型清單（開窗時自動刷新）
+    nvidia_discovered_models = {"models": list(ProviderFactory.get_available_models("nvidia"))}
     github_model_var_local = tk.StringVar(
         value=ProviderFactory.get_model_display_name("github", current_github_model)
     )
@@ -4147,7 +4151,28 @@ def _show_llm_selection_dialog(parent):
         pady=0
     ).pack(anchor="w", pady=(0, 10))
     
-    # 模型選擇部分
+    # 模型選擇部分（NVIDIA：Publisher → Model 兩段式）
+    # Publisher 下拉
+    tk.Label(
+        nvidia_frame,
+        text=t("dialog.provider_nvidia_publisher"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+        padx=0,
+        pady=0
+    ).pack(anchor="w", pady=(0, 5))
+    nvidia_publisher_combo = ttk.Combobox(
+        nvidia_frame,
+        textvariable=nvidia_publisher_var,
+        values=[],
+        state="readonly",
+        width=40
+    )
+    nvidia_publisher_combo.pack(fill="x", pady=(0, 10))
+
+    # Model 下拉
     tk.Label(
         nvidia_frame,
         text=t("dialog.provider_nvidia_model"),
@@ -4161,11 +4186,89 @@ def _show_llm_selection_dialog(parent):
     nvidia_model_combo = ttk.Combobox(
         nvidia_frame,
         textvariable=nvidia_model_var_local,
-        values=[name for name, _ in ProviderFactory.get_available_models_with_names("nvidia")],
+        values=[],
         state="readonly",
         width=40
     )
     nvidia_model_combo.pack(fill="x", pady=(0, 10))
+
+    # NIM 探索狀態提示（降級時顯示）
+    nim_status_label = tk.Label(
+        nvidia_frame,
+        text="",
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        wraplength=420,
+        justify="left",
+        bd=0,
+        padx=0,
+        pady=0
+    )
+    nim_status_label.pack(anchor="w", pady=(0, 10))
+
+    def refresh_nvidia_model_combo(publisher, keep_model_id=None):
+        """依 publisher 刷新 model 下拉值，並嘗試保留目前選值。"""
+        models = ProviderFactory.get_nim_models_by_publisher(
+            nvidia_discovered_models["models"], publisher
+        )
+        nvidia_model_combo["values"] = models
+        if keep_model_id and keep_model_id in models:
+            nvidia_model_var_local.set(keep_model_id)
+        elif models:
+            nvidia_model_var_local.set(models[0])
+        else:
+            nvidia_model_var_local.set("")
+
+    def on_nvidia_publisher_changed(event=None):
+        """publisher 切換時刷新 model 清單。"""
+        refresh_nvidia_model_combo(nvidia_publisher_var.get())
+
+    nvidia_publisher_combo.bind("<<ComboboxSelected>>", on_nvidia_publisher_changed)
+
+    def refresh_nim_models_async():
+        """背景執行緒：開窗時自動向 NIM 端點探索可用模型。
+
+        成功就更新 publisher/model 下拉；失敗則降級至內建清單並顯示提示。
+        採短逾時，避免阻塞 UI。
+        """
+        def task():
+            api_key = normalize_api_key(nvidia_api_key_var.get()) or get_nvidia_api_key()
+            model_ids, used_fallback, error_message = ProviderFactory.discover_nim_models(api_key)
+            nvidia_discovered_models["models"] = model_ids
+            publishers = ProviderFactory.get_nim_publishers(model_ids)
+
+            def update_ui():
+                nvidia_publisher_combo["values"] = publishers
+                # 還原目前選擇
+                current_model = config_service.get_setting(
+                    "nvidia_model", ProviderFactory.get_default_model("nvidia")
+                )
+                current_pub = ProviderFactory.get_nim_publisher_for_model(current_model)
+                if current_pub in publishers:
+                    nvidia_publisher_var.set(current_pub)
+                elif publishers:
+                    nvidia_publisher_var.set(publishers[0])
+                refresh_nvidia_model_combo(
+                    nvidia_publisher_var.get(),
+                    keep_model_id=current_model if current_model in model_ids else None,
+                )
+                if used_fallback:
+                    nim_status_label.config(
+                        text=t("status.nim_models_fallback", error=error_message or "")
+                    )
+                else:
+                    nim_status_label.config(text="")
+
+            try:
+                dialog_win.after(0, update_ui)
+            except Exception:
+                pass
+
+        threading.Thread(target=task, daemon=True).start()
+
+    # 開窗時自動刷新 NIM 模型清單
+    refresh_nim_models_async()
 
     # ===== GitHub Models 配置區塊 =====
     github_frame = tk.LabelFrame(
@@ -4320,9 +4423,11 @@ def _show_llm_selection_dialog(parent):
             if not api_key:
                 messagebox.showerror(t("dialog.error_title"), t("error.nvidia_api_key_empty"), parent=dialog_win)
                 return
-            # Combobox shows display name — map back to model ID for validation/storage
-            selected_display = nvidia_model_var_local.get()
-            model_id = ProviderFactory.get_model_id_by_display_name("nvidia", selected_display) or selected_display
+            # 動態模式下 Combobox 值即為完整 model_id，直接使用
+            model_id = nvidia_model_var_local.get()
+            if not model_id:
+                messagebox.showwarning(t("dialog.error_title"), t("error.nvidia_model_empty"), parent=dialog_win)
+                return
             validator = ProviderFactory.create_provider(
                 "nvidia",
                 ui_callback=update_teacher_ui,
