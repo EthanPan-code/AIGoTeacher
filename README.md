@@ -45,6 +45,7 @@
 |--------|------|----------|
 | **Ollama** | Local / Cloud API | `qwen2.5:3b` |
 | **NVIDIA NIM** | Cloud API | `meta/llama-3.1-8b-instruct` |
+| **OpenRouter** | Cloud API | `openai/gpt-4o-mini` |
 
 ---
 
@@ -105,7 +106,7 @@ python ui/main_v3.py
 | Module | Responsibilities |
 |------|------|
 | `main_v3.py` | Main application: Board rendering, analysis engine integration, and event handling |
-| `providers/*.py` | LLM provider implementations (Ollama/NVIDIA) |
+| `providers/*.py` | LLM provider implementations (Ollama/NVIDIA/OpenRouter) |
 | `services/` | Configuration management and secure API key storage |
 | `i18n.py` | Internationalization (i18n) system |
 ### Communication Protocols
@@ -205,6 +206,7 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 |--------|------|----------|
 | **Ollama** | 本機 / 雲端 API | `qwen2.5:3b` |
 | **NVIDIA NIM** | 雲端 API | `meta/llama-3.1-8b-instruct` |
+| **OpenRouter** | 雲端 API | `openai/gpt-4o-mini` |
 
 ---
 
@@ -275,7 +277,7 @@ py ui/main_v3.py
 | 模組 | 職責 |
 |------|------|
 | `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
-| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA） |
+| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/OpenRouter） |
 | services | 設定管理、API 金鑰安全儲存 |
 | `i18n.py` | 國際化系統 |
 
@@ -313,6 +315,13 @@ ollama pull qwen2.5:3b
 api key：
 ```
 nvapi-xxxxx
+```
+
+**OpenRouter**
+
+api key：
+```
+sk-or-v1-xxxxx
 ```
 
 

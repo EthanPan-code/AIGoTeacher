@@ -5,6 +5,12 @@ from providers.nvidia_provider import (
     discover_nim_models,
     group_models_by_publisher,
 )
+from providers.openrouter_provider import (
+    OPENROUTER_MODELS,
+    OpenRouterProvider,
+    discover_openrouter_models,
+    group_models_by_publisher as group_openrouter_models_by_publisher,
+)
 from providers.ollama_provider import OLLAMA_MODELS, OLLAMA_MODEL_DISPLAY_NAMES, OllamaProvider
 
 
@@ -25,6 +31,14 @@ class ProviderFactory:
             "default_model": NVIDIA_MODELS[0],
             "models": NVIDIA_MODELS,
             "model_display_names": NVIDIA_MODEL_DISPLAY_NAMES,
+        },
+        "openrouter": {
+            "class": OpenRouterProvider,
+            "display_name": "OpenRouter",
+            "setting_key": "openrouter_model",
+            "default_model": OPENROUTER_MODELS[0],
+            "models": OPENROUTER_MODELS,
+            "model_display_names": {},
         },
     }
 
@@ -172,3 +186,24 @@ class ProviderFactory:
         """從 model_id 拆出 publisher（供 UI 還原選擇用）。"""
         from providers.nvidia_provider import get_publisher_from_model_id
         return get_publisher_from_model_id(model_id)
+
+    @classmethod
+    def discover_openrouter_models(cls, api_key=None):
+        ok, result = discover_openrouter_models(api_key, timeout=8)
+        if ok:
+            return (result, False, None)
+        return (OPENROUTER_MODELS, True, result)
+
+    @classmethod
+    def get_openrouter_publishers(cls, model_ids):
+        return sorted(group_openrouter_models_by_publisher(model_ids).keys())
+
+    @classmethod
+    def get_openrouter_models_by_publisher(cls, model_ids, publisher):
+        return group_openrouter_models_by_publisher(model_ids).get(publisher, [])
+
+    @classmethod
+    def get_openrouter_publisher_for_model(cls, model_id):
+        if not model_id or "/" not in model_id:
+            return "unknown"
+        return model_id.split("/", 1)[0]

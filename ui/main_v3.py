@@ -234,8 +234,10 @@ LOADED_DOTENV_PATHS = load_runtime_dotenv()
 from services.config_service import ConfigService
 from services.keyring_service import (
     get_nvidia_api_key,
+    get_openrouter_api_key,
     normalize_api_key,
     set_nvidia_api_key,
+    set_openrouter_api_key,
 )
 from services.provider_factory import ProviderFactory
 import threading  
@@ -3861,7 +3863,9 @@ def _show_llm_selection_dialog(parent):
     current_provider = config_service.get_setting("llm_provider", "ollama")
     current_ollama_model = config_service.get_setting("ollama_model", ProviderFactory.get_default_model("ollama"))
     current_nvidia_model = config_service.get_setting("nvidia_model", ProviderFactory.get_default_model("nvidia"))
+    current_openrouter_model = config_service.get_setting("openrouter_model", ProviderFactory.get_default_model("openrouter"))
     current_nvidia_api_key = get_nvidia_api_key()
+    current_openrouter_api_key = get_openrouter_api_key()
     
     # ===== 狀態變數 =====
     provider_var = tk.StringVar(value=current_provider)
@@ -3873,8 +3877,15 @@ def _show_llm_selection_dialog(parent):
     nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
     # 動態探索的 NIM 模型清單（開窗時自動刷新）
     nvidia_discovered_models = {"models": list(ProviderFactory.get_available_models("nvidia"))}
+    openrouter_publisher_var = tk.StringVar(
+        value=ProviderFactory.get_openrouter_publisher_for_model(current_openrouter_model)
+    )
+    openrouter_model_var_local = tk.StringVar(value=current_openrouter_model)
+    openrouter_discovered_models = {"models": list(ProviderFactory.get_available_models("openrouter"))}
     nvidia_api_key_var = tk.StringVar(value=current_nvidia_api_key)
+    openrouter_api_key_var = tk.StringVar(value=current_openrouter_api_key)
     api_key_visible = tk.BooleanVar(value=False)
+    openrouter_api_key_visible = tk.BooleanVar(value=False)
     
     # ===== 主框架 =====
     main_frame = tk.Frame(dialog_win, bg=PANEL_BG)
@@ -3909,6 +3920,8 @@ def _show_llm_selection_dialog(parent):
     tk.Radiobutton(provider_frame, text=t("dialog.provider_ollama"), variable=provider_var, value="ollama",
                    command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
     tk.Radiobutton(provider_frame, text=t("dialog.provider_nvidia"), variable=provider_var, value="nvidia",
+                   command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
+    tk.Radiobutton(provider_frame, text=t("dialog.provider_openrouter"), variable=provider_var, value="openrouter",
                    command=lambda: update_dialog_visibility(), **radio_style).pack(anchor="w")
     
     # ===== Ollama 配置區塊 =====
@@ -4264,18 +4277,177 @@ def _show_llm_selection_dialog(parent):
     # 開窗時自動刷新 NIM 模型清單
     refresh_nim_models_async()
 
+    # ===== OpenRouter 配置區塊 =====
+    openrouter_frame = tk.LabelFrame(
+        main_frame,
+        text="OpenRouter",
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=10,
+        pady=10,
+    )
+    tk.Label(
+        openrouter_frame,
+        text=t("dialog.provider_openrouter_api_key"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+    ).pack(anchor="w", pady=(0, 5))
+    openrouter_api_key_frame = tk.Frame(openrouter_frame, bg=PANEL_BG)
+    openrouter_api_key_frame.pack(fill="x", pady=(0, 10))
+    openrouter_api_key_entry = ttk.Entry(
+        openrouter_api_key_frame,
+        textvariable=openrouter_api_key_var,
+        show="●",
+        width=35,
+    )
+    openrouter_api_key_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+    def toggle_openrouter_api_key_visibility():
+        openrouter_api_key_visible.set(not openrouter_api_key_visible.get())
+        if openrouter_api_key_visible.get():
+            openrouter_api_key_entry.config(show="")
+            openrouter_toggle_btn.config(text="◉")
+        else:
+            openrouter_api_key_entry.config(show="●")
+            openrouter_toggle_btn.config(text="◌")
+
+    openrouter_toggle_btn = ttk.Button(
+        openrouter_api_key_frame,
+        text="◌",
+        width=3,
+        command=toggle_openrouter_api_key_visibility,
+    )
+    openrouter_toggle_btn.pack(side="left")
+    tk.Label(
+        openrouter_frame,
+        text=t("dialog.provider_openrouter_api_key_env_hint"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        wraplength=420,
+        justify="left",
+        bd=0,
+    ).pack(anchor="w", pady=(0, 10))
+    tk.Label(
+        openrouter_frame,
+        text=t("dialog.provider_openrouter_publisher"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+    ).pack(anchor="w", pady=(0, 5))
+    openrouter_publisher_combo = ttk.Combobox(
+        openrouter_frame,
+        textvariable=openrouter_publisher_var,
+        values=[],
+        state="readonly",
+        width=40,
+    )
+    openrouter_publisher_combo.pack(fill="x", pady=(0, 10))
+    tk.Label(
+        openrouter_frame,
+        text=t("dialog.provider_openrouter_model"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        bd=0,
+    ).pack(anchor="w", pady=(0, 5))
+    openrouter_model_combo = ttk.Combobox(
+        openrouter_frame,
+        textvariable=openrouter_model_var_local,
+        values=[],
+        state="readonly",
+        width=40,
+    )
+    openrouter_model_combo.pack(fill="x", pady=(0, 10))
+    openrouter_status_label = tk.Label(
+        openrouter_frame,
+        text="",
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        wraplength=420,
+        justify="left",
+        bd=0,
+    )
+    openrouter_status_label.pack(anchor="w", pady=(0, 10))
+
+    def refresh_openrouter_model_combo(publisher, keep_model_id=None):
+        models = ProviderFactory.get_openrouter_models_by_publisher(
+            openrouter_discovered_models["models"], publisher
+        )
+        openrouter_model_combo["values"] = models
+        if keep_model_id and keep_model_id in models:
+            openrouter_model_var_local.set(keep_model_id)
+        elif models:
+            openrouter_model_var_local.set(models[0])
+        else:
+            openrouter_model_var_local.set("")
+
+    openrouter_publisher_combo.bind(
+        "<<ComboboxSelected>>",
+        lambda _event: refresh_openrouter_model_combo(openrouter_publisher_var.get()),
+    )
+
+    def refresh_openrouter_models_async():
+        def task():
+            api_key = normalize_api_key(openrouter_api_key_var.get()) or get_openrouter_api_key()
+            model_ids, used_fallback, error_message = ProviderFactory.discover_openrouter_models(api_key)
+            openrouter_discovered_models["models"] = model_ids
+            publishers = ProviderFactory.get_openrouter_publishers(model_ids)
+
+            def update_ui():
+                openrouter_publisher_combo["values"] = publishers
+                current_model = config_service.get_setting(
+                    "openrouter_model", ProviderFactory.get_default_model("openrouter")
+                )
+                current_publisher = ProviderFactory.get_openrouter_publisher_for_model(current_model)
+                if current_publisher in publishers:
+                    openrouter_publisher_var.set(current_publisher)
+                elif publishers:
+                    openrouter_publisher_var.set(publishers[0])
+                refresh_openrouter_model_combo(
+                    openrouter_publisher_var.get(),
+                    keep_model_id=current_model if current_model in model_ids else None,
+                )
+                openrouter_status_label.config(
+                    text=t("status.openrouter_models_fallback", error=error_message or "")
+                    if used_fallback else ""
+                )
+
+            try:
+                dialog_win.after(0, update_ui)
+            except Exception:
+                pass
+
+        threading.Thread(target=task, daemon=True).start()
+
+    refresh_openrouter_models_async()
+
     # ===== 更新對話框可見性 =====
     def update_dialog_visibility():
         if provider_var.get() == "ollama":
             ollama_frame.pack(fill="x", pady=(0, 10))
             nvidia_frame.pack_forget()
+            openrouter_frame.pack_forget()
         elif provider_var.get() == "nvidia":
             ollama_frame.pack_forget()
             nvidia_frame.pack(fill="x", pady=(0, 10))
+            openrouter_frame.pack_forget()
+        elif provider_var.get() == "openrouter":
+            ollama_frame.pack_forget()
+            nvidia_frame.pack_forget()
+            openrouter_frame.pack(fill="x", pady=(0, 10))
         else:
             provider_var.set("ollama")
             ollama_frame.pack(fill="x", pady=(0, 10))
             nvidia_frame.pack_forget()
+            openrouter_frame.pack_forget()
     
     update_dialog_visibility()
     
@@ -4293,6 +4465,14 @@ def _show_llm_selection_dialog(parent):
                 set_nvidia_api_key(api_key)
             except Exception as e:
                 logger.error("NVIDIA API Key 寫入 keyring 失敗: %s", e)
+                messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
+                return False
+        elif provider == "openrouter":
+            config_service.set_setting("openrouter_model", selected_model)
+            try:
+                set_openrouter_api_key(api_key)
+            except Exception as e:
+                logger.error("OpenRouter API Key 寫入 keyring 失敗: %s", e)
                 messagebox.showerror(t("dialog.error_title"), str(e), parent=dialog_win)
                 return False
         config_service.save()
@@ -4343,6 +4523,40 @@ def _show_llm_selection_dialog(parent):
             is_valid, error_message = validator.validate_config()
             if not is_valid:
                 messagebox.showwarning(t("dialog.error_title"), error_message or t("error.nvidia_api_key_invalid"), parent=dialog_win)
+                return
+            selected_model = model_id
+        elif provider == "openrouter":
+            api_key = normalize_api_key(openrouter_api_key_var.get())
+            if not api_key:
+                messagebox.showerror(
+                    t("dialog.error_title"),
+                    t("error.openrouter_api_key_empty"),
+                    parent=dialog_win,
+                )
+                return
+            model_id = openrouter_model_var_local.get()
+            if not model_id:
+                messagebox.showwarning(
+                    t("dialog.error_title"),
+                    t("error.openrouter_model_empty"),
+                    parent=dialog_win,
+                )
+                return
+            validator = ProviderFactory.create_provider(
+                "openrouter",
+                ui_callback=update_teacher_ui,
+                model_name=model_id,
+                translator=t,
+                language_getter=lambda: i18n.language,
+                api_key=api_key,
+            )
+            is_valid, error_message = validator.validate_config()
+            if not is_valid:
+                messagebox.showwarning(
+                    t("dialog.error_title"),
+                    error_message or t("error.openrouter_api_key_invalid"),
+                    parent=dialog_win,
+                )
                 return
             selected_model = model_id
         else:
@@ -6431,6 +6645,12 @@ if llm_provider == "nvidia" and not get_nvidia_api_key():
     root.after(0, lambda: messagebox.showwarning(
         t("dialog.error_title"),
         t("error.nvidia_api_key_missing_env")
+    ))
+elif llm_provider == "openrouter" and not get_openrouter_api_key():
+    logger.warning("OpenRouter API Key 未設置，仍保留 OpenRouter 設定；請設定 OPENROUTER_API_KEY、KATAGO_OPENROUTER_API_KEY 或在 LLM 對話框設定")
+    root.after(0, lambda: messagebox.showwarning(
+        t("dialog.error_title"),
+        t("error.openrouter_api_key_missing_env")
     ))
 
 # 向後相容性：ollama_worker 指向 current_llm_worker
