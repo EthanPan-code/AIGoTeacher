@@ -1,33 +1,28 @@
 {
   "i18n/en.json": {
-    "mtime": 1784078566.550292,
-    "ast_hash": "7936285421d059186e905e3be4f8d585",
+    "mtime": 1785639148.8099468,
+    "ast_hash": "42c47f312d999189b476540ecadfb023",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1784078593.0129275,
-    "ast_hash": "c61c24543c40a3f37de52ed2fe84c108",
+    "mtime": 1785639149.2492115,
+    "ast_hash": "4d9e38d11f1eb744006ce9587d59eda7",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
-    "mtime": 1783303342.34367,
-    "ast_hash": "11a0df31820bf9b2ad4131e5de740cab",
-    "semantic_hash": "11a0df31820bf9b2ad4131e5de740cab"
+    "mtime": 1785638998.5053513,
+    "ast_hash": "8e204f1a56a2ce55a1025a77647d8ca6",
+    "semantic_hash": ""
   },
   "providers/base.py": {
     "mtime": 1783419758.7779293,
     "ast_hash": "b4ae456ec240d64a90f7f9dd5769dbce",
     "semantic_hash": "b4ae456ec240d64a90f7f9dd5769dbce"
   },
-  "providers/github_provider.py": {
-    "mtime": 1783485688.7636254,
-    "ast_hash": "c8f2aa88e24c3d1a9dfcd40f28b74e2a",
-    "semantic_hash": "c8f2aa88e24c3d1a9dfcd40f28b74e2a"
-  },
   "providers/nvidia_provider.py": {
-    "mtime": 1784280349.624373,
-    "ast_hash": "78cfaed95eb407a43c94f28bdb088d44",
-    "semantic_hash": "78cfaed95eb407a43c94f28bdb088d44"
+    "mtime": 1785590850.5629504,
+    "ast_hash": "b0474f30a360bd4a530c5c528fd6d0e0",
+    "semantic_hash": ""
   },
   "providers/ollama_provider.py": {
     "mtime": 1783419758.7779293,
@@ -50,14 +45,14 @@
     "semantic_hash": "e5990bc0490845ed7dee4025ee285350"
   },
   "services/config_service.py": {
-    "mtime": 1782797344.674758,
-    "ast_hash": "afb062042885dbf190ac7bc7df413153",
-    "semantic_hash": "afb062042885dbf190ac7bc7df413153"
+    "mtime": 1785591599.3467138,
+    "ast_hash": "c49f8ee1dbe773e590564dfbab496bbc",
+    "semantic_hash": ""
   },
   "services/keyring_service.py": {
-    "mtime": 1780103924.2978926,
-    "ast_hash": "82b3a221ef4cef2a5bc7b768294afa8e",
-    "semantic_hash": "82b3a221ef4cef2a5bc7b768294afa8e"
+    "mtime": 1785638997.7748091,
+    "ast_hash": "9a107f2b96304150bbdd278473d910d9",
+    "semantic_hash": ""
   },
   "services/ollama_manager.py": {
     "mtime": 1779271614.8963926,
@@ -65,9 +60,9 @@
     "semantic_hash": "304c9ca680a8e8542f85fdfc3309a359"
   },
   "services/provider_factory.py": {
-    "mtime": 1783303342.34367,
-    "ast_hash": "cf5c7650129509014b2e79190b4f209d",
-    "semantic_hash": "cf5c7650129509014b2e79190b4f209d"
+    "mtime": 1785638998.8325434,
+    "ast_hash": "80cfff1c439ff4af5170616fb90a796b",
+    "semantic_hash": ""
   },
   "tools/ollama_detection.json": {
     "mtime": 1779367127.1693337,
@@ -75,9 +70,9 @@
     "semantic_hash": "09c4c2ce0ba02abc6bf2a1fc89b5a7e2"
   },
   "ui/chat_sandbox.py": {
-    "mtime": 1784279943.5752473,
-    "ast_hash": "aa2227867c0a3e3f14b0e1e49c5259e5",
-    "semantic_hash": "aa2227867c0a3e3f14b0e1e49c5259e5"
+    "mtime": 1785639233.6534941,
+    "ast_hash": "96618429689249796d0f771840ca51ac",
+    "semantic_hash": ""
   },
   "ui/i18n.py": {
     "mtime": 1779522999.9173255,
@@ -85,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1784081750.8568568,
-    "ast_hash": "308099a2c696fad5544c4755de0e7707",
+    "mtime": 1785639060.5870745,
+    "ast_hash": "d60934750e066c6fecdcd21625ba69b7",
     "semantic_hash": ""
   },
   "version.py": {
@@ -95,8 +90,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1784425025.132939,
-    "ast_hash": "0148508dc4d34863a5a870da3900980d",
+    "mtime": 1785639345.7392578,
+    "ast_hash": "26b8ace13ec39925b934eb2eb746839b",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -137,6 +132,21 @@
   ".github/image/ui.png": {
     "mtime": 1784171686.1361802,
     "ast_hash": "a41cfae2a101bb3e9bbf2f3c692e1aa3",
+    "semantic_hash": ""
+  },
+  "providers/openrouter_provider.py": {
+    "mtime": 1785639315.6731133,
+    "ast_hash": "50bd8145fdbf2f6885701c4022ebddd9",
+    "semantic_hash": ""
+  },
+  "SECURITY.md": {
+    "mtime": 1785590849.5489528,
+    "ast_hash": "79a3e3ff19645f2a4e2d9e0d87fa9d41",
+    "semantic_hash": ""
+  },
+  "docs/migration-v1.0.md": {
+    "mtime": 1785640000.7733977,
+    "ast_hash": "a7f27bf65f9078dfaa3e56cfbfb24555",
     "semantic_hash": ""
   }
 }
