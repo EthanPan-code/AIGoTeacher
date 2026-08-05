@@ -1,32 +1,22 @@
 import threading
 import traceback
-from typing import Callable, Dict, Optional
+from typing import Dict, Optional
 
 from opencc import OpenCC
+
+from services.ollama_manager import (
+    DEFAULT_OLLAMA_MODEL,
+    OLLAMA_RECOMMENDED_MODELS,
+    OllamaModelInfo,
+)
 
 from .base import LLMProvider
 
 
-OLLAMA_LOCAL_MODELS = ["qwen2.5:1.5b", "llama3.2:1b", "gemma2:2b", "qwen2.5:3b", "qwen2.5:7b"]
-OLLAMA_CLOUD_MODELS = ["gemma4:31b-cloud", "minimax-m2.1:cloud"]
-OLLAMA_PAID_MODELS = {"kimi-k2.6:cloud"}
-OLLAMA_MODELS = [
-    model
-    for model in [*OLLAMA_LOCAL_MODELS, *OLLAMA_CLOUD_MODELS]
-    if model not in OLLAMA_PAID_MODELS
-]
-
-# 模型 ID → 顯示名稱對照表（UI 顯示用，ollama CLI 與 API 呼叫仍使用 ID）
-# 未列於此表的 ID 會 fallback 顯示原始 ID（支援使用者自行 ollama pull 的模型）
-OLLAMA_MODEL_DISPLAY_NAMES = {
-    "qwen2.5:1.5b": "Qwen2.5 1.5B",
-    "llama3.2:1b": "Llama3.2 1B",
-    "gemma2:2b": "Gemma2 2B",
-    "qwen2.5:3b": "Qwen2.5 3B",
-    "qwen2.5:7b": "Qwen2.5 7B",
-    "gemma4:31b-cloud": "Gemma4 31B",
-    "minimax-m2.1:cloud": "MiniMax M2.1",
-}
+# Compatibility exports for older integrations. These are recommendations only;
+# runtime availability comes from OllamaManager's /api/tags catalog.
+OLLAMA_MODELS = OLLAMA_RECOMMENDED_MODELS
+OLLAMA_MODEL_DISPLAY_NAMES = {}
 
 
 class OllamaProvider(LLMProvider):
@@ -34,40 +24,50 @@ class OllamaProvider(LLMProvider):
         self,
         ui_callback,
         status_callback=None,
-        model_name="qwen2.5:1.5b",
+        model_name=DEFAULT_OLLAMA_MODEL,
         translator=None,
         language_getter=None,
         on_complete_callback=None,
         tone="friendly",
         custom_prompt=None,
     ):
-        super().__init__(ui_callback, status_callback, translator, language_getter, on_complete_callback, tone, custom_prompt)
-        self.model_name = model_name
+        super().__init__(
+            ui_callback=ui_callback,
+            status_callback=status_callback,
+            translator=translator,
+            language_getter=language_getter,
+            on_complete_callback=on_complete_callback,
+            tone=tone,
+            custom_prompt=custom_prompt,
+        )
+        self.model_name = model_name or DEFAULT_OLLAMA_MODEL
         self.cc = OpenCC("s2twp")
 
     def get_available_models(self):
-        return OLLAMA_MODELS
+        from services.ollama_manager import get_ollama_manager
+
+        return [info.name for info in get_ollama_manager().get_model_catalog()]
 
     @staticmethod
     def get_model_display_name(model_id):
-        return OLLAMA_MODEL_DISPLAY_NAMES.get(model_id, model_id)
+        return model_id
 
-    @staticmethod
-    def is_cloud_model(model_name: str) -> bool:
-        return "cloud" in (model_name or "").lower()
+    def get_model_info(self, model_name: Optional[str] = None) -> Optional[OllamaModelInfo]:
+        from services.ollama_manager import get_ollama_manager
 
-    @staticmethod
-    def is_paid_model(model_name: str) -> bool:
-        normalized = (model_name or "").lower()
-        return normalized in OLLAMA_PAID_MODELS or ":paid" in normalized
+        return get_ollama_manager().get_model(model_name or self.model_name)
+
+    def is_cloud_model(self, model_name: str) -> bool:
+        info = self.get_model_info(model_name)
+        return bool(info and info.is_cloud)
 
     def validate_config(self):
-        try:
-            import ollama  # noqa: F401
+        from services.ollama_manager import get_ollama_manager
 
+        available, detail = get_ollama_manager().check_service()
+        if available:
             return (True, None)
-        except Exception as e:
-            return (False, f"Ollama validation failed: {str(e)}")
+        return (False, self.tr("error.ollama_service_unavailable", error=detail))
 
     def set_model(self, model_name):
         self.model_name = model_name
@@ -79,43 +79,27 @@ class OllamaProvider(LLMProvider):
 
         return get_ollama_manager().get_local_models()
 
-    def get_model_status(self) -> Dict[str, str]:
+    def get_cloud_models(self):
         from services.ollama_manager import get_ollama_manager
 
-        visible_models = [model for model in OLLAMA_MODELS if not self.is_paid_model(model)]
-        status = get_ollama_manager().get_model_status(
-            [model for model in visible_models if not self.is_cloud_model(model)]
-        )
-        for model in visible_models:
-            if self.is_cloud_model(model):
-                status[model] = "cloud"
-        return status
+        return get_ollama_manager().get_cloud_models()
+
+    def get_model_status(self, all_models=None) -> Dict[str, str]:
+        from services.ollama_manager import get_ollama_manager
+
+        return get_ollama_manager().get_model_status(all_models)
 
     def is_model_available(self, model_name: str) -> bool:
-        if self.is_cloud_model(model_name):
-            return True
-
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().is_model_available(model_name)
 
     def get_model_size(self, model_name: str) -> Optional[str]:
-        if self.is_cloud_model(model_name):
-            return None
-
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().get_model_size(model_name)
 
-    def start_model_download(
-        self,
-        model_name: str,
-        progress_callback: Optional[Callable[[str], None]] = None,
-        complete_callback: Optional[Callable[[bool, str], None]] = None,
-    ) -> bool:
-        if self.is_cloud_model(model_name):
-            return False
-
+    def start_model_download(self, model_name, progress_callback=None, complete_callback=None) -> bool:
         from services.ollama_manager import get_ollama_manager
 
         return get_ollama_manager().pull_model_async(model_name, progress_callback, complete_callback)
@@ -123,7 +107,7 @@ class OllamaProvider(LLMProvider):
     def is_downloading(self) -> bool:
         from services.ollama_manager import get_ollama_manager
 
-        return get_ollama_manager().downloading
+        return get_ollama_manager().is_downloading()
 
     def start_commentary(self, critical_data):
         if self.is_generating:
@@ -138,20 +122,9 @@ class OllamaProvider(LLMProvider):
             import ollama
 
             prompt = self.build_commentary_prompt(data)
-            conversation = data.get("conversation")
-
-            # Build messages list from conversation history + current prompt
-            messages = []
-            if conversation:
-                for msg in conversation:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages = list(data.get("conversation") or [])
             messages.append({"role": "user", "content": prompt})
-
-            response = ollama.chat(
-                model=self.model_name,
-                messages=messages,
-                stream=True,
-            )
+            response = ollama.chat(model=self.model_name, messages=messages, stream=True)
 
             full_content = ""
             for chunk in response:
@@ -161,14 +134,14 @@ class OllamaProvider(LLMProvider):
                     converted_text = self.cc.convert(full_content) if self.language_getter() == "zh_TW" else full_content
                     self.ui_callback(converted_text)
 
-        except Exception as e:
-            print(f"Ollama commentary failed: {e}")
+        except Exception as error:
+            print(f"Ollama commentary failed: {error}")
             if getattr(self, "error_callback", None):
                 try:
-                    self.error_callback(e, traceback.format_exc())
+                    self.error_callback(error, traceback.format_exc())
                 except Exception as callback_error:
                     print(f"Ollama error callback failed: {callback_error}")
-            self.ui_callback(self._fallback_commentary(data, e))
+            self.ui_callback(self._fallback_commentary(data, error))
             if self.status_callback:
                 self.status_callback(self.tr("status.ollama_fallback"))
         finally:
@@ -176,8 +149,8 @@ class OllamaProvider(LLMProvider):
             if self.on_complete_callback:
                 try:
                     self.on_complete_callback()
-                except Exception as e:
-                    print(f"Completion callback failed: {e}")
+                except Exception as error:
+                    print(f"Completion callback failed: {error}")
 
     def _fallback_commentary(self, data, error):
         if data.get("fallback_text"):
@@ -196,6 +169,8 @@ class OllamaProvider(LLMProvider):
             hint = self.tr("teacher.memory_hint")
         elif "model" in error_text.lower() and ("not found" in error_text.lower() or "pull" in error_text.lower()):
             hint = self.tr("teacher.model_not_found_hint", model=self.model_name)
+        elif self.is_cloud_model(self.model_name):
+            hint = self.tr("teacher.cloud_error_hint")
         else:
             hint = self.tr("teacher.generic_error_hint", error=error_text)
 

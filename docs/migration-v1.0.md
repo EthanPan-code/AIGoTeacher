@@ -43,13 +43,13 @@ GitHub token 不會由程式自動刪除。程式已停止讀取或寫入 GitHub
 
 | Provider | 適用情境 | API Key |
 |---|---|---|
-| Ollama | 本機執行、離線使用、無雲端 API key | 不需要 |
+| Ollama | 本機模型或 Ollama 帳號可用的雲端模型 | 本機不需要；雲端由 Ollama service/account 管理 |
 | NVIDIA NIM | 使用 NVIDIA 提供的雲端模型 | `NVIDIA_API_KEY` |
 | OpenRouter | 透過單一 API 存取多家模型 | `OPENROUTER_API_KEY` |
 
 ## 方式一：使用 Ollama
 
-Ollama 不需要 API key，模型在本機執行。
+Ollama 的本機模型透過本機 service 執行，不需要應用程式 API key；雲端模型則由 Ollama service 的登入狀態、權限與額度決定。
 
 1. 安裝 Ollama。
 2. 下載模型，例如：
@@ -141,7 +141,7 @@ API key 不會保存到 `ui_settings.json`，也不會寫入專案內的 `.env` 
 3. 觸發一個需要教學解說的棋步，確認可收到串流文字。
 4. 暫時輸入錯誤 API key，確認程式顯示 fallback，而不是整個 UI 結束。
 5. 重新啟動程式，確認 provider 與模型仍被保存。
-6. 若使用本機 Ollama，確認 Ollama 服務仍可獨立運作。
+6. 若使用 Ollama，確認本機 service 可回應，且雲端模型使用者已完成 Ollama 登入。
 
 ## 常見問題
 
@@ -155,9 +155,8 @@ API key 不會保存到 `ui_settings.json`，也不會寫入專案內的 `.env` 
 
 ### OpenRouter 回傳 402
 
-通常代表帳戶餘額或 API key 使用額度不足，請在 OpenRouter 控制台確認 credits 與 key limits，或改用 Ollama 等不需要雲端額度的來源。
+通常代表帳戶餘額或 API key 使用額度不足，請在 OpenRouter 控制台確認 credits 與 key limits，或改用本機 Ollama 模型。
 
 ### OpenRouter 回傳 429 或 503
 
 通常代表速率限制或暫時沒有可用的模型供應商。可稍後重試、選擇其他模型，或切換至 NVIDIA NIM/Ollama。
-

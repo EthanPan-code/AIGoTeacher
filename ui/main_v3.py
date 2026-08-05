@@ -240,6 +240,11 @@ from services.keyring_service import (
     set_openrouter_api_key,
 )
 from services.provider_factory import ProviderFactory
+from services.ollama_manager import (
+    OLLAMA_RECOMMENDED_CLOUD_MODELS,
+    OLLAMA_RECOMMENDED_LOCAL_MODELS,
+    get_ollama_manager,
+)
 import threading  
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -3632,7 +3637,7 @@ def show_ollama_install_dialog(parent):
 
 
 
-def _create_ollama_model_row(parent, model_name, provider, model_status, selected_var, refresh_callback, download_success_callback=None):
+def _create_ollama_model_row(parent, model_name, provider, model_status, selected_var, refresh_callback, download_success_callback=None, model_info=None):
     """
     為 Ollama 模型創建一個選擇行。
     - 已下載（available）：點擊直接選中
@@ -3649,13 +3654,27 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
     """
     row_frame = tk.Frame(parent, bg=PANEL_BG, relief="flat", bd=0)
     row_frame.pack(fill="x", pady=3)
-    is_cloud_model = provider.is_cloud_model(model_name)
+    is_cloud_model = bool(model_info and model_info.is_cloud)
+    is_unavailable_cloud = model_status == "cloud_unavailable"
+    is_configured_unavailable = model_status == "configured_unavailable"
     
     # 整行的點擊邏輯
     def on_row_click():
         if model_status in ("available", "cloud") or is_cloud_model:
             # 已下載或雲端模型：直接選中
             selected_var.set(model_name)
+        elif is_unavailable_cloud:
+            messagebox.showwarning(
+                t("dialog.warning_title"),
+                t("error.ollama_cloud_model_unavailable"),
+                parent=parent.winfo_toplevel(),
+            )
+        elif is_configured_unavailable:
+            messagebox.showwarning(
+                t("dialog.warning_title"),
+                t("error.ollama_configured_model_unavailable"),
+                parent=parent.winfo_toplevel(),
+            )
         else:
             # 未下載：彈出下載確認
             dialog_parent = parent.winfo_toplevel()
@@ -3668,9 +3687,13 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
             )
     
     # 模型名稱標籤
+    display_name = model_name
+    if model_status.startswith("recommended"):
+        display_name = f"{display_name} [{t('status.ollama_recommended')}]"
+
     model_label = tk.Label(
         row_frame,
-        text=ProviderFactory.get_model_display_name("ollama", model_name),
+        text=display_name,
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 10),
@@ -3690,6 +3713,10 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
         icon_name = "available.png"
         fallback_text = "✓"
         status_color = "#4CAF50"
+    elif is_unavailable_cloud or is_configured_unavailable:
+        icon_name = "cloud.png"
+        fallback_text = "☁"
+        status_color = "#9E9E9E"
     else:
         icon_name = "download.png"
         fallback_text = "⬇"
@@ -3717,9 +3744,6 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
     if provider.is_cloud_model(model_name):
         return
 
-    model_size = provider.get_model_size(model_name)
-    size_text = f" ({model_size})" if model_size else ""
-
     progress_win = tk.Toplevel(parent)
     progress_win.title(t("dialog.ollama_model_downloading"))
     progress_win.geometry("440x220")
@@ -3735,7 +3759,7 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
 
     tk.Label(
         frame,
-        text=t("dialog.ollama_model_downloading_model", model=ProviderFactory.get_model_display_name("ollama", model_name), size=size_text),
+        text=t("dialog.ollama_model_downloading_model", model=model_name, size=""),
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 11, "bold")
@@ -3834,12 +3858,9 @@ def _confirm_and_download_ollama_model(parent, model_name, provider, refresh_cal
     if provider.is_cloud_model(model_name):
         return
 
-    model_size = provider.get_model_size(model_name)
-    size_text = f" ({model_size})" if model_size else ""
-    
     if not messagebox.askyesno(
         t("dialog.confirm_title"),
-        t("dialog.ollama_model_confirm_download", model=model_name + size_text),
+        t("dialog.ollama_model_confirm_download", model=model_name),
         parent=parent,
     ):
         return
@@ -3959,14 +3980,11 @@ def _show_llm_selection_dialog(parent):
         language_getter=lambda: i18n.language
     )
     
-    available_models = [
-        model
-        for model in ProviderFactory.get_available_models("ollama")
-        if not ollama_provider.is_paid_model(model)
-    ]
-    if ollama_provider.is_paid_model(current_ollama_model):
-        current_ollama_model = ProviderFactory.get_default_model("ollama")
-        ollama_model_var_local.set(current_ollama_model)
+    ollama_manager = get_ollama_manager()
+    recommended_kinds = {
+        **{model: "recommended_local" for model in OLLAMA_RECOMMENDED_LOCAL_MODELS},
+        **{model: "recommended_cloud" for model in OLLAMA_RECOMMENDED_CLOUD_MODELS},
+    }
     
     # 創建固定高度、可捲動的模型列表，避免只顯示第一列。
     models_list_outer = tk.Frame(ollama_frame, bg=PANEL_BG, relief="solid", bd=1, height=190)
@@ -3994,34 +4012,98 @@ def _show_llm_selection_dialog(parent):
     models_list_frame.bind("<Configure>", update_models_scroll_region)
     models_canvas.bind("<Configure>", update_models_scroll_region)
     
-    def refresh_ollama_models(auto_select_model=None):
-        """刷新 Ollama 模型列表"""
-        # 清空舊的模型行
+    def render_ollama_models(model_infos, error_message=None, auto_select_model=None):
         for widget in models_list_frame.winfo_children():
             widget.destroy()
-        
-        # 重新創建模型行
-        updated_status = ollama_provider.get_model_status()
-        for model in available_models:
-            if ollama_provider.is_paid_model(model):
-                continue
-            _create_ollama_model_row(
+
+        catalog = {info.name: info for info in model_infos}
+        local_names = sorted(name for name, info in catalog.items() if not info.is_cloud)
+        cloud_names = sorted(name for name, info in catalog.items() if info.is_cloud)
+
+        for model_name in OLLAMA_RECOMMENDED_LOCAL_MODELS:
+            if model_name not in catalog:
+                local_names.append(model_name)
+        for model_name in OLLAMA_RECOMMENDED_CLOUD_MODELS:
+            if model_name not in catalog:
+                cloud_names.append(model_name)
+        configured_names = []
+        if current_ollama_model not in catalog and current_ollama_model not in local_names and current_ollama_model not in cloud_names:
+            configured_names.append(current_ollama_model)
+
+        def add_section(title, names, cloud=False, status_override=None):
+            tk.Label(
                 models_list_frame,
-                model,
-                ollama_provider,
-                updated_status.get(model, "pending"),
-                ollama_model_var_local,
-                refresh_ollama_models,
-                download_success_callback=lambda downloaded_model: save_and_apply_settings("ollama", downloaded_model)
+                text=title,
+                bg=PANEL_BG,
+                fg=TEXT_MAIN,
+                font=("Microsoft JhengHei", 10, "bold"),
+                anchor="w",
+            ).pack(fill="x", pady=(6, 2))
+            if not names:
+                tk.Label(
+                    models_list_frame,
+                    text=t("status.ollama_no_models"),
+                    bg=PANEL_BG,
+                    fg=TEXT_MUTED,
+                    anchor="w",
+                ).pack(fill="x", padx=5, pady=3)
+            for model_name in names:
+                info = catalog.get(model_name)
+                if status_override:
+                    status = status_override
+                elif info:
+                    status = "cloud" if info.is_cloud else "available"
+                elif cloud or recommended_kinds.get(model_name) == "recommended_cloud":
+                    status = "cloud_unavailable"
+                else:
+                    status = "pending"
+                _create_ollama_model_row(
+                    models_list_frame,
+                    model_name,
+                    ollama_provider,
+                    status,
+                    ollama_model_var_local,
+                    lambda auto_select=None: refresh_ollama_models(auto_select_model=auto_select, force=True),
+                    download_success_callback=lambda downloaded_model: save_and_apply_settings("ollama", downloaded_model),
+                    model_info=info,
+                )
+
+        add_section(t("status.ollama_local_models"), local_names, cloud=False)
+        add_section(t("status.ollama_cloud_models"), cloud_names, cloud=True)
+        if configured_names:
+            add_section(
+                t("status.ollama_current_model"),
+                configured_names,
+                cloud=False,
+                status_override="configured_unavailable",
             )
-        
-        # 如果提供了自動選擇的模型，則選中它
+        if error_message:
+            tk.Label(
+                models_list_frame,
+                text=t("status.ollama_catalog_fallback", error=error_message),
+                bg=PANEL_BG,
+                fg="#C62828",
+                wraplength=400,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x", pady=(6, 2))
         if auto_select_model:
             ollama_model_var_local.set(auto_select_model)
         update_models_scroll_region()
+
+    def refresh_ollama_models(auto_select_model=None, force=False):
+        """Refresh Ollama local/cloud catalog off the Tkinter thread."""
+        def task():
+            model_infos, error_message = ollama_manager.refresh_model_catalog(force=force)
+            try:
+                dialog_win.after(0, render_ollama_models, model_infos, error_message, auto_select_model)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=task, daemon=True).start()
     
     # 初始創建模型行
-    refresh_ollama_models()
+    refresh_ollama_models(force=True)
     
     # 添加重新掃描按鈕
     rescan_frame = tk.Frame(ollama_frame, bg=PANEL_BG)
@@ -4030,9 +4112,75 @@ def _show_llm_selection_dialog(parent):
     ttk.Button(
         rescan_frame,
         text=t("button.rescan_models"),
-        command=refresh_ollama_models,
+        command=lambda: refresh_ollama_models(force=True),
         width=15
     ).pack(side="left", padx=(0, 5))
+
+    download_frame = tk.Frame(ollama_frame, bg=PANEL_BG)
+    download_frame.pack(fill="x", pady=(8, 0))
+
+    download_model_var = tk.StringVar()
+    download_model_entry = ttk.Entry(
+        download_frame,
+        textvariable=download_model_var,
+        width=24,
+    )
+    download_model_placeholder = t("dialog.ollama_model_name_hint")
+    download_model_placeholder_active = {"value": True}
+    download_model_entry.insert(0, download_model_placeholder)
+    download_model_entry.configure(foreground=TEXT_MUTED)
+    download_model_entry.pack(side="left", padx=(0, 5))
+
+    def clear_download_model_placeholder(_event=None):
+        if download_model_placeholder_active["value"]:
+            download_model_entry.delete(0, "end")
+            download_model_entry.configure(foreground=TEXT_MAIN)
+            download_model_placeholder_active["value"] = False
+
+    def restore_download_model_placeholder(_event=None):
+        if not download_model_entry.get().strip():
+            download_model_entry.insert(0, download_model_placeholder)
+            download_model_entry.configure(foreground=TEXT_MUTED)
+            download_model_placeholder_active["value"] = True
+
+    download_model_entry.bind("<FocusIn>", clear_download_model_placeholder)
+    download_model_entry.bind("<FocusOut>", restore_download_model_placeholder)
+
+    def download_named_ollama_model():
+        model_name = "" if download_model_placeholder_active["value"] else download_model_entry.get().strip()
+        if not model_name:
+            messagebox.showwarning(
+                t("dialog.warning_title"),
+                t("error.ollama_model_name_empty"),
+                parent=dialog_win,
+            )
+            return
+        # Use the already loaded catalog so the button never blocks the Tkinter thread.
+        info = ollama_manager.get_cached_model(model_name)
+        if info and info.is_cloud:
+            messagebox.showwarning(
+                t("dialog.warning_title"),
+                t("error.ollama_cloud_model_unavailable"),
+                parent=dialog_win,
+            )
+            return
+        if info and not info.is_cloud:
+            ollama_model_var_local.set(model_name)
+            return
+        _confirm_and_download_ollama_model(
+            dialog_win,
+            model_name,
+            ollama_provider,
+            lambda selected=None: refresh_ollama_models(selected, force=True),
+            on_success=lambda downloaded_model: save_and_apply_settings("ollama", downloaded_model),
+        )
+
+    ttk.Button(
+        download_frame,
+        text=t("button.ollama_download_model"),
+        command=download_named_ollama_model,
+        width=15,
+        ).pack(side="left")
 
     # 模型選擇指示（顯示目前被選中的模型）
     try:
@@ -4561,9 +4709,6 @@ def _show_llm_selection_dialog(parent):
             selected_model = model_id
         else:
             selected_model = ollama_model_var_local.get()
-            if ollama_provider.is_paid_model(selected_model):
-                selected_model = ProviderFactory.get_default_model("ollama")
-                ollama_model_var_local.set(selected_model)
             if not ollama_provider.is_cloud_model(selected_model) and not ollama_provider.is_model_available(selected_model):
                 choice = messagebox.askyesnocancel(
                     t("dialog.confirm_title"),

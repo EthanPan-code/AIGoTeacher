@@ -12,6 +12,7 @@ from providers.openrouter_provider import (
     group_models_by_publisher as group_openrouter_models_by_publisher,
 )
 from providers.ollama_provider import OLLAMA_MODELS, OLLAMA_MODEL_DISPLAY_NAMES, OllamaProvider
+from services.ollama_manager import DEFAULT_OLLAMA_MODEL
 
 
 class ProviderFactory:
@@ -20,7 +21,7 @@ class ProviderFactory:
             "class": OllamaProvider,
             "display_name": "Ollama",
             "setting_key": "ollama_model",
-            "default_model": OLLAMA_MODELS[0],
+            "default_model": DEFAULT_OLLAMA_MODEL,
             "models": OLLAMA_MODELS,
             "model_display_names": OLLAMA_MODEL_DISPLAY_NAMES,
         },
@@ -108,6 +109,10 @@ class ProviderFactory:
 
     @classmethod
     def get_available_models(cls, provider_name):
+        if provider_name == "ollama":
+            return cls._providers["ollama"]["class"](
+                ui_callback=lambda _message: None
+            ).get_available_models()
         provider = cls._providers.get(provider_name, cls._providers["ollama"])
         return provider["models"]
 
@@ -130,12 +135,13 @@ class ProviderFactory:
         widgets that show display names but need to persist the underlying ID.
         """
         provider = cls._providers.get(provider_name, cls._providers["ollama"])
+        models = cls.get_available_models(provider_name) if provider_name == "ollama" else provider["models"]
         display_names = provider.get("model_display_names", {})
         for model_id, name in display_names.items():
             if name == display_name:
                 return model_id
         # Fallback: maybe the value passed in is already a raw ID
-        if display_name in provider["models"]:
+        if display_name in models:
             return display_name
         return None
 
@@ -147,7 +153,7 @@ class ProviderFactory:
         can show the display_name while keeping the model_id for persistence.
         """
         provider = cls._providers.get(provider_name, cls._providers["ollama"])
-        models = provider["models"]
+        models = cls.get_available_models(provider_name) if provider_name == "ollama" else provider["models"]
         display_names = provider.get("model_display_names", {})
         return [(display_names.get(mid, mid), mid) for mid in models]
 

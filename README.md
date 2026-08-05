@@ -128,9 +128,9 @@ opencc-python-reimplemented
 
 ## LLM Integration
 ### Setting Up API Keys
-**Ollama(Local)**
+**Ollama (Local / Cloud)**
 ```bash
-# Automatically detected after installation; no API key required
+# Local models run through the Ollama service; cloud models require Ollama account access
 ollama pull qwen2.5:3b
 ```
 **NVIDIA NIM**
@@ -304,9 +304,9 @@ opencc-python-reimplemented
 
 ### 設定 API 金鑰
 
-**Ollama（本地）**
+**Ollama（本機／雲端）**
 ```bash
-# 安裝後自動偵測，無需 API 金鑰
+# 本機模型透過 Ollama 服務執行；雲端模型需具備 Ollama 帳號權限
 ollama pull qwen2.5:3b
 ```
 

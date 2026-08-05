@@ -1,120 +1,179 @@
 import json
-import subprocess
+import os
 import threading
 import time
-from typing import Callable, Dict, Optional, Set
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Set
+
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+OLLAMA_RECOMMENDED_LOCAL_MODELS = [
+    "qwen2.5:1.5b",
+    "llama3.2:1b",
+    "gemma2:2b",
+    "qwen2.5:3b",
+    "qwen2.5:7b",
+]
+OLLAMA_RECOMMENDED_CLOUD_MODELS = [
+    "gemma4:31b-cloud",
+    "minimax-m2.1:cloud",
+]
+OLLAMA_RECOMMENDED_MODELS = [
+    *OLLAMA_RECOMMENDED_LOCAL_MODELS,
+    *OLLAMA_RECOMMENDED_CLOUD_MODELS,
+]
+DEFAULT_OLLAMA_MODEL = "qwen2.5:3b"
+
+
+@dataclass(frozen=True)
+class OllamaModelInfo:
+    name: str
+    model: str = ""
+    kind: str = "local"
+    remote_model: Optional[str] = None
+    remote_host: Optional[str] = None
+    size_bytes: Optional[int] = None
+    modified_at: Optional[str] = None
+    details: Dict = field(default_factory=dict)
+    capabilities: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_payload(cls, payload: dict):
+        name = str(payload.get("name") or payload.get("model") or "").strip()
+        remote_model = payload.get("remote_model")
+        remote_host = payload.get("remote_host")
+        kind = "cloud" if remote_model or remote_host else "local"
+        size = payload.get("size")
+        if not isinstance(size, int):
+            size = None
+        details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+        capabilities = payload.get("capabilities")
+        if not isinstance(capabilities, list):
+            capabilities = []
+        return cls(
+            name=name,
+            model=str(payload.get("model") or name),
+            kind=kind,
+            remote_model=str(remote_model) if remote_model else None,
+            remote_host=str(remote_host) if remote_host else None,
+            size_bytes=size,
+            modified_at=payload.get("modified_at"),
+            details=details,
+            capabilities=[str(item) for item in capabilities],
+        )
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.kind == "cloud"
 
 
 class OllamaManager:
-    """Small wrapper around the Ollama CLI for local model management."""
+    """REST client and catalog cache for the local Ollama service."""
 
-    LIST_TIMEOUT_SECONDS = 10
-    PULL_IDLE_WARNING_SECONDS = 30
+    REQUEST_TIMEOUT_SECONDS = 10
+    CATALOG_TTL_SECONDS = 10
     PULL_TIMEOUT_SECONDS = 3600
 
-    def __init__(self):
+    def __init__(self, base_url: str = OLLAMA_BASE_URL):
+        self.base_url = (base_url or OLLAMA_BASE_URL).rstrip("/")
         self.local_models: Set[str] = set()
+        self.cloud_models: Set[str] = set()
+        self.catalog: Dict[str, OllamaModelInfo] = {}
+        self.catalog_error: Optional[str] = None
+        self.service_version: Optional[str] = None
+        self.catalog_updated_at = 0.0
         self.downloading = False
         self._lock = threading.Lock()
 
-    def get_local_models(self) -> Set[str]:
-        """Return local model names from `ollama list`."""
+    def check_service(self):
+        """Return (available, version_or_error) without changing the catalog."""
         try:
-            result = subprocess.run(
-                ["ollama", "list"],
-                capture_output=True,
-                text=True,
-                timeout=self.LIST_TIMEOUT_SECONDS,
-                encoding="utf-8",
-                errors="replace",
+            import requests
+
+            response = requests.get(
+                f"{self.base_url}/api/version",
+                timeout=self.REQUEST_TIMEOUT_SECONDS,
             )
-        except FileNotFoundError:
-            print("Ollama command was not found. Please install Ollama first.")
-            return set()
-        except subprocess.TimeoutExpired:
-            print("Timed out while running `ollama list`.")
-            return set()
-        except Exception as exc:
-            print(f"Failed to list Ollama models: {exc}")
-            return set()
+            if response.status_code != 200:
+                return False, f"HTTP {response.status_code}"
+            data = response.json()
+            version = data.get("version") if isinstance(data, dict) else None
+            return True, str(version or "unknown")
+        except Exception as error:
+            return False, str(error)
 
-        if result.returncode != 0:
-            print(f"`ollama list` failed: {result.stderr}")
-            return set()
-
-        models = set()
-        for line in result.stdout.splitlines()[1:]:
-            parts = line.split()
-            if parts:
-                models.add(parts[0])
-
+    def refresh_model_catalog(self, force: bool = False):
+        """Return (models, error), retaining the last good catalog on failure."""
         with self._lock:
-            self.local_models = models
+            if not force and self.catalog and time.monotonic() - self.catalog_updated_at < self.CATALOG_TTL_SECONDS:
+                return list(self.catalog.values()), self.catalog_error
+
+        try:
+            import requests
+
+            response = requests.get(
+                f"{self.base_url}/api/tags",
+                timeout=self.REQUEST_TIMEOUT_SECONDS,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            data = response.json()
+            items = data.get("models", []) if isinstance(data, dict) else []
+            models = {}
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                info = OllamaModelInfo.from_payload(item)
+                if info.name:
+                    models[info.name] = info
+            with self._lock:
+                self.catalog = models
+                self.local_models = {name for name, info in models.items() if not info.is_cloud}
+                self.cloud_models = {name for name, info in models.items() if info.is_cloud}
+                self.catalog_error = None
+                self.catalog_updated_at = time.monotonic()
+                return list(models.values()), None
+        except Exception as error:
+            message = str(error)
+            with self._lock:
+                self.catalog_error = message
+                return list(self.catalog.values()), message
+
+    def get_model_catalog(self, force: bool = False) -> List[OllamaModelInfo]:
+        models, _error = self.refresh_model_catalog(force=force)
         return models
 
-    def is_model_available(self, model_name: str) -> bool:
+    def get_model(self, model_name: str, refresh: bool = False) -> Optional[OllamaModelInfo]:
+        self.refresh_model_catalog(force=refresh)
         with self._lock:
-            return model_name in self.local_models
+            return self.catalog.get(model_name)
+
+    def get_cached_model(self, model_name: str) -> Optional[OllamaModelInfo]:
+        """Read a model without triggering network I/O."""
+        with self._lock:
+            return self.catalog.get(model_name)
+
+    def get_local_models(self, force: bool = False) -> Set[str]:
+        self.refresh_model_catalog(force=force)
+        with self._lock:
+            return set(self.local_models)
+
+    def get_cloud_models(self, force: bool = False) -> Set[str]:
+        self.refresh_model_catalog(force=force)
+        with self._lock:
+            return set(self.cloud_models)
+
+    def is_model_available(self, model_name: str) -> bool:
+        return self.get_model(model_name) is not None
 
     def get_model_size(self, model_name: str) -> Optional[str]:
-        """Best-effort model size lookup for downloaded and remote models."""
-        local_size = self._get_local_model_size(model_name)
-        if local_size:
-            return local_size
-        return self._get_remote_model_size(model_name)
-
-    def _get_local_model_size(self, model_name: str) -> Optional[str]:
-        try:
-            result = subprocess.run(
-                ["ollama", "list"],
-                capture_output=True,
-                text=True,
-                timeout=self.LIST_TIMEOUT_SECONDS,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except Exception:
+        info = self.get_model(model_name)
+        if not info or info.size_bytes is None:
             return None
-
-        if result.returncode != 0:
-            return None
-
-        for line in result.stdout.splitlines()[1:]:
-            parts = line.split()
-            if len(parts) >= 4 and parts[0] == model_name:
-                return f"{parts[2]} {parts[3]}"
-        return None
-
-    def _get_remote_model_size(self, model_name: str) -> Optional[str]:
-        try:
-            result = subprocess.run(
-                ["ollama", "show", model_name, "--json"],
-                capture_output=True,
-                text=True,
-                timeout=self.LIST_TIMEOUT_SECONDS,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except Exception:
-            return None
-
-        if result.returncode != 0:
-            return None
-
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return None
-
-        size = data.get("size") or data.get("details", {}).get("size")
-        if isinstance(size, int):
-            return self._format_bytes(size)
-        if isinstance(size, str):
-            return size
-        return None
+        return self.format_bytes(info.size_bytes)
 
     @staticmethod
-    def _format_bytes(size: int) -> str:
+    def format_bytes(size: int) -> str:
         value = float(size)
         for unit in ("B", "KB", "MB", "GB", "TB"):
             if value < 1024 or unit == "TB":
@@ -128,7 +187,18 @@ class OllamaManager:
         progress_callback: Optional[Callable[[str], None]] = None,
         complete_callback: Optional[Callable[[bool, str], None]] = None,
     ) -> bool:
-        """Start `ollama pull` in a background thread."""
+        """Start a streaming REST pull for a local model."""
+        model_name = (model_name or "").strip()
+        if not model_name:
+            if complete_callback:
+                complete_callback(False, "Model name is required.")
+            return False
+        info = self.get_model(model_name)
+        if info and info.is_cloud:
+            if complete_callback:
+                complete_callback(False, "Cloud models cannot be downloaded.")
+            return False
+
         with self._lock:
             if self.downloading:
                 if progress_callback:
@@ -145,53 +215,41 @@ class OllamaManager:
                 complete_callback(success, message)
 
         def download_task():
-            process = None
-            last_output_at = time.monotonic()
-            warned_about_idle = False
             try:
+                import requests
+
                 emit_progress(f"Starting download: {model_name}")
-                process = subprocess.Popen(
-                    ["ollama", "pull", model_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
+                response = requests.post(
+                    f"{self.base_url}/api/pull",
+                    json={"model": model_name, "stream": True},
+                    stream=True,
+                    timeout=self.PULL_TIMEOUT_SECONDS,
                 )
-
-                while True:
-                    line = process.stdout.readline() if process.stdout else ""
-                    if line:
-                        last_output_at = time.monotonic()
-                        emit_progress(line.strip())
-                    elif process.poll() is not None:
-                        break
-                    else:
-                        idle_seconds = time.monotonic() - last_output_at
-                        if idle_seconds >= self.PULL_IDLE_WARNING_SECONDS and not warned_about_idle:
-                            emit_progress(
-                                "No download progress for 30 seconds. Please check your network or Ollama service."
-                            )
-                            warned_about_idle = True
-                        time.sleep(0.2)
-
-                    if time.monotonic() - last_output_at > self.PULL_TIMEOUT_SECONDS:
-                        raise subprocess.TimeoutExpired(["ollama", "pull", model_name], self.PULL_TIMEOUT_SECONDS)
-
-                returncode = process.wait(timeout=5)
-                if returncode == 0:
-                    self.get_local_models()
-                    emit_complete(True, f"Downloaded {model_name}")
-                else:
-                    emit_complete(False, f"`ollama pull` exited with code {returncode}")
-            except subprocess.TimeoutExpired:
-                if process:
-                    process.kill()
-                emit_complete(False, "Download timed out.")
-            except FileNotFoundError:
-                emit_complete(False, "Ollama command was not found.")
-            except Exception as exc:
-                emit_complete(False, f"Download failed: {exc}")
+                if response.status_code != 200:
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text}")
+                completed = total = None
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    raw = line.decode("utf-8") if isinstance(line, bytes) else line
+                    try:
+                        item = json.loads(raw)
+                    except json.JSONDecodeError:
+                        emit_progress(raw)
+                        continue
+                    if item.get("error"):
+                        raise RuntimeError(str(item["error"]))
+                    status = item.get("status") or ""
+                    completed = item.get("completed", completed)
+                    total = item.get("total", total)
+                    if completed is not None and total:
+                        emit_progress(f"{status} ({completed}/{total})")
+                    elif status:
+                        emit_progress(status)
+                self.refresh_model_catalog(force=True)
+                emit_complete(True, f"Downloaded {model_name}")
+            except Exception as error:
+                emit_complete(False, f"Download failed: {error}")
             finally:
                 with self._lock:
                     self.downloading = False
@@ -199,12 +257,16 @@ class OllamaManager:
         threading.Thread(target=download_task, daemon=True).start()
         return True
 
-    def get_model_status(self, all_models: list) -> Dict[str, str]:
-        self.get_local_models()
-        return {
-            model: "available" if self.is_model_available(model) else "pending"
-            for model in all_models
-        }
+    def is_downloading(self) -> bool:
+        with self._lock:
+            return self.downloading
+
+    def get_model_status(self, all_models: Optional[list] = None) -> Dict[str, str]:
+        models = self.get_model_catalog()
+        status = {info.name: ("cloud" if info.is_cloud else "available") for info in models}
+        for model in all_models or []:
+            status.setdefault(model, "available" if model in self.catalog else "pending")
+        return status
 
 
 _ollama_manager_instance: Optional[OllamaManager] = None
