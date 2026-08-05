@@ -1,16 +1,16 @@
-# Graph Report - AIGoTeacher  (2026-08-02)
+# Graph Report - AIGoTeacher  (2026-08-05)
 
 ## Corpus Check
-- 23 files · ~39,970 words
+- 24 files · ~41,204 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 591 nodes · 1120 edges · 31 communities (20 shown, 11 thin omitted)
-- Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 74 edges (avg confidence: 0.54)
+- 616 nodes · 1162 edges · 38 communities (28 shown, 10 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 75 edges (avg confidence: 0.53)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `63801a6c`
+- Built from commit: `d083c711`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -38,23 +38,30 @@
 - version.py
 - github_provider.py
 - materialize_bundled_runtime_file
+- resource_path
+- Ollama 模型目錄最佳化計畫
 - NvidiaProvider
+- .on_state_change
+- _handle_score_estimate_result
+- materialize_bundled_runtime_file
 - Cloud API Illustration
 - GitHub Models Provider
 - Interactive Board Feature
 - Live Analysis Feature
 - LLM Commentary Feature
 - SGF Support Feature
+- show_system_info_dialog
+- add_to_commentary_cache
 
 ## God Nodes (most connected - your core abstractions)
 1. `GoBoard` - 56 edges
-2. `t()` - 50 edges
+2. `t()` - 51 edges
 3. `LLMChatWindow` - 41 edges
 4. `ProviderFactory` - 32 edges
 5. `ConfigService` - 30 edges
 6. `LLMProvider` - 24 edges
 7. `build_menu_bar()` - 24 edges
-8. `OllamaProvider` - 21 edges
+8. `OllamaProvider` - 23 edges
 9. `BranchTreeView` - 21 edges
 10. `KataGoAnalyzer` - 19 edges
 
@@ -76,15 +83,15 @@
 ## Hyperedges (group relationships)
 - **Multi-Provider LLM System** — readme_llm_commentary, readme_ollama_provider, readme_nvidia_nim_provider, readme_github_models_provider [EXTRACTED 1.00]
 
-## Communities (31 total, 11 thin omitted)
+## Communities (38 total, 10 thin omitted)
 
 ### Community 0 - "t"
-Cohesion: 0.06
-Nodes (79): add_to_commentary_cache(), auto_analyze(), build_menu_bar(), change_config_path(), change_katago_path(), change_model_path(), _confirm_and_download_ollama_model(), create_dev_menu() (+71 more)
+Cohesion: 0.13
+Nodes (25): build_menu_bar(), change_config_path(), change_katago_path(), change_model_path(), create_katago_startup_popup(), get_config_display_name(), get_model_display_name(), on_load_sgf_click() (+17 more)
 
 ### Community 1 - "GoBoard"
-Cohesion: 0.07
-Nodes (14): GameNode, GoBoard, load_tk_image(), _on_board_shell_configure(), on_mouse_wheel(), 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。          由 board_shell 的 <Configu, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確, Return 1-based move index where the current branch starts, or None on main line. (+6 more)
+Cohesion: 0.06
+Nodes (15): BranchCanvas, GameNode, GoBoard, load_tk_image(), _on_board_shell_configure(), on_mouse_wheel(), 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。          由 board_shell 的 <Configu, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確 (+7 more)
 
 ### Community 2 - "LLMProvider"
 Cohesion: 0.11
@@ -99,16 +106,16 @@ Cohesion: 0.11
 Nodes (3): LLMChatWindow, 輸入框獲得焦點時清除 placeholder。, 輸入框失去焦點時恢復 placeholder。
 
 ### Community 5 - "OllamaProvider"
-Cohesion: 0.09
-Nodes (7): OllamaProvider, get_ollama_manager(), OllamaManager, Start `ollama pull` in a background thread., Return local model names from `ollama list`., Best-effort model size lookup for downloaded and remote models., Small wrapper around the Ollama CLI for local model management.
+Cohesion: 0.08
+Nodes (9): OllamaProvider, get_ollama_manager(), OllamaManager, OllamaModelInfo, Return (models, error), retaining the last good catalog on failure., Read a model without triggering network I/O., Start a streaming REST pull for a local model., REST client and catalog cache for the local Ollama service. (+1 more)
 
 ### Community 6 - "get_runtime_data_root"
-Cohesion: 0.11
-Nodes (25): _build_diagnostic_report_text(), ensure_runtime_dir(), get_config_path(), get_executable_dir(), get_katago_path(), get_katago_runtime_overrides(), get_model_path(), _get_newest_log_file() (+17 more)
+Cohesion: 0.14
+Nodes (24): _build_diagnostic_report_text(), create_dev_menu(), ensure_runtime_dir(), export_diagnostic_report(), get_executable_dir(), get_katago_runtime_overrides(), _get_newest_log_file(), get_runtime_data_root() (+16 more)
 
 ### Community 8 - "KataGoAnalyzer"
-Cohesion: 0.12
-Nodes (12): get_commentary_from_cache(), GoDataFilter, KataGoAnalyzer, 直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用, 將當前棋譜轉換成唯一的字串，作為快取的 Key, 用一致的 KataGo moves 格式生成快取 key，避免 stones/list 格式不一致造成 miss。, 只更新老師解說區，不改動生成中的快取狀態。, LLM Provider 的串流回呼；累積全文但在回放時不覆蓋既有解說。 (+4 more)
+Cohesion: 0.09
+Nodes (16): get_commentary_from_cache(), GoDataFilter, KataGoAnalyzer, on_closing(), poll_ai(), 分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報), 直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用, 將當前棋譜轉換成唯一的字串，作為快取的 Key (+8 more)
 
 ### Community 9 - "ConfigService"
 Cohesion: 0.15
@@ -119,8 +126,8 @@ Cohesion: 0.15
 Nodes (16): _format_bytes_as_gb(), _get_cpu_name(), _get_gpu_info(), _get_physical_core_count(), _get_ram_info(), _get_windows_display_version(), 把位元組數轉成 GB 字串；輸入不可用時回傳 Unknown。, 執行 PowerShell 並解析 JSON，失敗時回傳 None。      這裡只用於診斷資訊的 best-effort 查詢，任何錯誤都不能影響主 U (+8 more)
 
 ### Community 11 - "ProviderFactory"
-Cohesion: 0.08
-Nodes (14): ProviderFactory, Return the human-readable display name for a model ID.          Falls back to, Reverse lookup: display name → model ID.          Returns None when the displa, Return [(display_name, model_id), ...] for UI widgets.          The list follo, 向 NIM 端點探索可用模型，失敗時降級至內建清單。          回傳 (model_ids, used_fallback, error_messag, 從 model_id 清單取出 publisher 清單（已排序、去重）。, 取得指定 publisher 下的 model_id 清單（保持原始順序）。, 從 model_id 拆出 publisher（供 UI 還原選擇用）。 (+6 more)
+Cohesion: 0.10
+Nodes (10): ProviderFactory, Return the human-readable display name for a model ID.          Falls back to, Reverse lookup: display name → model ID.          Returns None when the displa, Return [(display_name, model_id), ...] for UI widgets.          The list follo, 向 NIM 端點探索可用模型，失敗時降級至內建清單。          回傳 (model_ids, used_fallback, error_messag, 從 model_id 清單取出 publisher 清單（已排序、去重）。, 取得指定 publisher 下的 model_id 清單（保持原始順序）。, 安全取得目前 AI 提供商、模型與語言設定。 (+2 more)
 
 ### Community 12 - "AI 圍棋老師 / AI Go Teacher"
 Cohesion: 0.04
@@ -144,30 +151,62 @@ Nodes (10): Accepted Reports, Declined Reports, In-Scope, Information to Include
 
 ### Community 20 - "_show_llm_selection_dialog"
 Cohesion: 0.20
-Nodes (12): discover_nim_models(), 向 NIM 端點 /v1/models 查詢可用模型清單。      成功時回傳 (True, [model_id, ...])；失敗時回傳 (False,, get_nvidia_api_key(), get_openrouter_api_key(), normalize_api_key(), Trim whitespace and common quote wrappers from API key values., Read NVIDIA API key from keyring first, then environment variables., Store NVIDIA API key in the OS keyring. Does not write to .env. (+4 more)
+Nodes (12): get_nvidia_api_key(), get_openrouter_api_key(), normalize_api_key(), Trim whitespace and common quote wrappers from API key values., Read NVIDIA API key from keyring first, then environment variables., Store NVIDIA API key in the OS keyring. Does not write to .env., Read OpenRouter API key from keyring first, then environment variables., Store OpenRouter API key in the OS keyring. Does not write to .env. (+4 more)
 
 ### Community 21 - "version.py"
 Cohesion: 0.15
 Nodes (12): Path, I18n, resource_path(), main(), Application version helpers for AI Go Teacher.  Run this file to update every, Return the numeric tuple used by PyInstaller's VSVersionInfo., _replace_once(), sync_version() (+4 more)
 
 ### Community 22 - "github_provider.py"
-Cohesion: 0.32
-Nodes (6): get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。      無 '/' 的 model_id 歸類為 "unknown"，確保, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。      保持各 publishe, get_publisher_from_model_id(), group_models_by_publisher()
+Cohesion: 0.26
+Nodes (7): get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。      無 '/' 的 model_id 歸類為 "unknown"，確保, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。      保持各 publishe, get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（供 UI 還原選擇用）。
+
+### Community 24 - "resource_path"
+Cohesion: 0.12
+Nodes (17): _confirm_and_download_ollama_model(), _create_ollama_model_row(), detect_ollama_installed(), _download_ollama_model(), _load_ollama_icon(), _open_folder(), plot_window(), 檢查系統是否能執行 `ollama --version`，回傳 (installed: bool, version_or_none) (+9 more)
+
+### Community 25 - "Ollama 模型目錄最佳化計畫"
+Cohesion: 0.13
+Nodes (14): i18n、文件與診斷, Ollama 模型目錄最佳化計畫, `providers/ollama_provider.py` 與 Factory, `services/ollama_manager.py`, `ui/main_v3.py`, 動態模型目錄, 實作變更, 本機與雲端模型的使用規則 (+6 more)
+
+### Community 26 - "NvidiaProvider"
+Cohesion: 0.20
+Nodes (4): discover_nim_models(), NvidiaProvider, 動態探索 NIM 可用模型，失敗時降級至內建清單。          回傳 (model_ids, used_fallback, error_message, 向 NIM 端點 /v1/models 查詢可用模型清單。      成功時回傳 (True, [model_id, ...])；失敗時回傳 (False,
+
+### Community 27 - ".on_state_change"
+Cohesion: 0.40
+Nodes (7): auto_analyze(), is_analyzer_ready(), new_game(), on_analyze_button_click(), set_winrate_text(), show_analyzer_not_ready(), show_winrate_chart()
+
+### Community 28 - "_handle_score_estimate_result"
+Cohesion: 0.29
+Nodes (9): _handle_score_estimate_result(), on_close_score_estimate_click(), on_score_estimate_click(), show_score_estimate_popup(), start_score_analyzer_async(), _start_score_estimate_query(), summarize_score_estimate(), update_score_estimate_button_label() (+1 more)
+
+### Community 29 - "materialize_bundled_runtime_file"
+Cohesion: 0.31
+Nodes (8): get_config_path(), get_katago_path(), get_model_path(), materialize_bundled_runtime_file(), Copy bundled KataGo runtime files out of PyInstaller's _MEI directory.      Th, 安全取得 KataGo 執行檔、設定檔、模型檔路徑與存在狀態。, safe_get_katago_info(), ScoreAnalyzer
+
+### Community 36 - "show_system_info_dialog"
+Cohesion: 0.33
+Nodes (6): _create_info_section(), _create_katago_section(), _create_labeled_row(), 建立診斷資訊視窗中的單列 label/value。, setup_system_info_styles(), show_system_info_dialog()
+
+### Community 37 - "add_to_commentary_cache"
+Cohesion: 0.50
+Nodes (4): add_to_commentary_cache(), on_commentary_generation_complete(), 將解說文本新增到快取 (執行緒安全，儲存全部手數), 【Phase 1】LLM 生成完成後的回呼 — 將完整的解說存儲到快取
 
 ## Knowledge Gaps
-- **93 isolated node(s):** `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report`, `How Do I Submit a Good Bug Report?`, `Before Submitting an Enhancement` (+88 more)
+- **104 isolated node(s):** `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report`, `How Do I Submit a Good Bug Report?`, `Before Submitting an Enhancement` (+99 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ProviderFactory` connect `ProviderFactory` to `t`, `GoBoard`, `OllamaProvider`, `get_runtime_data_root`, `BranchTreeView`, `KataGoAnalyzer`, `main_v3.py`, `github_provider.py`, `NvidiaProvider`?**
-  _High betweenness centrality (0.149) - this node is a cross-community bridge._
-- **Why does `GoBoard` connect `GoBoard` to `t`, `LLMChatWindow`, `BranchTreeView`, `ConfigService`, `ProviderFactory`, `version.py`?**
-  _High betweenness centrality (0.127) - this node is a cross-community bridge._
-- **Why does `LLMChatWindow` connect `LLMChatWindow` to `t`, `GoBoard`, `get_runtime_data_root`, `BranchTreeView`, `KataGoAnalyzer`, `ProviderFactory`?**
-  _High betweenness centrality (0.087) - this node is a cross-community bridge._
+- **Why does `ProviderFactory` connect `ProviderFactory` to `GoBoard`, `OllamaProvider`, `get_runtime_data_root`, `BranchTreeView`, `KataGoAnalyzer`, `main_v3.py`, `_show_llm_selection_dialog`, `github_provider.py`, `NvidiaProvider`, `materialize_bundled_runtime_file`?**
+  _High betweenness centrality (0.120) - this node is a cross-community bridge._
+- **Why does `GoBoard` connect `GoBoard` to `t`, `LLMChatWindow`, `get_runtime_data_root`, `BranchTreeView`, `ConfigService`, `ProviderFactory`, `version.py`, `.on_state_change`, `_handle_score_estimate_result`?**
+  _High betweenness centrality (0.118) - this node is a cross-community bridge._
+- **Why does `LLMChatWindow` connect `LLMChatWindow` to `GoBoard`, `get_runtime_data_root`, `BranchTreeView`, `KataGoAnalyzer`, `_show_llm_selection_dialog`, `materialize_bundled_runtime_file`?**
+  _High betweenness centrality (0.082) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `GoBoard` (e.g. with `ConfigService` and `ProviderFactory`) actually correct?**
   _`GoBoard` has 4 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 8 inferred relationships involving `LLMChatWindow` (e.g. with `BranchCanvas` and `BranchTreeView`) actually correct?**

@@ -3701,7 +3701,7 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
         padx=5,
         pady=5,
     )
-    model_label.pack(side="left", fill="x", expand=True)
+    model_label.pack(side="left") # fill="x", expand=True
     model_label.bind("<Button-1>", lambda e: on_row_click())
     
     # 狀態圖示：直接使用 PNG 格式
@@ -3736,7 +3736,7 @@ def _create_ollama_model_row(parent, model_name, provider, model_status, selecte
         cursor="hand2"
     )
     status_label.image = status_icon
-    status_label.pack(side="left", padx=(5, 5))
+    status_label.pack(side="right", padx=(5, 5))
     status_label.bind("<Button-1>", lambda e: on_row_click())
 
 
@@ -3873,8 +3873,8 @@ def _show_llm_selection_dialog(parent):
     """建立 LLM 提供商選擇對話框內容。"""
     dialog_win = tk.Toplevel(parent)
     dialog_win.title(t("dialog.llm_selection_title"))
-    dialog_win.geometry("540x540")
-    dialog_win.minsize(500, 480)
+    dialog_win.geometry("560x560")
+    dialog_win.minsize(520, 560)
     dialog_win.iconbitmap(resource_path("image/logo.ico"))
     dialog_win.configure(bg=PANEL_BG)
     dialog_win.transient(parent)
@@ -4011,6 +4011,41 @@ def _show_llm_selection_dialog(parent):
 
     models_list_frame.bind("<Configure>", update_models_scroll_region)
     models_canvas.bind("<Configure>", update_models_scroll_region)
+
+    def scroll_ollama_models(event):
+        """Scroll the Ollama model list when the pointer is over its contents."""
+        if getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        else:
+            delta = -1 if getattr(event, "delta", 0) > 0 else 1
+        models_canvas.yview_scroll(delta, "units")
+        return "break"
+
+    def bind_ollama_mousewheel(widget):
+        """Bind wheel events to the canvas and dynamically-created model rows."""
+        widget.bind("<MouseWheel>", scroll_ollama_models)
+        widget.bind("<Button-4>", scroll_ollama_models)
+        widget.bind("<Button-5>", scroll_ollama_models)
+        for child in widget.winfo_children():
+            bind_ollama_mousewheel(child)
+
+    bind_ollama_mousewheel(models_canvas)
+    bind_ollama_mousewheel(models_list_frame)
+
+    def show_ollama_models_loading():
+        for widget in models_list_frame.winfo_children():
+            widget.destroy()
+        tk.Label(
+            models_list_frame,
+            text=t("status.ollama_models_loading"),
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x", padx=5, pady=12)
+        update_models_scroll_region()
+        bind_ollama_mousewheel(models_list_frame)
     
     def render_ollama_models(model_infos, error_message=None, auto_select_model=None):
         for widget in models_list_frame.winfo_children():
@@ -4031,14 +4066,18 @@ def _show_llm_selection_dialog(parent):
             configured_names.append(current_ollama_model)
 
         def add_section(title, names, cloud=False, status_override=None):
+
+            '''
+            區分本地與雲端模型
             tk.Label(
                 models_list_frame,
                 text=title,
                 bg=PANEL_BG,
                 fg=TEXT_MAIN,
                 font=("Microsoft JhengHei", 10, "bold"),
-                anchor="w",
-            ).pack(fill="x", pady=(6, 2))
+            ).pack(fill="x", pady=(6, 2), expand=True)
+            '''
+
             if not names:
                 tk.Label(
                     models_list_frame,
@@ -4067,7 +4106,6 @@ def _show_llm_selection_dialog(parent):
                     download_success_callback=lambda downloaded_model: save_and_apply_settings("ollama", downloaded_model),
                     model_info=info,
                 )
-
         add_section(t("status.ollama_local_models"), local_names, cloud=False)
         add_section(t("status.ollama_cloud_models"), cloud_names, cloud=True)
         if configured_names:
@@ -4090,9 +4128,12 @@ def _show_llm_selection_dialog(parent):
         if auto_select_model:
             ollama_model_var_local.set(auto_select_model)
         update_models_scroll_region()
+        bind_ollama_mousewheel(models_list_frame)
 
     def refresh_ollama_models(auto_select_model=None, force=False):
         """Refresh Ollama local/cloud catalog off the Tkinter thread."""
+        show_ollama_models_loading()
+
         def task():
             model_infos, error_message = ollama_manager.refresh_model_catalog(force=force)
             try:
@@ -4102,7 +4143,7 @@ def _show_llm_selection_dialog(parent):
 
         threading.Thread(target=task, daemon=True).start()
     
-    # 初始創建模型行
+    # 初始載入模型清單
     refresh_ollama_models(force=True)
     
     # 添加重新掃描按鈕
@@ -4122,7 +4163,6 @@ def _show_llm_selection_dialog(parent):
     download_model_var = tk.StringVar()
     download_model_entry = ttk.Entry(
         download_frame,
-        textvariable=download_model_var,
         width=24,
     )
     download_model_placeholder = t("dialog.ollama_model_name_hint")
@@ -4203,7 +4243,7 @@ def _show_llm_selection_dialog(parent):
             except Exception:
                 pass
 
-        ollama_model_var_local.trace("w", update_selected_indicator)
+        ollama_model_var_local.add("w", update_selected_indicator)
     except Exception:
         # 如果變數或元件不存在，忽略以避免啟動錯誤
         pass

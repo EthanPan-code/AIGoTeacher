@@ -1,12 +1,12 @@
 {
   "i18n/en.json": {
-    "mtime": 1785639148.8099468,
-    "ast_hash": "42c47f312d999189b476540ecadfb023",
+    "mtime": 1785933886.5125704,
+    "ast_hash": "a1d91b7abfa040c0f74b4fbf0b03188c",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1785639149.2492115,
-    "ast_hash": "4d9e38d11f1eb744006ce9587d59eda7",
+    "mtime": 1785933897.974585,
+    "ast_hash": "a9e9faf90c4f8b5eb286b1067ce20fc4",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -25,9 +25,9 @@
     "semantic_hash": ""
   },
   "providers/ollama_provider.py": {
-    "mtime": 1783419758.7779293,
-    "ast_hash": "e661402aa66cb3835a5fbae3daad3589",
-    "semantic_hash": "e661402aa66cb3835a5fbae3daad3589"
+    "mtime": 1785926403.242031,
+    "ast_hash": "ec0e63c3bc2101a91689b7e20ac80d87",
+    "semantic_hash": ""
   },
   "providers/tone_templates.py": {
     "mtime": 1781418632.7871323,
@@ -55,13 +55,13 @@
     "semantic_hash": ""
   },
   "services/ollama_manager.py": {
-    "mtime": 1779271614.8963926,
-    "ast_hash": "304c9ca680a8e8542f85fdfc3309a359",
-    "semantic_hash": "304c9ca680a8e8542f85fdfc3309a359"
+    "mtime": 1785925847.103148,
+    "ast_hash": "0aac0739a852b197ea996bb4de1906ef",
+    "semantic_hash": ""
   },
   "services/provider_factory.py": {
-    "mtime": 1785638998.8325434,
-    "ast_hash": "80cfff1c439ff4af5170616fb90a796b",
+    "mtime": 1785925686.2741265,
+    "ast_hash": "ce15f20a8bd618cf21effabd34663e1d",
     "semantic_hash": ""
   },
   "tools/ollama_detection.json": {
@@ -80,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1785639060.5870745,
-    "ast_hash": "d60934750e066c6fecdcd21625ba69b7",
+    "mtime": 1785933545.9370868,
+    "ast_hash": "23b14843a443ab7cc1b23f4630b4270a",
     "semantic_hash": ""
   },
   "version.py": {
@@ -90,8 +90,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785639345.7392578,
-    "ast_hash": "26b8ace13ec39925b934eb2eb746839b",
+    "mtime": 1785925614.1239276,
+    "ast_hash": "0afbaa9b505e85eabd41d548918e33b5",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -145,8 +145,13 @@
     "semantic_hash": ""
   },
   "docs/migration-v1.0.md": {
-    "mtime": 1785640000.7733977,
-    "ast_hash": "a7f27bf65f9078dfaa3e56cfbfb24555",
+    "mtime": 1785925614.53156,
+    "ast_hash": "20fd87fb54171ce51c7aa3b8fbec7952",
+    "semantic_hash": ""
+  },
+  "plan.md": {
+    "mtime": 1785925985.5709212,
+    "ast_hash": "7d0c8b25874c7fe8395f62333ab5027b",
     "semantic_hash": ""
   }
 }
