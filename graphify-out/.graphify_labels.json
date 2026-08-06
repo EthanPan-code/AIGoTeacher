@@ -23,18 +23,11 @@
   "21": "version.py",
   "22": "github_provider.py",
   "23": "materialize_bundled_runtime_file",
-  "24": "resource_path",
-  "25": "Ollama 模型目錄最佳化計畫",
   "26": "NvidiaProvider",
-  "27": ".on_state_change",
-  "28": "_handle_score_estimate_result",
-  "29": "materialize_bundled_runtime_file",
   "30": "Cloud API Illustration",
   "31": "GitHub Models Provider",
   "32": "Interactive Board Feature",
   "33": "Live Analysis Feature",
   "34": "LLM Commentary Feature",
-  "35": "SGF Support Feature",
-  "36": "show_system_info_dialog",
-  "37": "add_to_commentary_cache"
+  "35": "SGF Support Feature"
 }

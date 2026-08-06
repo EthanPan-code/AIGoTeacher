@@ -80,18 +80,18 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1785933545.9370868,
-    "ast_hash": "23b14843a443ab7cc1b23f4630b4270a",
+    "mtime": 1786015983.6756275,
+    "ast_hash": "0403ca95da960a89aa6f6736a9d51732",
     "semantic_hash": ""
   },
   "version.py": {
-    "mtime": 1784078382.9534104,
-    "ast_hash": "fa5b3157461260e9f9132be6171fe0c1",
+    "mtime": 1786010387.892522,
+    "ast_hash": "c19eb398a945197bffd0f37e47136822",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785925614.1239276,
-    "ast_hash": "0afbaa9b505e85eabd41d548918e33b5",
+    "mtime": 1786010410.3889122,
+    "ast_hash": "b0da2c77221b018473704566507dede1",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -100,8 +100,8 @@
     "semantic_hash": "8af0954f48b3877ab729554fd1fa6de6"
   },
   "version_info.txt": {
-    "mtime": 1784078382.9732053,
-    "ast_hash": "cb2613fe48b8f6e9efe9f42e3f8aa115",
+    "mtime": 1786010371.033966,
+    "ast_hash": "2edaaea9943936ca5e875fb2f234abbc",
     "semantic_hash": ""
   },
   "image/available.png": {
@@ -144,14 +144,9 @@
     "ast_hash": "79a3e3ff19645f2a4e2d9e0d87fa9d41",
     "semantic_hash": ""
   },
-  "docs/migration-v1.0.md": {
-    "mtime": 1785925614.53156,
-    "ast_hash": "20fd87fb54171ce51c7aa3b8fbec7952",
-    "semantic_hash": ""
-  },
-  "plan.md": {
-    "mtime": 1785925985.5709212,
-    "ast_hash": "7d0c8b25874c7fe8395f62333ab5027b",
+  "docs/migration-v0.5.md": {
+    "mtime": 1786008570.0210564,
+    "ast_hash": "3c4bd676769166d6e3146d8286480fc5",
     "semantic_hash": ""
   }
 }
