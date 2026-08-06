@@ -3544,8 +3544,31 @@ def _load_ollama_icon(icon_name, size=18):
     return photo
 
 
+def _silent_subprocess_kwargs():
+    """在 Windows 上抑制子進程彈出的主控台視窗。
+
+    隱藏終端機 (windowed) 模式下，子進程預設會繼承一個可見的主控台，
+    即使 capture_output=True 仍會瞬間閃一個黑窗。統一在這裡加上
+    CREATE_NO_WINDOW + STARTF_USESHOWWINDOW 旗標。
+    """
+    kwargs = {}
+    if os.name == "nt":
+        try:
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        except Exception:
+            pass
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            kwargs["startupinfo"] = startupinfo
+        except Exception:
+            pass
+    return kwargs
+
+
 def detect_ollama_installed(timeout=2):
     """檢查系統是否能執行 `ollama --version`，回傳 (installed: bool, version_or_none)"""
+    silent_kwargs = _silent_subprocess_kwargs()
     detection_json = resource_path("tools/ollama_detection.json")
     commands = []
     if os.path.exists(detection_json):
@@ -3570,7 +3593,13 @@ def detect_ollama_installed(timeout=2):
             cmd = [p.replace("{path}", configured_path) for p in cmd]
 
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                **silent_kwargs,
+            )
             if proc.returncode == 0:
                 out = (proc.stdout or proc.stderr or "").strip()
                 first_line = out.splitlines()[0] if out else ""
@@ -3580,7 +3609,13 @@ def detect_ollama_installed(timeout=2):
 
     # 若 JSON 未成功或不存在，再 fallback 嘗試 PATH 中的 ollama
     try:
-        proc = subprocess.run(["ollama", "--version"], capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            ["ollama", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            **silent_kwargs,
+        )
         if proc.returncode == 0:
             out = (proc.stdout or proc.stderr or "").strip()
             first_line = out.splitlines()[0] if out else ""
