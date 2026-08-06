@@ -18,7 +18,7 @@
 
 <a id="English"></a>
 
-**AI Go Teacher v0.4.0-beta** is an interactive Go teaching system powered by the **KataGo v1.16.4** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
+**AI Go Teacher v0.5.0-beta** is an interactive Go teaching system powered by the **KataGo v1.16.4** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
 
 ## Contents
 - Features
@@ -175,7 +175,7 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 <a id="Chinese"></a>
 
-**AI 圍棋老師 v0.4.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+**AI 圍棋老師 v0.5.0-beta** 是一個互動式圍棋教學系統，由 **KataGo v1.16.4** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
 
 ## 目錄
 - 功能特色

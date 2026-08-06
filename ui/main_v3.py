@@ -4231,22 +4231,35 @@ def _show_llm_selection_dialog(parent):
             fg=TEXT_MUTED,
             font=("Microsoft JhengHei", 9)
         )
-
-        def update_selected_indicator(*args):
-            try:
-                selected_indicator.config(
-                    text=t(
-                        "status.ollama_model_selected",
-                        model=ProviderFactory.get_model_display_name("ollama", ollama_model_var_local.get()),
-                    )
-                )
-            except Exception:
-                pass
-
-        ollama_model_var_local.add("w", update_selected_indicator)
     except Exception:
-        # 如果變數或元件不存在，忽略以避免啟動錯誤
-        pass
+        selected_indicator = None
+
+    def update_selected_indicator(*args):
+        # Trace callback for ollama_model_var_local — must work even if the
+        # label creation above failed (e.g. missing i18n key). The closure
+        # captures `selected_indicator` from the enclosing scope.
+        try:
+            if selected_indicator is None or not selected_indicator.winfo_exists():
+                return
+            selected_indicator.config(
+                text=t(
+                    "status.ollama_model_selected",
+                    model=ProviderFactory.get_model_display_name("ollama", ollama_model_var_local.get()),
+                )
+            )
+        except tk.TclError:
+            pass
+        except Exception:
+            pass
+
+    # Register the trace unconditionally so the indicator always reflects
+    # the latest value of ollama_model_var_local. This is the source of
+    # truth for the "currently selected" display.
+    try:
+        ollama_model_var_local.trace_add("write", update_selected_indicator)
+    except AttributeError:
+        # Fallback for older Tk versions that expose only .add()
+        ollama_model_var_local.add("w", update_selected_indicator)
     
     # Ollama 安裝狀態顯示與安裝指南按鈕
     try:
@@ -5280,15 +5293,33 @@ def show_system_info_dialog():
         )
 
         def mousewheel(event):
-            canvas.yview_scroll(
-                int(-1 * (event.delta / 120)),
-                "units"
-            )
+            # Defensive: canvas may already be destroyed if the window is closing
+            try:
+                if not canvas.winfo_exists():
+                    return
+                canvas.yview_scroll(
+                    int(-1 * (event.delta / 120)),
+                    "units"
+                )
+            except tk.TclError:
+                pass
 
-        canvas.bind_all(
+        # Use bind (not bind_all) so the binding is scoped to this canvas only
+        # and is automatically released when the canvas/window is destroyed.
+        # bind_all would leak across the entire application and raise
+        # TclError: invalid command name ".!toplevel4.!canvas" once the
+        # system info window is closed.
+        canvas.bind(
             "<MouseWheel>",
             mousewheel
         )
+
+        # Also ensure the global binding is cleared (defense in depth in case
+        # a previous build of this dialog used bind_all).
+        try:
+            canvas.unbind_all("<MouseWheel>")
+        except tk.TclError:
+            pass
 
         scrollbar.pack(
             side="right",
