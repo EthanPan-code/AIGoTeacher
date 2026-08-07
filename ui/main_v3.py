@@ -261,6 +261,328 @@ config_service.migrate_removed_github_provider(
 )
 
 
+def needs_first_run_onboarding():
+    """判斷是否需要彈出首次啟動 Onboarding 視窗。
+
+    觸發條件（任一滿足）：
+    - ui_settings.json 檔案不存在（全新安裝）
+    - i18n.language 不在 available_languages 內（升級後被移除的語言或損壞值）
+
+    註：JSON 損壞會在 I18n._load_settings() 內被吞掉並 fallback 到預設值，
+    不在此觸發（避免每次啟動都彈窗打擾使用者）。
+    """
+    try:
+        if not i18n.settings_path.exists():
+            return True
+    except OSError:
+        return True
+    return i18n.language not in i18n.available_languages
+
+
+def show_first_run_onboarding_dialog():
+    """首次啟動時彈出的強制 Modal Onboarding 視窗。
+
+    內容：
+    - 語言選擇（必填，Radiobutton 兩選一）
+    - LLM 提供商下拉（可跳過，預設 Ollama）
+    - 對應提供商的 API Key 欄位（NVIDIA / OpenRouter 才顯示，可留空）
+
+    行為：
+    - grab_set() 強制 Modal，沒有取消鈕，視窗右上角 X 也禁用
+    - 沒選語言時「確定」按鈕 disabled
+    - 全部選完才一次寫入：language + llm_provider 進 ui_settings.json，
+      API key 進 keyring。最後 config_service.save() 一次寫盤。
+    - 若使用者用 X 強行關閉視窗：視為「使用者選擇取消」，程式繼續啟動但保持
+      預設設定（zh_TW + ollama），下次啟動仍會因為檔案不存在再次彈出。
+    """
+    win = tk.Toplevel(root)
+    win.title(t("onboarding.title"))
+    win.configure(bg=PANEL_BG)
+    win.resizable(False, False)
+    win.transient(root)
+    try:
+        win.iconbitmap(resource_path("image/logo.ico"))
+    except tk.TclError:
+        pass
+
+    # ----- 禁用右上角 X（強制 Modal） -----
+    def _block_close():
+        # 仍允許透過 grab_release + destroy 程式化關閉；使用者點 X 等同忽略
+        pass
+
+    win.protocol("WM_DELETE_WINDOW", _block_close)
+
+    # ----- 預設值 -----
+    current_provider = config_service.get_setting("llm_provider", "ollama")
+    if current_provider not in ProviderFactory.get_available_providers():
+        current_provider = "ollama"
+    language_var_local = tk.StringVar(value=i18n.language)
+    provider_var_local = tk.StringVar(value=current_provider)
+    api_key_visible = tk.BooleanVar(value=False)
+
+    # ----- 容器 -----
+    outer = tk.Frame(win, bg=PANEL_BG, padx=22, pady=20)
+    outer.pack(fill="both", expand=True)
+
+    # 標題區
+    title_frame = tk.Frame(outer, bg=PANEL_BG)
+    title_frame.pack(fill="x", pady=(0, 14))
+    tk.Label(
+        title_frame,
+        text=t("onboarding.title"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 14, "bold"),
+        anchor="w",
+    ).pack(fill="x")
+    tk.Label(
+        title_frame,
+        text=t("onboarding.subtitle"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 10),
+        anchor="w",
+    ).pack(fill="x", pady=(4, 0))
+
+    # 語言區
+    lang_frame = tk.LabelFrame(
+        outer,
+        text=t("onboarding.language_section"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=12,
+        pady=10,
+    )
+    lang_frame.pack(fill="x", pady=(0, 12))
+
+    radio_style = {
+        "bg": PANEL_BG,
+        "fg": TEXT_MAIN,
+        "activebackground": PANEL_BG,
+        "activeforeground": TEXT_MAIN,
+        "selectcolor": PANEL_BG,
+        "font": ("Microsoft JhengHei", 10),
+        "bd": 0,
+        "highlightthickness": 0,
+    }
+
+    confirm_btn_ref = {"btn": None}
+
+    def _on_language_select():
+        # 解鎖「確定」按鈕
+        if confirm_btn_ref["btn"] is not None:
+            confirm_btn_ref["btn"].config(state="normal")
+        # 套用語言（i18n.set_language 會寫入 settings dict，但尚未 save 到磁碟）
+        new_lang = language_var_local.get()
+        if new_lang in i18n.available_languages and new_lang != i18n.language:
+            i18n.set_language(new_lang)
+            language_var.set(new_lang)
+            refresh_language()
+
+    for lang in i18n.available_languages:
+        tk.Radiobutton(
+            lang_frame,
+            text=t(f"language.{lang}"),
+            variable=language_var_local,
+            value=lang,
+            command=_on_language_select,
+            **radio_style,
+        ).pack(anchor="w", pady=2)
+
+    # LLM 區
+    llm_frame = tk.LabelFrame(
+        outer,
+        text=t("onboarding.llm_section"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=1,
+        relief="solid",
+        padx=12,
+        pady=10,
+    )
+    llm_frame.pack(fill="x", pady=(0, 12))
+
+    tk.Label(
+        llm_frame,
+        text=t("onboarding.llm_optional_hint"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 9),
+        wraplength=420,
+        justify="left",
+        anchor="w",
+    ).pack(fill="x", pady=(0, 8))
+
+    # 提供商下拉（值為 provider id，顯示名稱走 ProviderFactory）
+    provider_values = list(ProviderFactory.get_available_providers())
+    provider_display_to_id = {
+        ProviderFactory.get_display_name(pid): pid for pid in provider_values
+    }
+    # 用一個額外 StringVar 顯示名稱，反查 id
+    provider_display_var = tk.StringVar(
+        value=ProviderFactory.get_display_name(provider_var_local.get())
+    )
+    provider_combo = ttk.Combobox(
+        llm_frame,
+        textvariable=provider_display_var,
+        values=list(provider_display_to_id.keys()),
+        state="readonly",
+        width=30,
+    )
+    provider_combo.pack(fill="x", pady=(0, 10))
+
+    # API Key 區（動態顯示）
+    # 初始狀態為「未 pack」，由 _on_provider_changed 依 provider 決定是否顯示。
+    # api_key_frame 是 llm_frame 的 child；pack/pack_forget 控制可見性，
+    # 不可使用 before= 指向 api_key_frame 內部的子 widget（Tcl 不允許
+    # 將 parent pack 到自己的 child 內部）。
+    api_key_frame = tk.Frame(llm_frame, bg=PANEL_BG)
+
+    tk.Label(
+        api_key_frame,
+        text=t("onboarding.api_key_section"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        anchor="w",
+    ).pack(anchor="w", pady=(0, 4))
+
+    entry_row = tk.Frame(api_key_frame, bg=PANEL_BG)
+    entry_row.pack(fill="x")
+
+    api_key_var = tk.StringVar()
+    api_key_entry = ttk.Entry(entry_row, textvariable=api_key_var, show="●", width=40)
+    api_key_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+    def _toggle_api_key_visibility():
+        api_key_visible.set(not api_key_visible.get())
+        api_key_entry.config(show="" if api_key_visible.get() else "●")
+        toggle_btn.config(text="◉" if api_key_visible.get() else "◌")
+
+    toggle_btn = ttk.Button(entry_row, text="◌", width=3, command=_toggle_api_key_visibility)
+    toggle_btn.pack(side="left")
+
+    api_key_hint = tk.Label(
+        api_key_frame,
+        text=t("onboarding.api_key_placeholder"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 9),
+        anchor="w",
+    )
+    api_key_hint.pack(anchor="w", pady=(4, 0))
+
+    def _on_provider_changed(event=None):
+        display_name = provider_display_var.get()
+        new_provider = provider_display_to_id.get(display_name, "ollama")
+        provider_var_local.set(new_provider)
+        # 切換時若為 ollama 隱藏 API Key 區，否則顯示。
+        # 注意：api_key_frame 是 llm_frame 的 child，pack/pack_forget 即足夠；
+        # 不可用 before= 指向 api_key_frame 內部的子 widget（Tcl 不允許）。
+        if new_provider == "ollama":
+            api_key_frame.pack_forget()
+        else:
+            api_key_frame.pack(fill="x", pady=(2, 0))
+
+    provider_combo.bind("<<ComboboxSelected>>", _on_provider_changed)
+    # 初始狀態：依目前 provider 決定是否顯示 API Key 區
+    if provider_var_local.get() != "ollama":
+        api_key_frame.pack(fill="x", pady=(2, 0))
+    else:
+        api_key_frame.pack_forget()
+
+    # 按鈕區
+    button_row = tk.Frame(outer, bg=PANEL_BG)
+    button_row.pack(fill="x", pady=(6, 0))
+
+    def _on_confirm():
+        # 二次驗證語言（理論上不會進到這裡，因為 disabled）
+        chosen_lang = language_var_local.get()
+        if chosen_lang not in i18n.available_languages:
+            messagebox.showwarning(
+                t("dialog.error_title"),
+                t("onboarding.language_required"),
+                parent=win,
+            )
+            return
+
+        # 寫入語言（若與目前不同則 i18n.set_language 已寫進 settings dict）
+        if chosen_lang != i18n.language:
+            i18n.set_language(chosen_lang)
+            language_var.set(chosen_lang)
+
+        # 寫入 LLM provider
+        chosen_provider = provider_var_local.get()
+        if chosen_provider not in ProviderFactory.get_available_providers():
+            chosen_provider = "ollama"
+        config_service.set_setting("llm_provider", chosen_provider)
+
+        # 寫入 API key（NVIDIA / OpenRouter 才需要）
+        entered_key = normalize_api_key(api_key_var.get())
+        if entered_key:
+            try:
+                if chosen_provider == "nvidia":
+                    set_nvidia_api_key(entered_key)
+                elif chosen_provider == "openrouter":
+                    set_openrouter_api_key(entered_key)
+            except Exception as e:
+                logger.error("Onboarding API Key 寫入 keyring 失敗: %s", e)
+                messagebox.showerror(
+                    t("dialog.error_title"),
+                    str(e),
+                    parent=win,
+                )
+                return
+
+        # 一次寫盤
+        try:
+            config_service.save()
+        except Exception as e:
+            logger.error("Onboarding 寫入 ui_settings.json 失敗: %s", e)
+            messagebox.showerror(
+                t("dialog.error_title"),
+                str(e),
+                parent=win,
+            )
+            return
+
+        # 視窗銷毀
+        try:
+            win.grab_release()
+        except tk.TclError:
+            pass
+        win.destroy()
+
+    confirm_btn = ttk.Button(
+        button_row,
+        text=t("onboarding.confirm"),
+        command=_on_confirm,
+        style="Primary.TButton",
+        width=18,
+    )
+    confirm_btn.pack(side="right")
+    confirm_btn_ref["btn"] = confirm_btn
+
+    # 若目前語言已是有效語言，預設解鎖（避免使用者被卡住）
+    if language_var_local.get() in i18n.available_languages:
+        confirm_btn.config(state="normal")
+
+    # 置中於 root
+    win.update_idletasks()
+    w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+    w = max(w, 480)
+    h = max(h, 520)
+    x = root.winfo_rootx() + max(40, (root.winfo_width() - w) // 2)
+    y = root.winfo_rooty() + max(40, (root.winfo_height() - h) // 2)
+    win.geometry(f"{w}x{h}+{x}+{y}")
+    win.grab_set()
+    win.focus_force()
+
+
 def t(key, **kwargs):
     return i18n.t(key, **kwargs)
 
@@ -6297,6 +6619,12 @@ def on_closing():
         pass
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
+
+# 【Phase: First-run Onboarding】首次啟動時彈出語言 + LLM 選擇視窗。
+# 必須在 root 建立之後才能 transient(root)，所以放在這裡而非全域初始化區。
+# 視窗用 grab_set() 強制 Modal，會等到使用者按下「開始使用」後才銷毀。
+if needs_first_run_onboarding():
+    show_first_run_onboarding_dialog()
 
 from providers import tone_templates
 

@@ -345,5 +345,15 @@
   "settings.use_default": "使用預設",
   "settings.image_preview": "預覽",
   "settings.no_image_selected": "未選擇圖片",
-  "settings.image_files": "圖片檔案"
+  "settings.image_files": "圖片檔案",
+  "onboarding.title": "歡迎使用 AI 圍棋老師",
+  "onboarding.subtitle": "請先選擇一些基本設定以開始使用",
+  "onboarding.language_section": "1. 選擇語言（必填）",
+  "onboarding.language_required": "請選擇一種語言後再繼續",
+  "onboarding.llm_section": "2. LLM 提供商（可稍後在設定中變更）",
+  "onboarding.llm_optional_hint": "選擇後可立即套用；如未填寫 API Key，仍可隨時到「設定 > LLM 模型」設定。",
+  "onboarding.api_key_section": "API Key（選填）",
+  "onboarding.api_key_placeholder": "留空表示稍後再設定",
+  "onboarding.confirm": "開始使用",
+  "onboarding.cancelled": "已取消首次設定"
 }
