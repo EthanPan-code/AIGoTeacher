@@ -350,7 +350,7 @@
   "onboarding.subtitle": "Please pick a few basic settings to get started",
   "onboarding.language_section": "1. Choose a language (required)",
   "onboarding.language_required": "Please select a language to continue",
-  "onboarding.llm_section": "2. LLM provider (can be changed later in Settings)",
+  "onboarding.llm_section": "2. LLM provider",
   "onboarding.llm_optional_hint": "Your choice will be applied immediately. You can set the API Key later in Settings > LLM Model.",
   "onboarding.api_key_section": "API Key (optional)",
   "onboarding.api_key_placeholder": "Leave blank to set later",

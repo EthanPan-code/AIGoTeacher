@@ -296,7 +296,6 @@ def show_first_run_onboarding_dialog():
       預設設定（zh_TW + ollama），下次啟動仍會因為檔案不存在再次彈出。
     """
     win = tk.Toplevel(root)
-    win.title(t("onboarding.title"))
     win.configure(bg=PANEL_BG)
     win.resizable(False, False)
     win.transient(root)
@@ -320,6 +319,53 @@ def show_first_run_onboarding_dialog():
     provider_var_local = tk.StringVar(value=current_provider)
     api_key_visible = tk.BooleanVar(value=False)
 
+    # ----- 可翻譯字串的 widget 收集 -----
+    # 因為 dialog 在使用者切換語言時仍保持開啟（直到按確定），
+    # 所以需要保存所有「會受 i18n 影響」widget 的 reference，
+    # 由 _refresh_dialog_strings() 在語言切換時重新 t() 並 config(text=...) 更新。
+    translatable = {
+        "win": win,                     # 視窗標題
+        "title_label": None,            # 標題 Label
+        "subtitle_label": None,         # 副標題 Label
+        "lang_frame": None,             # 語言區 Labelframe
+        "llm_frame": None,              # LLM 區 Labelframe
+        "llm_optional_hint": None,      # LLM optional 提示 Label
+        "api_key_section_label": None,  # API Key 標題 Label
+        "api_key_hint": None,           # API Key placeholder Label
+        "confirm_btn": None,            # 確認按鈕
+        "language_radios": {},          # {lang_code: Radiobutton}
+    }
+
+    def _refresh_dialog_strings():
+        """語言切換後立即重新翻譯 dialog 內所有字串。
+
+        注意：provider 下拉的值（ProviderFactory.get_display_name）是英文，
+        不依 i18n.language 變動（provider 名稱屬於技術識別符），故不需更新。
+        """
+        try:
+            translatable["win"].title(t("onboarding.title"))
+            if translatable["title_label"] is not None:
+                translatable["title_label"].config(text=t("onboarding.title"))
+            if translatable["subtitle_label"] is not None:
+                translatable["subtitle_label"].config(text=t("onboarding.subtitle"))
+            if translatable["lang_frame"] is not None:
+                translatable["lang_frame"].config(text=t("onboarding.language_section"))
+            if translatable["llm_frame"] is not None:
+                translatable["llm_frame"].config(text=t("onboarding.llm_section"))
+            if translatable["llm_optional_hint"] is not None:
+                translatable["llm_optional_hint"].config(text=t("onboarding.llm_optional_hint"))
+            if translatable["api_key_section_label"] is not None:
+                translatable["api_key_section_label"].config(text=t("onboarding.api_key_section"))
+            if translatable["api_key_hint"] is not None:
+                translatable["api_key_hint"].config(text=t("onboarding.api_key_placeholder"))
+            if translatable["confirm_btn"] is not None:
+                translatable["confirm_btn"].config(text=t("onboarding.confirm"))
+            for lang_code, radio in translatable["language_radios"].items():
+                radio.config(text=t(f"language.{lang_code}"))
+        except tk.TclError:
+            # 視窗已銷毀，忽略
+            pass
+
     # ----- 容器 -----
     outer = tk.Frame(win, bg=PANEL_BG, padx=22, pady=20)
     outer.pack(fill="both", expand=True)
@@ -327,25 +373,27 @@ def show_first_run_onboarding_dialog():
     # 標題區
     title_frame = tk.Frame(outer, bg=PANEL_BG)
     title_frame.pack(fill="x", pady=(0, 14))
-    tk.Label(
+    translatable["title_label"] = tk.Label(
         title_frame,
         text=t("onboarding.title"),
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 14, "bold"),
         anchor="w",
-    ).pack(fill="x")
-    tk.Label(
+    )
+    translatable["title_label"].pack(fill="x")
+    translatable["subtitle_label"] = tk.Label(
         title_frame,
         text=t("onboarding.subtitle"),
         bg=PANEL_BG,
         fg=TEXT_MUTED,
         font=("Microsoft JhengHei", 10),
         anchor="w",
-    ).pack(fill="x", pady=(4, 0))
+    )
+    translatable["subtitle_label"].pack(fill="x", pady=(4, 0))
 
     # 語言區
-    lang_frame = tk.LabelFrame(
+    translatable["lang_frame"] = tk.LabelFrame(
         outer,
         text=t("onboarding.language_section"),
         bg=PANEL_BG,
@@ -356,7 +404,7 @@ def show_first_run_onboarding_dialog():
         padx=12,
         pady=10,
     )
-    lang_frame.pack(fill="x", pady=(0, 12))
+    translatable["lang_frame"].pack(fill="x", pady=(0, 12))
 
     radio_style = {
         "bg": PANEL_BG,
@@ -380,20 +428,30 @@ def show_first_run_onboarding_dialog():
         if new_lang in i18n.available_languages and new_lang != i18n.language:
             i18n.set_language(new_lang)
             language_var.set(new_lang)
-            refresh_language()
+            # 立即重新翻譯 dialog 內所有字串（讓切換視覺上即時生效）
+            _refresh_dialog_strings()
+            # 同步重畫主視窗的字串（標題、選單、按鈕等）
+            try:
+                refresh_language()
+            except NameError:
+                # refresh_language 可能在 dialog 開窗時還未定義（imperative 模組）；
+                # 在使用者實際操作時已定義。延遲載入視窗初始化時不會被觸發。
+                pass
 
     for lang in i18n.available_languages:
-        tk.Radiobutton(
-            lang_frame,
+        radio = tk.Radiobutton(
+            translatable["lang_frame"],
             text=t(f"language.{lang}"),
             variable=language_var_local,
             value=lang,
             command=_on_language_select,
             **radio_style,
-        ).pack(anchor="w", pady=2)
+        )
+        radio.pack(anchor="w", pady=2)
+        translatable["language_radios"][lang] = radio
 
     # LLM 區
-    llm_frame = tk.LabelFrame(
+    translatable["llm_frame"] = tk.LabelFrame(
         outer,
         text=t("onboarding.llm_section"),
         bg=PANEL_BG,
@@ -404,10 +462,10 @@ def show_first_run_onboarding_dialog():
         padx=12,
         pady=10,
     )
-    llm_frame.pack(fill="x", pady=(0, 12))
+    translatable["llm_frame"].pack(fill="x", pady=(0, 12))
 
-    tk.Label(
-        llm_frame,
+    translatable["llm_optional_hint"] = tk.Label(
+        translatable["llm_frame"],
         text=t("onboarding.llm_optional_hint"),
         bg=PANEL_BG,
         fg=TEXT_MUTED,
@@ -415,7 +473,8 @@ def show_first_run_onboarding_dialog():
         wraplength=420,
         justify="left",
         anchor="w",
-    ).pack(fill="x", pady=(0, 8))
+    )
+    translatable["llm_optional_hint"].pack(fill="x", pady=(0, 8))
 
     # 提供商下拉（值為 provider id，顯示名稱走 ProviderFactory）
     provider_values = list(ProviderFactory.get_available_providers())
@@ -427,7 +486,7 @@ def show_first_run_onboarding_dialog():
         value=ProviderFactory.get_display_name(provider_var_local.get())
     )
     provider_combo = ttk.Combobox(
-        llm_frame,
+        translatable["llm_frame"],
         textvariable=provider_display_var,
         values=list(provider_display_to_id.keys()),
         state="readonly",
@@ -440,16 +499,17 @@ def show_first_run_onboarding_dialog():
     # api_key_frame 是 llm_frame 的 child；pack/pack_forget 控制可見性，
     # 不可使用 before= 指向 api_key_frame 內部的子 widget（Tcl 不允許
     # 將 parent pack 到自己的 child 內部）。
-    api_key_frame = tk.Frame(llm_frame, bg=PANEL_BG)
+    api_key_frame = tk.Frame(translatable["llm_frame"], bg=PANEL_BG)
 
-    tk.Label(
+    translatable["api_key_section_label"] = tk.Label(
         api_key_frame,
         text=t("onboarding.api_key_section"),
         bg=PANEL_BG,
         fg=TEXT_MAIN,
         font=("Microsoft JhengHei", 10),
         anchor="w",
-    ).pack(anchor="w", pady=(0, 4))
+    )
+    translatable["api_key_section_label"].pack(anchor="w", pady=(0, 4))
 
     entry_row = tk.Frame(api_key_frame, bg=PANEL_BG)
     entry_row.pack(fill="x")
@@ -466,7 +526,7 @@ def show_first_run_onboarding_dialog():
     toggle_btn = ttk.Button(entry_row, text="◌", width=3, command=_toggle_api_key_visibility)
     toggle_btn.pack(side="left")
 
-    api_key_hint = tk.Label(
+    translatable["api_key_hint"] = tk.Label(
         api_key_frame,
         text=t("onboarding.api_key_placeholder"),
         bg=PANEL_BG,
@@ -474,7 +534,7 @@ def show_first_run_onboarding_dialog():
         font=("Microsoft JhengHei", 9),
         anchor="w",
     )
-    api_key_hint.pack(anchor="w", pady=(4, 0))
+    translatable["api_key_hint"].pack(anchor="w", pady=(4, 0))
 
     def _on_provider_changed(event=None):
         display_name = provider_display_var.get()
@@ -566,10 +626,15 @@ def show_first_run_onboarding_dialog():
     )
     confirm_btn.pack(side="right")
     confirm_btn_ref["btn"] = confirm_btn
+    translatable["confirm_btn"] = confirm_btn
 
     # 若目前語言已是有效語言，預設解鎖（避免使用者被卡住）
     if language_var_local.get() in i18n.available_languages:
         confirm_btn.config(state="normal")
+
+    # 初始視窗標題（先前 win.title() 在 _refresh_dialog_strings 之外設定，
+    # 這裡統一再 refresh 一次以確保一致性）。
+    _refresh_dialog_strings()
 
     # 置中於 root
     win.update_idletasks()
