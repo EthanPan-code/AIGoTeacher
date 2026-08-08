@@ -57,6 +57,24 @@ VARIATION_BLACK = "#222222"
 VARIATION_WHITE = "#f4f0e8"
 VARIATION_LABEL_BLACK = "#111111"
 VARIATION_LABEL_WHITE = "#ffffff"
+# Theme tokens have explicit light-theme defaults so static analyzers can
+# resolve them; startup theme resolution replaces these values at runtime.
+BOARD_FRAME_BG = None
+PANEL_BG = None
+INPUT_BG = None
+INPUT_FG = None
+STATUS_BG = None
+MENU_BG = None
+MENU_ACTIVE = None
+ERROR = None
+WARNING = None
+SUCCESS = None
+INFO = None
+LOG_BG = None
+LOG_FG = None
+SELECTION_BG = None
+SELECTION_FG = None
+
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
 DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
@@ -2491,10 +2509,10 @@ class GoBoard(tk.Canvas):
         if self.frame_bg_label is None:
             return
         if self.board_frame_image:
-            self.frame_bg_label.config(image=self.board_frame_image, text="")
+            self.frame_bg_label.config(image=self.board_frame_image, text="", bg=PANEL_BG)
             self.frame_bg_label.image = self.board_frame_image
         else:
-            self.frame_bg_label.config(image="", text="")
+            self.frame_bg_label.config(image="", text="", bg=PANEL_BG)
         # 除錯輸出：確認背景 Label 與棋盤 Canvas 是兩個不同物件、尺寸不同
         try:
             print("BACKGROUND:", self.frame_bg_label.winfo_x(), self.frame_bg_label.winfo_y(),
@@ -2521,7 +2539,7 @@ class GoBoard(tk.Canvas):
         try:
             new_img = load_tk_image(self.board_frame_image_path, (w, h), fill_size=True)
             self.board_frame_image = new_img
-            self.frame_bg_label.config(image=new_img, text="")
+            self.frame_bg_label.config(image=new_img, text="", bg=PANEL_BG)
             self.frame_bg_label.image = new_img
         except Exception as e:
             logger.warning(f"無法重縮放棋盤外框圖片 {self.board_frame_image_path}: {e}")
@@ -6872,7 +6890,9 @@ board_shell = tk.Frame(main_frame, bg=PANEL_BG, highlightbackground=PANEL_BORDER
 board_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
 
 # 外框背景層：顯示在棋盤四周的留白區域（不包含棋盤本身）
-board_frame_bg_label = tk.Label(board_shell, bd=0, highlightthickness=0)
+board_frame_bg_label = tk.Label(
+    board_shell, bd=0, highlightthickness=0, bg=PANEL_BG
+)
 board_frame_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
 board = GoBoard(board_shell)
@@ -7350,8 +7370,26 @@ def apply_theme(theme_name, persist=True):
     try:
         root.configure(bg=UI_BG)
         board.configure(bg=BOARD_BG, highlightbackground=PANEL_BORDER)
-        board.refresh_display()
+        board_frame_bg_label.configure(bg=BOARD_FRAME_BG)
+        # Refresh classic Tk widgets in the right panel explicitly. They do
+        # not inherit ttk styles and their Canvas text is drawn separately.
+        branch_section.configure(bg=PANEL_BG)
+        branch_title_label.configure(bg=PANEL_BG, fg=TEXT_MAIN)
+        branch_view_frame.configure(bg=PANEL_BG)
         branch_ui.configure(bg=PANEL_BG, highlightbackground=PANEL_BORDER)
+        teacher_section.configure(bg=PANEL_BG)
+        teacher_header.configure(bg=PANEL_BG)
+        teacher_title_label.configure(bg=PANEL_BG, fg=TEXT_MAIN)
+        teacher_model_label.configure(bg=PANEL_BG, fg=TEXT_MUTED)
+        teacher_text.configure(
+            bg=TEACHER_TEXT_BG,
+            fg=TEXT_MAIN,
+            insertbackground=TEXT_MAIN,
+            selectbackground=SELECTION_BG,
+            selectforeground=SELECTION_FG,
+        )
+        status_bar.configure(background=STATUS_BG, foreground=TEXT_MUTED)
+        board.refresh_display()
         branch_ui.draw_tree()
         if 'board_frame_bg_label' in globals():
             board._apply_frame_background()

@@ -26,7 +26,7 @@ PALETTES = {
     "dark": {
         "UI_BG": "#202124", "PANEL_BG": "#2b2d31", "PANEL_BORDER": "#4b5058",
         "TEACHER_TEXT_BG": "#25272b", "BOARD_BG": "#d9a95f", "BOARD_LINE": "#5b4228",
-        "TEXT_MAIN": "#f1f3f4", "TEXT_MUTED": "#b7bdc8", "ACCENT": "#68c7d0",
+        "TEXT_MAIN": "#f1f3f4", "TEXT_MUTED": "#786858", "ACCENT": "#68c7d0",
         "ACCENT_DARK": "#3e9da8", "STONE_BLACK": "#171717", "STONE_WHITE": "#f7f3eb",
         "BEST_MOVE_BLUE": "#66a3ff", "INPUT_BG": "#35383f", "INPUT_FG": "#f1f3f4",
         "STATUS_BG": "#35383f", "MENU_BG": "#2b2d31", "MENU_ACTIVE": "#444a53",
@@ -60,4 +60,3 @@ def resolve_theme(value: str | None) -> tuple[str, dict[str, str]]:
     configured = normalize_theme(value)
     effective = detect_system_theme() if configured == "system" else configured
     return configured, dict(PALETTES[effective])
-
