@@ -13,6 +13,14 @@ class ConfigService:
     def save(self):
         self._backend.save_settings()
 
+    def get_ui_theme(self, default="system"):
+        from services.theme_service import normalize_theme
+        return normalize_theme(self.get_setting("ui_theme", default))
+
+    def set_ui_theme(self, theme):
+        from services.theme_service import normalize_theme
+        self.set_setting("ui_theme", normalize_theme(theme))
+
     def migrate_removed_github_provider(self, ollama_default_model):
         """Migrate settings from the removed GitHub Models provider."""
         provider = self.get_setting("llm_provider", "ollama")

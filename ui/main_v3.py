@@ -240,6 +240,7 @@ from services.keyring_service import (
     set_openrouter_api_key,
 )
 from services.provider_factory import ProviderFactory
+from services.theme_service import resolve_theme, PALETTES
 from services.ollama_manager import (
     OLLAMA_RECOMMENDED_CLOUD_MODELS,
     OLLAMA_RECOMMENDED_LOCAL_MODELS,
@@ -254,6 +255,19 @@ i18n = I18n(
     settings_path=get_runtime_file_path("ui_settings.json")
 )
 config_service = ConfigService(i18n)
+
+# Resolve ``system`` once at startup; changing Windows appearance while the
+# app is running intentionally does not trigger an implicit switch.
+configured_theme, _theme_palette = resolve_theme(config_service.get_ui_theme())
+ACTIVE_THEME = configured_theme
+
+
+def _set_theme_palette(palette):
+    """Expose semantic theme tokens to legacy drawing code in this module."""
+    globals().update(palette)
+
+
+_set_theme_palette(_theme_palette)
 
 
 config_service.migrate_removed_github_provider(
@@ -6621,8 +6635,13 @@ style.configure("Muted.TLabel", background=PANEL_BG, foreground=TEXT_MUTED)
 style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN, font=("Microsoft JhengHei", 13, "bold"))
 style.configure("Primary.TButton", background=ACCENT, foreground="white", padding=(14, 8), borderwidth=0)
 style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", "#9eb9bd")])
-style.configure("Tool.TButton", padding=(10, 7))
-style.configure("Feedback.TButton", padding=(10, 7))
+style.configure("Tool.TButton", background=PANEL_BG, foreground=TEXT_MAIN, padding=(10, 7))
+style.map("Tool.TButton", background=[("active", MENU_ACTIVE)])
+style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN, padding=(10, 7))
+style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+style.configure("TCheckbutton", background=PANEL_BG, foreground=TEXT_MAIN)
+style.configure("TRadiobutton", background=PANEL_BG, foreground=TEXT_MAIN)
 
 status_var = tk.StringVar(value=t("status.starting"))
 llm_model_var = tk.StringVar(value="")
@@ -6696,7 +6715,7 @@ from providers import tone_templates
 
 def build_menu_bar():
     global menu_bar, file_menu, edit_menu, analysis_menu, settings_menu, language_menu
-    global view_menu, help_menu, dev_menu, tone_menu, current_tone_var
+    global view_menu, help_menu, dev_menu, tone_menu, current_tone_var, theme_var
     global show_teacher_var, show_branch_var, show_move_numbers_var, show_dev_var
 
     menu_bar = tk.Menu(root)
@@ -6765,6 +6784,14 @@ def build_menu_bar():
             command=lambda lang=language: set_language(lang)
         )
     settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
+    theme_var = tk.StringVar(value=config_service.get_ui_theme())
+    theme_menu = tk.Menu(settings_menu, tearoff=0)
+    for theme_id in ("system", "dark", "light"):
+        theme_menu.add_radiobutton(
+            label=t(f"theme.{theme_id}"), value=theme_id, variable=theme_var,
+            command=lambda selected=theme_id: apply_theme(selected),
+        )
+    settings_menu.add_cascade(label=t("menu.theme"), menu=theme_menu)
     settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
     tone_menu = tk.Menu(settings_menu, tearoff=0)
     current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
@@ -7250,6 +7277,87 @@ def on_commentary_generation_complete():
 
 def rebuild_menu_bar():
     return build_menu_bar()
+
+
+def apply_theme(theme_name, persist=True):
+    """Apply a configured theme to existing widgets without restarting."""
+    global ACTIVE_THEME, configured_theme
+    previous = {name: globals().get(name) for name in PALETTES["light"]}
+    configured_theme, palette = resolve_theme(theme_name)
+    _set_theme_palette(palette)
+    ACTIVE_THEME = configured_theme
+    if persist:
+        config_service.set_ui_theme(configured_theme)
+        config_service.save()
+
+    # Map colors already assigned to Tk widgets, including legacy literals.
+    color_map = {old: palette[name] for name, old in previous.items() if old}
+    color_map.update({
+        "#e8dfd2": STATUS_BG, "#f8f8f8": INPUT_BG,
+        "#666": TEXT_MUTED, "#666666": TEXT_MUTED, "#C62828": ERROR,
+        "#d8d0c5": PANEL_BORDER, "#9d8f7f": TEXT_MUTED,
+        "#1f1f1f": STONE_BLACK, "#f7f2e9": STONE_WHITE,
+        "#b8ab9b": PANEL_BORDER, "#ead7b8": SELECTION_BG,
+    })
+    options = ("background", "bg", "foreground", "fg", "activebackground",
+               "activeforeground", "highlightbackground", "insertbackground",
+               "selectbackground", "selectforeground", "disabledforeground",
+               "troughcolor")
+
+    def recolor(widget):
+        for option in options:
+            try:
+                value = widget.cget(option)
+                if value in color_map:
+                    widget.configure(**{option: color_map[value]})
+            except (tk.TclError, TypeError):
+                pass
+        try:
+            children = widget.winfo_children()
+        except tk.TclError:
+            children = ()
+        for child in children:
+            recolor(child)
+
+    try:
+        root.option_add("*Menu.background", MENU_BG)
+        root.option_add("*Menu.foreground", TEXT_MAIN)
+        root.option_add("*Menu.activeBackground", MENU_ACTIVE)
+        root.option_add("*Menu.activeForeground", TEXT_MAIN)
+        recolor(root)
+    except (NameError, tk.TclError):
+        pass
+
+    try:
+        style.configure("TFrame", background=UI_BG)
+        style.configure("Panel.TFrame", background=PANEL_BG)
+        style.configure("TLabel", background=UI_BG, foreground=TEXT_MAIN)
+        style.configure("Panel.TLabel", background=PANEL_BG, foreground=TEXT_MAIN)
+        style.configure("Muted.TLabel", background=PANEL_BG, foreground=TEXT_MUTED)
+        style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN)
+        style.configure("Primary.TButton", background=ACCENT, foreground=STONE_WHITE)
+        style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", PANEL_BORDER)])
+        style.configure("Tool.TButton", background=PANEL_BG, foreground=TEXT_MAIN)
+        style.map("Tool.TButton", background=[("active", MENU_ACTIVE)])
+        style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN)
+        style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+        style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+        style.configure("TCheckbutton", background=PANEL_BG, foreground=TEXT_MAIN)
+        style.configure("TRadiobutton", background=PANEL_BG, foreground=TEXT_MAIN)
+    except (NameError, tk.TclError):
+        pass
+
+    try:
+        root.configure(bg=UI_BG)
+        board.configure(bg=BOARD_BG, highlightbackground=PANEL_BORDER)
+        board.refresh_display()
+        branch_ui.configure(bg=PANEL_BG, highlightbackground=PANEL_BORDER)
+        branch_ui.draw_tree()
+        if 'board_frame_bg_label' in globals():
+            board._apply_frame_background()
+        rebuild_menu_bar()
+    except (NameError, tk.TclError):
+        pass
 
 
 def refresh_language():
