@@ -24,16 +24,33 @@ PALETTES = {
         "LOG_BG": "#1e1e1e", "LOG_FG": "#d4d4d4",
     },
     "dark": {
-        "UI_BG": "#202124", "PANEL_BG": "#2b2d31", "PANEL_BORDER": "#4b5058",
-        "TEACHER_TEXT_BG": "#25272b", "BOARD_BG": "#d9a95f", "BOARD_LINE": "#5b4228",
-        "TEXT_MAIN": "#f1f3f4", "TEXT_MUTED": "#786858", "ACCENT": "#68c7d0",
-        "ACCENT_DARK": "#3e9da8", "STONE_BLACK": "#171717", "STONE_WHITE": "#f7f3eb",
-        "BEST_MOVE_BLUE": "#66a3ff", "INPUT_BG": "#35383f", "INPUT_FG": "#f1f3f4",
-        "STATUS_BG": "#35383f", "MENU_BG": "#2b2d31", "MENU_ACTIVE": "#444a53",
-        "ERROR": "#ff8a80", "WARNING": "#ffca70", "SUCCESS": "#72d6a0",
-        "INFO": "#7dcfff", "SELECTION_BG": "#506070", "SELECTION_FG": "#ffffff",
-        "LOG_BG": "#17181a", "LOG_FG": "#e5e7eb",
-    },
+        "UI_BG": "#141619",          # Deep obsidian slate
+        "PANEL_BG": "#1c1e22",       # Layered elevated dark surface
+        "PANEL_BORDER": "#2e323b",   # Muted border for subtle hierarchy
+        "TEACHER_TEXT_BG": "#23262d",
+        "BOARD_BG": "#c89b53",       # Warm natural Kaya wood tone (榧木色)
+        "BOARD_LINE": "#3d2b10",      # Deep wood-ink line color
+        "TEXT_MAIN": "#eceef0",      # Soft high-contrast off-white
+        "TEXT_MUTED": "#786858",     # Balanced neutral muted text
+        "ACCENT": "#51b3a1",         # Muted Jade / Emerald accent (溫潤翡翠)
+        "ACCENT_DARK": "#368073",
+        "STONE_BLACK": "#111214",
+        "STONE_WHITE": "#f0ede6",
+        "BEST_MOVE_BLUE": "#5b8def",
+        "INPUT_BG": "#252830",
+        "INPUT_FG": "#eceef0",
+        "STATUS_BG": "#1c1e22",
+        "MENU_BG": "#1c1e22",
+        "MENU_ACTIVE": "#2d313b",
+        "ERROR": "#e57373",
+        "WARNING": "#ffb74d",
+        "SUCCESS": "#81c784",
+        "INFO": "#64b5f6",
+        "SELECTION_BG": "#2e3b4e",
+        "SELECTION_FG": "#ffffff",
+        "LOG_BG": "#101114",
+        "LOG_FG": "#d1d5db"
+        }
 }
 
 

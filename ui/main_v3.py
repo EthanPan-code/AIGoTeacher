@@ -57,8 +57,8 @@ VARIATION_BLACK = "#222222"
 VARIATION_WHITE = "#f4f0e8"
 VARIATION_LABEL_BLACK = "#111111"
 VARIATION_LABEL_WHITE = "#ffffff"
+
 # Theme tokens have explicit light-theme defaults so static analyzers can
-# resolve them; startup theme resolution replaces these values at runtime.
 BOARD_FRAME_BG = None
 PANEL_BG = None
 INPUT_BG = None
