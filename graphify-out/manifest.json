@@ -1,12 +1,12 @@
 {
   "i18n/en.json": {
-    "mtime": 1785933886.5125704,
-    "ast_hash": "a1d91b7abfa040c0f74b4fbf0b03188c",
+    "mtime": 1786154264.5881295,
+    "ast_hash": "1870fefa0479a658a08e10e0bf58bfc0",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1785933897.974585,
-    "ast_hash": "a9e9faf90c4f8b5eb286b1067ce20fc4",
+    "mtime": 1786154264.3149543,
+    "ast_hash": "0cea8ca5819b2767df586eff59abfba0",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -45,8 +45,8 @@
     "semantic_hash": "e5990bc0490845ed7dee4025ee285350"
   },
   "services/config_service.py": {
-    "mtime": 1785591599.3467138,
-    "ast_hash": "c49f8ee1dbe773e590564dfbab496bbc",
+    "mtime": 1786154210.403891,
+    "ast_hash": "e036ad6bc3d42f7a2b159f3fd2933a9a",
     "semantic_hash": ""
   },
   "services/keyring_service.py": {
@@ -80,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1786015983.6756275,
-    "ast_hash": "0403ca95da960a89aa6f6736a9d51732",
+    "mtime": 1786249617.626578,
+    "ast_hash": "bd6eeff2555b9d6305b0fed5f91e4c88",
     "semantic_hash": ""
   },
   "version.py": {
@@ -147,6 +147,11 @@
   "docs/migration-v0.5.md": {
     "mtime": 1786008570.0210564,
     "ast_hash": "3c4bd676769166d6e3146d8286480fc5",
+    "semantic_hash": ""
+  },
+  "services/theme_service.py": {
+    "mtime": 1786249612.1646209,
+    "ast_hash": "d059d4c36a6f07e14a0eeee11d9bfa65",
     "semantic_hash": ""
   }
 }

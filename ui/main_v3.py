@@ -2,7 +2,7 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform  
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles 
 import webbrowser
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -259,6 +259,7 @@ from services.keyring_service import (
 )
 from services.provider_factory import ProviderFactory
 from services.theme_service import resolve_theme, PALETTES
+from ui.fake_menu import FakeMenuBar
 from services.ollama_manager import (
     OLLAMA_RECOMMENDED_CLOUD_MODELS,
     OLLAMA_RECOMMENDED_LOCAL_MODELS,
@@ -6081,16 +6082,16 @@ def show_chat_sandbox():
     )
 
 
-def create_dev_menu(parent_menu):
-    """建立 Dev 選單；初始建置與語言重建共用同一份項目。"""
-    menu = tk.Menu(parent_menu, tearoff=0)
-    menu.add_command(label=t("menu.system_info"), command=show_system_info_dialog)
-    menu.add_command(label=t("menu.export_diagnostics"), command=export_diagnostic_report)
-    menu.add_separator()
-    menu.add_command(label=t("menu.check_log_title"), command=show_analysis_log_dialog)
-    menu.add_separator()
-    menu.add_command(label=t("menu.chat_sandbox"), command=show_chat_sandbox)
-    return menu
+def create_dev_menu():
+    """Return Dev menu items for the themeable menu bar."""
+    return [
+        {"type": "command", "label": t("menu.system_info"), "command": show_system_info_dialog},
+        {"type": "command", "label": t("menu.export_diagnostics"), "command": export_diagnostic_report},
+        {"type": "separator"},
+        {"type": "command", "label": t("menu.check_log_title"), "command": show_analysis_log_dialog},
+        {"type": "separator"},
+        {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
+    ]
 
 
 
@@ -6732,11 +6733,17 @@ from providers import tone_templates
 
 
 def build_menu_bar():
-    global menu_bar, file_menu, edit_menu, analysis_menu, settings_menu, language_menu
-    global view_menu, help_menu, dev_menu, tone_menu, current_tone_var, theme_var
+    global menu_bar, current_tone_var, theme_var
     global show_teacher_var, show_branch_var, show_move_numbers_var, show_dev_var
 
-    menu_bar = tk.Menu(root)
+    def palette():
+        return {
+            "PANEL_BG": PANEL_BG,
+            "MENU_BG": MENU_BG,
+            "MENU_ACTIVE": MENU_ACTIVE,
+            "TEXT_MAIN": TEXT_MAIN,
+            "PANEL_BORDER": PANEL_BORDER,
+        }
 
     def set_language(language):
         i18n.set_language(language)
@@ -6765,92 +6772,99 @@ def build_menu_bar():
         config_service.save()
         rebuild_menu_bar()
 
-    file_menu = tk.Menu(menu_bar, tearoff=0)
-    file_menu.add_command(label=t("menu.new_game"), accelerator="Ctrl+N", command=new_game)
-    file_menu.add_separator()
-    file_menu.add_command(label=t("menu.load_sgf"), accelerator="Ctrl+O", command=on_load_sgf_click)
-    file_menu.add_command(label=t("menu.save_json"), command=save_game_as_json)
-    file_menu.add_command(label=t("menu.save_json_as"), command=save_game_as_json_dialog)
-    file_menu.add_command(label=t("menu.save_sgf"), accelerator="Ctrl+S", command=save_game_as_sgf)
-    file_menu.add_command(label=t("menu.save_sgf_as"), accelerator="Ctrl+Shift+S", command=save_game_as_sgf_dialog)
-    file_menu.add_separator()
-    file_menu.add_command(label=t("menu.exit"), accelerator="Alt+F4", command=on_closing)
-    menu_bar.add_cascade(label=t("menu.file"), menu=file_menu)
-
-    edit_menu = tk.Menu(menu_bar, tearoff=0)
-    edit_menu.add_command(label=t("menu.undo"), accelerator="Ctrl+Z / ↑", command=lambda: board.undo())
-    edit_menu.add_command(label=t("menu.redo"), accelerator="Ctrl+Y / ↓", command=lambda: board.redo())
-    edit_menu.add_separator()
-    edit_menu.add_command(label=t("menu.prev_branch"), accelerator="←", command=lambda: board.switch_branch(-1))
-    edit_menu.add_command(label=t("menu.next_branch"), accelerator="→", command=lambda: board.switch_branch(1))
-    menu_bar.add_cascade(label=t("menu.edit"), menu=edit_menu)
-
-    analysis_menu = tk.Menu(menu_bar, tearoff=0)
-    analysis_menu.add_command(label=t("menu.analyze_current"), accelerator="Ctrl+R", command=on_analyze_button_click)
-    analysis_menu.add_command(label=t("menu.full_analysis"), accelerator="Ctrl+Shift+R", command=show_winrate_chart)
-    menu_bar.add_cascade(label=t("menu.analysis"), menu=analysis_menu)
-
-    settings_menu = tk.Menu(menu_bar, tearoff=0)
-    settings_menu.add_command(label=t("menu.model_settings"), command=show_settings_dialog)
-    settings_menu.add_command(label=t("settings.appearance"), command=show_appearance_settings_dialog)
-    language_menu = tk.Menu(settings_menu, tearoff=0)
-    for language in i18n.available_languages:
-        language_menu.add_radiobutton(
-            label=t(f"language.{language}"),
-            value=language,
-            variable=language_var,
-            command=lambda lang=language: set_language(lang)
-        )
-    settings_menu.add_cascade(label=t("menu.language"), menu=language_menu)
     theme_var = tk.StringVar(value=config_service.get_ui_theme())
-    theme_menu = tk.Menu(settings_menu, tearoff=0)
-    for theme_id in ("system", "dark", "light"):
-        theme_menu.add_radiobutton(
-            label=t(f"theme.{theme_id}"), value=theme_id, variable=theme_var,
-            command=lambda selected=theme_id: apply_theme(selected),
-        )
-    settings_menu.add_cascade(label=t("menu.theme"), menu=theme_menu)
-    settings_menu.add_command(label=t("menu.llm_model"), command=show_llm_selection_dialog)
-    tone_menu = tk.Menu(settings_menu, tearoff=0)
     current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
-    for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items():
-        tone_menu.add_radiobutton(
-            label=tone_name,
-            value=tone_id,
-            variable=current_tone_var,
-            command=lambda tone=tone_id: set_llm_tone(tone)
-        )
-    settings_menu.add_cascade(label=t("menu.llm_tone"), menu=tone_menu)
-    settings_menu.add_command(label=t("menu.custom_prompts"), command=show_custom_prompt_dialog)
-    settings_menu.add_separator()
-    settings_menu.add_command(label=t("menu.reinit_analyzer"), command=reinitialize_analyzer)
-    menu_bar.add_cascade(label=t("menu.settings"), menu=settings_menu)
-
-    view_menu = tk.Menu(menu_bar, tearoff=0)
     show_teacher_var = tk.BooleanVar(value=True)
     show_branch_var = tk.BooleanVar(value=True)
     show_move_numbers_var = tk.BooleanVar(value=False)
     show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
-    view_menu.add_checkbutton(label=t("menu.show_teacher"), variable=show_teacher_var, command=toggle_teacher_panel)
-    view_menu.add_checkbutton(label=t("menu.show_branch"), variable=show_branch_var, command=toggle_branch_panel)
-    view_menu.add_checkbutton(label=t("menu.show_move_numbers"), variable=show_move_numbers_var, command=toggle_move_numbers)
-    view_menu.add_checkbutton(label=t("menu.dev_show"), variable=show_dev_var, command=toggle_dev)
-    menu_bar.add_cascade(label=t("menu.view"), menu=view_menu)
 
-    help_menu = tk.Menu(menu_bar, tearoff=0)
-    help_menu.add_command(label=t("menu.shortcuts"), command=lambda: messagebox.showinfo(
-        t("dialog.shortcuts_title"),
-        t("dialog.shortcuts_message")
-    ))
-    help_menu.add_command(label=t("menu.about"), command=show_about)
-    menu_bar.add_cascade(label=t("menu.help"), menu=help_menu)
-    menu_bar.add_command(label=t("menu.feedback"), command=show_feedback)
+    def command(label, callback, accelerator=None):
+        item = {"type": "command", "label": label, "command": callback}
+        if accelerator:
+            item["accelerator"] = accelerator
+        return item
 
-    dev_menu = create_dev_menu(menu_bar)
+    def radio(label, value, variable, callback):
+        return {
+            "type": "radio", "label": label, "command": callback,
+            "value": value, "variable": variable,
+            "get_state": lambda: variable.get() == value,
+        }
+
+    menus = [
+        {"label": t("menu.file"), "items": [
+            command(t("menu.new_game"), new_game, "Ctrl+N"),
+            {"type": "separator"},
+            command(t("menu.load_sgf"), on_load_sgf_click, "Ctrl+O"),
+            command(t("menu.save_json"), save_game_as_json),
+            command(t("menu.save_json_as"), save_game_as_json_dialog),
+            command(t("menu.save_sgf"), save_game_as_sgf, "Ctrl+S"),
+            command(t("menu.save_sgf_as"), save_game_as_sgf_dialog, "Ctrl+Shift+S"),
+            {"type": "separator"},
+            command(t("menu.exit"), on_closing, "Alt+F4"),
+        ]},
+        {"label": t("menu.edit"), "items": [
+            command(t("menu.undo"), lambda: board.undo(), "Ctrl+Z / ↑"),
+            command(t("menu.redo"), lambda: board.redo(), "Ctrl+Y / ↓"),
+            {"type": "separator"},
+            command(t("menu.prev_branch"), lambda: board.switch_branch(-1), "←"),
+            command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
+        ]},
+        {"label": t("menu.analysis"), "items": [
+            command(t("menu.analyze_current"), on_analyze_button_click, "Ctrl+R"),
+            command(t("menu.full_analysis"), show_winrate_chart, "Ctrl+Shift+R"),
+        ]},
+        {"label": t("menu.settings"), "items": [
+            command(t("menu.model_settings"), show_settings_dialog),
+            command(t("settings.appearance"), show_appearance_settings_dialog),
+            {"type": "submenu", "label": t("menu.language"), "items": [
+                radio(t(f"language.{lang}"), lang, language_var,
+                      lambda selected=lang: set_language(selected))
+                for lang in i18n.available_languages
+            ]},
+            {"type": "submenu", "label": t("menu.theme"), "items": [
+                radio(t(f"theme.{theme_id}"), theme_id, theme_var,
+                      lambda selected=theme_id: apply_theme(selected))
+                for theme_id in ("system", "dark", "light")
+            ]},
+            command(t("menu.llm_model"), show_llm_selection_dialog),
+            {"type": "submenu", "label": t("menu.llm_tone"), "items": [
+                radio(tone_name, tone_id, current_tone_var,
+                      lambda selected=tone_id: set_llm_tone(selected))
+                for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items()
+            ]},
+            command(t("menu.custom_prompts"), show_custom_prompt_dialog),
+            {"type": "separator"},
+            command(t("menu.reinit_analyzer"), reinitialize_analyzer),
+        ]},
+        {"label": t("menu.view"), "items": [
+            {"type": "check", "label": t("menu.show_teacher"),
+             "get_state": show_teacher_var.get, "variable": show_teacher_var,
+             "command": toggle_teacher_panel},
+            {"type": "check", "label": t("menu.show_branch"),
+             "get_state": show_branch_var.get, "variable": show_branch_var,
+             "command": toggle_branch_panel},
+            {"type": "check", "label": t("menu.show_move_numbers"),
+             "get_state": show_move_numbers_var.get, "variable": show_move_numbers_var,
+             "command": toggle_move_numbers},
+            {"type": "check", "label": t("menu.dev_show"),
+             "get_state": show_dev_var.get, "variable": show_dev_var,
+             "command": toggle_dev},
+        ]},
+        {"label": t("menu.help"), "items": [
+            command(t("menu.shortcuts"), lambda: messagebox.showinfo(
+                t("dialog.shortcuts_title"), t("dialog.shortcuts_message"))),
+            command(t("menu.about"), show_about),
+        ]},
+        {"label": t("menu.feedback"), "items": [command(t("menu.feedback"), show_feedback)]},
+    ]
     if show_dev_var.get():
-        menu_bar.add_cascade(label=t("menu.dev"), menu=dev_menu)
+        menus.append({"label": t("menu.dev"), "items": create_dev_menu()})
 
-    root.config(menu=menu_bar)
+    if not isinstance(globals().get("menu_bar"), FakeMenuBar):
+        menu_bar = FakeMenuBar(root, palette)
+    menu_bar.set_menus(menus)
     return menu_bar
 
 
@@ -7313,7 +7327,8 @@ def apply_theme(theme_name, persist=True):
     # Map colors already assigned to Tk widgets, including legacy literals.
     color_map = {old: palette[name] for name, old in previous.items() if old}
     color_map.update({
-        "#e8dfd2": STATUS_BG, "#f8f8f8": INPUT_BG,
+        "#e8dfd2": STATUS_BG, 
+        "#f8f8f8": INPUT_BG,
         "#666": TEXT_MUTED, "#666666": TEXT_MUTED, "#C62828": ERROR,
         "#d8d0c5": PANEL_BORDER, "#9d8f7f": TEXT_MUTED,
         "#1f1f1f": STONE_BLACK, "#f7f2e9": STONE_WHITE,
@@ -7340,10 +7355,8 @@ def apply_theme(theme_name, persist=True):
             recolor(child)
 
     try:
-        root.option_add("*Menu.background", MENU_BG)
-        root.option_add("*Menu.foreground", TEXT_MAIN)
-        root.option_add("*Menu.activeBackground", MENU_ACTIVE)
-        root.option_add("*Menu.activeForeground", TEXT_MAIN)
+        pywinstyles.change_header_color(root, color=PANEL_BG)
+        pywinstyles.change_title_color(root, color=TEXT_MAIN)
         recolor(root)
     except (NameError, tk.TclError):
         pass
@@ -7396,7 +7409,8 @@ def apply_theme(theme_name, persist=True):
         rebuild_menu_bar()
     except (NameError, tk.TclError):
         pass
-
+# 初始執行
+apply_theme(configured_theme, persist=False)
 
 def refresh_language():
     root.title(t("app.title_with_move", moves=len(board.stones)) if board.stones else t("app.title"))

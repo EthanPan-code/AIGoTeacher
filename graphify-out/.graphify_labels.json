@@ -23,11 +23,21 @@
   "21": "version.py",
   "22": "github_provider.py",
   "23": "materialize_bundled_runtime_file",
+  "24": "main_v3.py",
+  "25": "version.py",
   "26": "NvidiaProvider",
+  "27": "set_winrate_text",
+  "28": "_build_diagnostic_report_text",
+  "29": "materialize_bundled_runtime_file",
   "30": "Cloud API Illustration",
   "31": "GitHub Models Provider",
   "32": "Interactive Board Feature",
   "33": "Live Analysis Feature",
   "34": "LLM Commentary Feature",
-  "35": "SGF Support Feature"
+  "35": "SGF Support Feature",
+  "36": "_handle_score_estimate_result",
+  "37": "show_first_run_onboarding_dialog",
+  "38": "add_to_commentary_cache",
+  "39": "detect_ollama_installed",
+  "40": ".get_nim_publisher_for_model"
 }
