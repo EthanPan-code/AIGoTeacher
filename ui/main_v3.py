@@ -5556,44 +5556,56 @@ def setup_system_info_styles():
 
     style.configure(
         "InfoCard.TLabelframe",
+        background=PANEL_BG,
         padding=10
     )
 
     style.configure(
         "InfoCard.TLabelframe.Label",
+        background=PANEL_BG,
+        foreground=TEXT_MAIN,
         font=("Segoe UI", 10, "bold")
     )
 
     style.configure(
         "InfoKey.TLabel",
-        font=("Segoe UI", 9, "bold"),
-        foreground="#555555"
+        background=PANEL_BG,
+        foreground=TEXT_MUTED,
+        font=("Segoe UI", 9, "bold")
     )
 
     style.configure(
         "InfoValue.TLabel",
+        background=PANEL_BG,
+        foreground=TEXT_MAIN,
         font=("Segoe UI", 9)
     )
 
     style.configure(
         "Success.TLabel",
+        background=PANEL_BG,
         foreground="#0A9D4D",
         font=("Segoe UI", 9, "bold")
     )
 
     style.configure(
         "Error.TLabel",
+        background=PANEL_BG,
         foreground="#D13438",
         font=("Segoe UI", 9, "bold")
     )
 
     style.configure(
         "HeaderTitle.TLabel",
+        background=PANEL_BG,
+        foreground=TEXT_MAIN,
         font=("Segoe UI", 16, "bold")
     )
 
     style.configure(
         "HeaderSub.TLabel",
+        background=PANEL_BG,
+        foreground=TEXT_MUTED,
         font=("Segoe UI", 9)
     )
 
@@ -5698,7 +5710,7 @@ def show_system_info_dialog():
         win = tk.Toplevel(root)
 
         win.title(t("dialog.system_info_title"))
-        win.geometry("720x760")
+        win.geometry("720x640")
         win.minsize(640, 600)
 
         win.iconbitmap(
@@ -5771,15 +5783,15 @@ def show_system_info_dialog():
                     int(-1 * (event.delta / 120)),
                     "units"
                 )
-            except tk.TclError:
-                pass
+            except tk.TclError as e:
+                print("TclError:", e)
 
         # Use bind (not bind_all) so the binding is scoped to this canvas only
         # and is automatically released when the canvas/window is destroyed.
         # bind_all would leak across the entire application and raise
         # TclError: invalid command name ".!toplevel4.!canvas" once the
         # system info window is closed.
-        canvas.bind(
+        win.bind(
             "<MouseWheel>",
             mousewheel
         )
@@ -5788,8 +5800,8 @@ def show_system_info_dialog():
         # a previous build of this dialog used bind_all).
         try:
             canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
+        except tk.TclError as e:
+            print("TclError:", e)
 
         scrollbar.pack(
             side="right",
@@ -5863,7 +5875,7 @@ def show_system_info_dialog():
 
         _create_info_section(
             container,
-            "顯示卡 (GPU)",
+            "顯卡 (GPU)",
             [
                 ("GPU Name", system_info["gpu_name"]),
                 ("GPU Memory", system_info["gpu_memory"]),
@@ -5875,18 +5887,8 @@ def show_system_info_dialog():
             katago_info
         )
 
-        separator = ttk.Separator(
-            win,
-            orient="horizontal"
-        )
-
-        separator.pack(
-            side="bottom",
-            fill="x"
-        )
-
         button_frame = ttk.Frame(
-            win,
+            container,
             padding=(15, 10)
         )
 
@@ -7128,8 +7130,7 @@ def create_katago_startup_popup():
     popup.resizable(False, False)
     popup.transient(root)
     popup.protocol("WM_DELETE_WINDOW", lambda: None)
-    pywinstyles.change_header_color(popup, color=PANEL_BG)
-    pywinstyles.change_title_color(popup, color=TEXT_MAIN)
+
 
     x = root.winfo_rootx() + max(40, (root.winfo_width() - 420) // 2)
     y = root.winfo_rooty() + max(40, (root.winfo_height() - 170) // 2)
@@ -7137,7 +7138,8 @@ def create_katago_startup_popup():
 
     frame = ttk.Frame(popup, padding=(18, 16, 18, 14))
     frame.pack(fill="both", expand=True)
-
+    pywinstyles.change_header_color(popup, color=PANEL_BG)
+    pywinstyles.change_title_color(popup, color=TEXT_MAIN)
     title_label = ttk.Label(frame, text=t("startup.heading"), font=("Microsoft JhengHei", 12, "bold"))
     title_label.pack(anchor="w")
 
