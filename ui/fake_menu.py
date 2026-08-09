@@ -94,7 +94,8 @@ class FakeMenuBar(tk.Frame):
         self._popup.lift()
 
     def _make_popup(self, items, child=False):
-        popup = tk.Frame(self.master, bd=1, relief="solid", padx=4, pady=4)
+        palette = self._palette()
+        popup = tk.Frame(self.master, bd=0, relief="flat", padx=4, pady=4)
         self._style_popup(popup)
         for item in items:
             item_type = item.get("type", "command")
@@ -119,12 +120,18 @@ class FakeMenuBar(tk.Frame):
                 command=command,
                 font=self._font,
                 bd=0,
+                borderwidth=0,
+                highlightthickness=0,
                 relief="flat",
                 padx=9,
                 pady=5,
                 anchor="w",
                 justify="left",
                 cursor="hand2",
+                bg=palette["MENU_BG"],
+                fg=palette["TEXT_MAIN"],
+                activebackground=palette["MENU_ACTIVE"],
+                activeforeground=palette["TEXT_MAIN"],
             )
             button.pack(fill="x")
             button.bind("<Enter>", lambda event, b=button: self._hover(b, True))
@@ -145,7 +152,12 @@ class FakeMenuBar(tk.Frame):
 
     def _hover(self, button, active):
         palette = self._palette()
-        button.configure(bg=palette["MENU_ACTIVE"] if active else palette["MENU_BG"])
+        button.configure(
+            bg=palette["MENU_ACTIVE"] if active else palette["MENU_BG"],
+            fg=palette["TEXT_MAIN"],
+            activebackground=palette["MENU_ACTIVE"],
+            activeforeground=palette["TEXT_MAIN"],
+        )
 
     def _run(self, item):
         self.close()

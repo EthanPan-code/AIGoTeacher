@@ -80,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1786249617.626578,
-    "ast_hash": "bd6eeff2555b9d6305b0fed5f91e4c88",
+    "mtime": 1786251170.4593153,
+    "ast_hash": "9d62d67ae805036de4ab1deeb0e5a8cd",
     "semantic_hash": ""
   },
   "version.py": {
@@ -150,8 +150,13 @@
     "semantic_hash": ""
   },
   "services/theme_service.py": {
-    "mtime": 1786249612.1646209,
-    "ast_hash": "d059d4c36a6f07e14a0eeee11d9bfa65",
+    "mtime": 1786251170.1612372,
+    "ast_hash": "2d90a22cae0602102ae1fbdb2eac66df",
+    "semantic_hash": ""
+  },
+  "ui/fake_menu.py": {
+    "mtime": 1786250685.1766517,
+    "ast_hash": "1b433fb8069252cca064ff9a9c66abeb",
     "semantic_hash": ""
   }
 }

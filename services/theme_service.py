@@ -39,9 +39,10 @@ PALETTES = {
         "UI_BG": "#1B1D22",          # 主背景
         "PANEL_BG": "#23262D",       # Panel
         "PANEL_BORDER": "#343944",   # Border
+        "HEADER_COLOR": "#20242A",
 
         "STATUS_BG": "#20242A",
-        "MENU_BG": "#23262D",
+        "MENU_BG": "#121417",
         "MENU_ACTIVE": "#303642",
 
         # ========= Board =========
@@ -52,7 +53,7 @@ PALETTES = {
         # ========= Typography =========
 
         "TEXT_MAIN": "#E6E8EB",
-        "TEXT_MUTED": "#786858",
+        "TEXT_MUTED": "#8D7F70",
 
         # ========= Accent =========
 

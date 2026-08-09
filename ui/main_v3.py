@@ -1678,7 +1678,9 @@ def show_winrate_chart():
     progress_popup.iconbitmap(resource_path("image/logo.ico"))
     progress_popup.transient(root) # 讓視窗保持在主視窗之上
     progress_popup.grab_set()      # 【關鍵】鎖定主視窗，無法點擊棋盤或其他按鈕
-    
+    pywinstyles.change_header_color(progress_popup, color=PANEL_BG)
+    pywinstyles.change_title_color(progress_popup, color=TEXT_MAIN)
+
     # 置中顯示
     progress_popup.geometry("+%d+%d" % (root.winfo_rootx() + 50, root.winfo_rooty() + 50))
 
@@ -1744,6 +1746,8 @@ def plot_window(winrates, scoreLeads):
     top.minsize(900, 680)
     top.iconbitmap(resource_path("image/logo.ico"))
     chart_window_state = {"closed": False}
+    pywinstyles.change_header_color(top, color=PANEL_BG)
+    pywinstyles.change_title_color(top, color=TEXT_MAIN)
 
     def on_chart_window_close():
         chart_window_state["closed"] = True
@@ -3686,6 +3690,8 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
     popup.iconbitmap(resource_path("image/logo.ico"))
     popup.resizable(False, False)
     popup.transient(root)
+    pywinstyles.change_header_color(popup, color=PANEL_BG)
+    pywinstyles.change_title_color(popup, color=TEXT_MAIN)
 
     def close_popup():
         popup.destroy()
@@ -3812,6 +3818,8 @@ def show_feedback():
     feedback_win.grab_set()
 
     outer = tk.Frame(feedback_win, bg=UI_BG, padx=18, pady=18)
+    pywinstyles.change_header_color(feedback_win, color=PANEL_BG)
+    pywinstyles.change_title_color(feedback_win, color=TEXT_MAIN)
     outer.pack(fill="both", expand=True)
 
     card = tk.Frame(
@@ -4054,6 +4062,8 @@ def show_ollama_install_dialog(parent):
     win.transient(parent)
     win.grab_set()
     frame = tk.Frame(win, bg=PANEL_BG)
+    pywinstyles.change_header_color(win, color=PANEL_BG)
+    pywinstyles.change_title_color(win, color=TEXT_MAIN)
     frame.pack(fill="both", expand=True, padx=12, pady=12)
 
     tk.Label(frame, text=t("dialog.ollama_install_intro") if hasattr(t, '__call__') else "未偵測到 Ollama，請依下列方式安裝：", bg=PANEL_BG, fg=TEXT_MAIN, font=("Microsoft JhengHei", 11, "bold")).pack(anchor="w")
@@ -4210,6 +4220,8 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
     progress_win.configure(bg=PANEL_BG)
 
     frame = tk.Frame(progress_win, bg=PANEL_BG)
+    pywinstyles.change_header_color(progress_win, color=PANEL_BG)
+    pywinstyles.change_title_color(progress_win, color=TEXT_MAIN)
     frame.pack(fill="both", expand=True, padx=15, pady=15)
 
     tk.Label(
@@ -4365,6 +4377,8 @@ def _show_llm_selection_dialog(parent):
     
     # ===== 主框架 =====
     main_frame = tk.Frame(dialog_win, bg=PANEL_BG)
+    pywinstyles.change_header_color(dialog_win, color=PANEL_BG)
+    pywinstyles.change_title_color(dialog_win, color=TEXT_MAIN)
     main_frame.pack(fill="both", expand=True, padx=15, pady=15)
     
     # ===== 標題 =====
@@ -5693,7 +5707,8 @@ def show_system_info_dialog():
 
         win.transient(root)
         win.grab_set()
-
+        pywinstyles.change_header_color(win, color=PANEL_BG)
+        pywinstyles.change_title_color(win, color=TEXT_MAIN)
         style = ttk.Style()
 
         bg = style.lookup("TFrame", "background")
@@ -6004,7 +6019,8 @@ def _show_diagnostic_export_success(report_path, diagnostics_dir):
     win.iconbitmap(resource_path("image/logo.ico"))
     win.transient(root)
     win.grab_set()
-
+    pywinstyles.change_header_color(win, color=PANEL_BG)
+    pywinstyles.change_title_color(win, color=TEXT_MAIN)
     frame = ttk.Frame(win, padding=(22, 18, 22, 18))
     frame.pack(fill="both", expand=True)
 
@@ -6149,7 +6165,8 @@ def show_analysis_log_dialog():
     analysis_log_win.iconbitmap(resource_path("image/logo.ico"))
     analysis_log_win.transient(root)
     analysis_log_win.grab_set()
-    
+    pywinstyles.change_header_color(analysis_log_win, color=PANEL_BG)
+    pywinstyles.change_title_color(analysis_log_win, color=TEXT_MAIN)
     # 主面板佈局設定
     main_frame = ttk.Frame(analysis_log_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
@@ -6233,7 +6250,8 @@ def show_custom_prompt_dialog():
     prompt_win.iconbitmap(resource_path("image/logo.ico"))
     prompt_win.transient(root)
     prompt_win.grab_set()
-    
+    pywinstyles.change_header_color(prompt_win, color=PANEL_BG)
+    pywinstyles.change_title_color(prompt_win, color=TEXT_MAIN)
     main_frame = ttk.Frame(prompt_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
     main_frame.columnconfigure(0, weight=1)
@@ -6309,7 +6327,8 @@ def show_settings_dialog():
     settings_win.iconbitmap(resource_path("image/logo.ico"))  # Set the icon for the settings window
     settings_win.transient(root)
     settings_win.grab_set()
-
+    pywinstyles.change_header_color(settings_win, color=PANEL_BG)
+    pywinstyles.change_title_color(settings_win, color=TEXT_MAIN)
     # 主框架
     main_frame = ttk.Frame(settings_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
@@ -6511,7 +6530,8 @@ def show_appearance_settings_dialog():
         pass
     settings_win.transient(root)
     settings_win.grab_set()
-
+    pywinstyles.change_header_color(settings_win, color=PANEL_BG)
+    pywinstyles.change_title_color(settings_win, color=TEXT_MAIN)
     main_frame = ttk.Frame(settings_win, padding=(16, 16, 16, 16))
     main_frame.pack(fill="both", expand=True)
 
@@ -6654,8 +6674,28 @@ style.configure("Muted.TLabel", background=PANEL_BG, foreground=TEXT_MUTED)
 style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN, font=("Microsoft JhengHei", 13, "bold"))
 style.configure("Primary.TButton", background=ACCENT, foreground="white", padding=(14, 8), borderwidth=0)
 style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", "#9eb9bd")])
-style.configure("Tool.TButton", background=PANEL_BG, foreground=TEXT_MAIN, padding=(10, 7))
-style.map("Tool.TButton", background=[("active", MENU_ACTIVE)])
+style.configure(
+    "Tool.TButton",
+    background=PANEL_BG,
+    foreground=TEXT_MAIN,
+    bordercolor=PANEL_BORDER,
+    lightcolor=PANEL_BG,
+    darkcolor=PANEL_BORDER,
+    padding=(10, 7),
+)
+style.map(
+    "Tool.TButton",
+    background=[
+        ("pressed", MENU_ACTIVE),
+        ("active", MENU_ACTIVE),
+        ("disabled", PANEL_BORDER),
+        ("!active", PANEL_BG),
+    ],
+    foreground=[
+        ("disabled", TEXT_MUTED),
+        ("!disabled", TEXT_MAIN),
+    ],
+)
 style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN, padding=(10, 7))
 style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
 style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
@@ -6894,7 +6934,7 @@ root.bind("<Control-Shift-S>", lambda e: save_game_as_sgf_dialog())
 root.bind("<Control-r>", lambda e: on_analyze_button_click())
 root.bind("<Control-Shift-R>", lambda e: show_winrate_chart())
 
-main_frame = ttk.Frame(root, padding=(16, 14, 16, 8))
+main_frame = ttk.Frame(root, padding=(16, 8, 16, 8))
 main_frame.pack(fill="both", expand=True)
 main_frame.columnconfigure(0, weight=1)
 main_frame.columnconfigure(1, weight=0)
@@ -7042,7 +7082,7 @@ teacher_text = tk.Text(
 )
 teacher_text.pack(fill="both", expand=True, pady=(6, 0))
 
-status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 2), background="#e8dfd2", foreground=TEXT_MUTED)
+status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 1), background="#e8dfd2", foreground=TEXT_MUTED)
 status_bar.pack(side="bottom", fill="x")
 
 def update_status(message):
@@ -7088,6 +7128,8 @@ def create_katago_startup_popup():
     popup.resizable(False, False)
     popup.transient(root)
     popup.protocol("WM_DELETE_WINDOW", lambda: None)
+    pywinstyles.change_header_color(popup, color=PANEL_BG)
+    pywinstyles.change_title_color(popup, color=TEXT_MAIN)
 
     x = root.winfo_rootx() + max(40, (root.winfo_width() - 420) // 2)
     y = root.winfo_rooty() + max(40, (root.winfo_height() - 170) // 2)
@@ -7325,7 +7367,13 @@ def apply_theme(theme_name, persist=True):
         config_service.save()
 
     # Map colors already assigned to Tk widgets, including legacy literals.
-    color_map = {old: palette[name] for name, old in previous.items() if old}
+    # A palette may gain a token before every theme has been updated.  Ignore
+    # such tokens during migration instead of aborting the whole theme switch.
+    color_map = {
+        old: palette[name]
+        for name, old in previous.items()
+        if old and name in palette
+    }
     color_map.update({
         "#e8dfd2": STATUS_BG, 
         "#f8f8f8": INPUT_BG,
@@ -7370,8 +7418,27 @@ def apply_theme(theme_name, persist=True):
         style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN)
         style.configure("Primary.TButton", background=ACCENT, foreground=STONE_WHITE)
         style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", PANEL_BORDER)])
-        style.configure("Tool.TButton", background=PANEL_BG, foreground=TEXT_MAIN)
-        style.map("Tool.TButton", background=[("active", MENU_ACTIVE)])
+        style.configure(
+            "Tool.TButton",
+            background=PANEL_BG,
+            foreground=TEXT_MAIN,
+            bordercolor=PANEL_BORDER,
+            lightcolor=PANEL_BG,
+            darkcolor=PANEL_BORDER,
+        )
+        style.map(
+            "Tool.TButton",
+            background=[
+                ("pressed", MENU_ACTIVE),
+                ("active", MENU_ACTIVE),
+                ("disabled", PANEL_BORDER),
+                ("!active", PANEL_BG),
+            ],
+            foreground=[
+                ("disabled", TEXT_MUTED),
+                ("!disabled", TEXT_MAIN),
+            ],
+        )
         style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN)
         style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
         style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
