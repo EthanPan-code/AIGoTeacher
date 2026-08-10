@@ -7235,6 +7235,11 @@ def on_tab_click(idx):
 
 def on_new_tab_click():
     """新增空白分頁並切換過去。"""
+    # 1) 先記住即將離開的 session，把當前棋盤存進去
+    leaving_session = tab_manager.active_session
+    _capture_board_snapshot(leaving_session)
+
+    # 2) 建立新分頁（create_session 會把 active 切到新分頁）
     new_session = tab_manager.create_session(title=t("tab.new_tab"))
     if new_session is None:
         # 已達分頁上限
@@ -7243,9 +7248,8 @@ def on_new_tab_click():
             t("dialog.tab_limit_message", max_tabs=TabManager.MAX_TABS),
         )
         return
-    # 把目前棋盤存回「即將離開」的分頁
-    _capture_board_snapshot(tab_manager.active_session)
-    # 新 session 一律從空白棋盤開始（board_snapshot = None → _restore 會建空白）
+
+    # 3) 新 session 一律從空白棋盤開始（board_snapshot = None → _restore 會建空白）
     _restore_board_snapshot(new_session)
     # 必須呼叫 rebuild_board 以確保 board.board 結構正確且同步
     board.rebuild_board()
