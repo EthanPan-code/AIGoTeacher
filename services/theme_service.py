@@ -30,7 +30,11 @@ PALETTES = {
 
     "INFO": "#1976a3", "SELECTION_BG": "#ead7b8", "SELECTION_FG": "#2f271f",
 
-    "LOG_BG": "#1e1e1e", "LOG_FG": "#d4d4d4",           
+    "LOG_BG": "#1e1e1e", "LOG_FG": "#d4d4d4",         
+
+    "CURRENT_TAB": "#F3F1EE",
+
+    "ACTIVE_BORDER": "#2bb8ff",
     },
     "dark": {
 
@@ -93,7 +97,12 @@ PALETTES = {
         # ========= Log =========
 
         "LOG_BG": "#191B20",
-        "LOG_FG": "#D7DCE2"
+        "LOG_FG": "#D7DCE2",
+
+        # ========= Tab ========
+
+        "CURRENT_TAB": "#414652",
+        "ACTIVE_BORDER": "#FF2B2B"
     }
 }
 

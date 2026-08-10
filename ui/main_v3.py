@@ -74,6 +74,8 @@ LOG_BG = None
 LOG_FG = None
 SELECTION_BG = None
 SELECTION_FG = None
+CURRENT_TAB = None
+ACTIVE_BORDER = None
 
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
@@ -723,6 +725,158 @@ def get_config_display_name():
 
 winrate_display_state = {"key": "analysis.not_analyzed", "kwargs": {}}
 
+# ============================================================
+# 【多分頁 v1】TabSession / TabManager
+# 目的：把目前單例的「棋盤狀態、檔案路徑、覆寫確認、勝率/解說快取、
+#       教師面板 in-flight 狀態」收斂到每分頁的資料結構中。
+# 此區塊為純資料結構定義，不改動現有函式行為；後續 phase 再逐步替換。
+# ============================================================
+
+class TabSession:
+    """單一分頁的完整文件上下文。"""
+
+    __slots__ = (
+        "session_id",
+        "title",
+        "sgf_path",
+        "loaded_sgf_overwrite_confirmed",
+        "commentary_cache",
+        "full_game_commentary_cache",
+        "winrate_state",
+        "is_playback_mode",
+        "current_critical_event",
+        "current_generated_commentary",
+        "score_query_in_flight",
+        "is_dirty",
+        "created_at",
+        # 【棋盤快照】每分頁獨立保存 stones / 樹狀結構 / 當前顏色
+        "board_snapshot",
+    )
+
+    def __init__(self, session_id, title):
+        self.session_id = session_id
+        self.title = title
+        # --- 檔案狀態 ---
+        self.sgf_path = None
+        self.loaded_sgf_overwrite_confirmed = False
+        # --- 每分頁快取（避免 key 撞到其他分頁） ---
+        self.commentary_cache = {}
+        self.full_game_commentary_cache = OrderedDict()
+        # --- 每分頁顯示狀態 ---
+        self.winrate_state = {"key": "analysis.not_analyzed", "kwargs": {}}
+        # --- 每分頁 in-flight 旗標 ---
+        self.is_playback_mode = False
+        self.current_critical_event = None
+        self.current_generated_commentary = ""
+        self.score_query_in_flight = False
+        # --- 編輯旗標（未儲存變更） ---
+        self.is_dirty = False
+        self.created_at = time.time()
+        # --- 棋盤快照（None = 尚未初始化，切到此分頁時建空白棋盤） ---
+        self.board_snapshot = None
+
+    def display_title(self):
+        marker = " *" if self.is_dirty else ""
+        return f"{self.title}{marker}"
+
+    def reset_file_state(self):
+        self.sgf_path = None
+        self.loaded_sgf_overwrite_confirmed = False
+        self.commentary_cache = {}
+        self.full_game_commentary_cache = OrderedDict()
+        self.is_dirty = False
+
+
+class TabManager:
+    """多分頁文件管理器：維護所有 TabSession 並提供 active session 切換。"""
+
+    # 最多同時開啟的分頁數（避免一次開太多造成 GPU/佇列壓力）
+    MAX_TABS = 8
+
+    def __init__(self):
+        self._sessions = []
+        self._active_index = -1
+        self._next_id = 1
+
+    def initialize_default(self, initial_title=t("tab.default_title")):
+        """建立第一個分頁並設為 active。供 main 流程開機時呼叫一次。"""
+        if self._sessions:
+            return self.active_session
+        return self.create_session(title=initial_title, mark_active=True)
+
+    # ---------- 建立 / 移除 ----------
+    def create_session(self, title=t("tab.default_title"), mark_active=True):
+        """建立新分頁。若已達 MAX_TABS，回傳 None。"""
+        if len(self._sessions) >= self.MAX_TABS:
+            logger.warning("已達分頁上限 %d，拒絕新增", self.MAX_TABS)
+            return None
+        session_id = self._next_id
+        self._next_id += 1
+        session = TabSession(session_id=session_id, title=title)
+        self._sessions.append(session)
+        if mark_active:
+            self._active_index = len(self._sessions) - 1
+        return session
+
+    def close_session(self, index):
+        """關閉指定分頁；回傳 (success, reason)。
+
+        規則：
+          - 至少保留一個分頁。
+          - 若傳入 index 為 active，自動切到鄰近分頁。
+        """
+        if not (0 <= index < len(self._sessions)):
+            return False, "invalid_index"
+        if len(self._sessions) <= 1:
+            return False, "must_keep_one"
+        was_active = (index == self._active_index)
+        del self._sessions[index]
+        if was_active:
+            # 切到右邊那個（若無則切回左邊最後一個）
+            new_index = min(index, len(self._sessions) - 1)
+            self._active_index = max(0, new_index)
+        elif index < self._active_index:
+            self._active_index -= 1
+        return True, "ok"
+
+    # ---------- 切換 / 查詢 ----------
+    def set_active(self, index):
+        if not (0 <= index < len(self._sessions)):
+            return False
+        self._active_index = index
+        return True
+
+    @property
+    def active_index(self):
+        return self._active_index
+
+    @property
+    def active_session(self):
+        if 0 <= self._active_index < len(self._sessions):
+            return self._sessions[self._active_index]
+        return None
+
+    def get_session(self, session_id):
+        for s in self._sessions:
+            if s.session_id == session_id:
+                return s
+        return None
+
+    def __iter__(self):
+        return iter(self._sessions)
+
+    def __len__(self):
+        return len(self._sessions)
+
+    def __getitem__(self, index):
+        """支援 tab_manager[idx] 取第 idx 個分頁。"""
+        return self._sessions[index]
+
+# 【Phase 1 末段上線】多分頁管理器實例
+# 在 board / 全域 state 收斂完後，於 main() 流程初始化時使用。
+tab_manager = TabManager()
+tab_manager.initialize_default(initial_title=t("tab.default_title"))
+
 # 【Phase 1】解說快取 — 儲存 LLM 生成的解說
 # Key 格式: (turn, player_move_str) → Value: 解說文本
 commentary_cache = {}  # {(turn, player_move): "解說文本", ...}
@@ -917,6 +1071,7 @@ class KataGoAnalyzer:
         max_visits=None,
         include_ownership=False,
         include_ownership_stdev=False,
+        session_id=None,
     ):
         if self.closed or self.process.poll() is not None:
             return None
@@ -972,6 +1127,8 @@ class KataGoAnalyzer:
                 "pending_turns": set(analyze_turns),
                 "response_queue": target_queue,
                 "kind": query_kind,
+                # 【Phase 3】多分頁路由：紀錄這個查詢是為哪個分頁發出的
+                "session_id": session_id,
             }
 
         try:
@@ -1016,6 +1173,9 @@ class KataGoAnalyzer:
                         if not pending["pending_turns"]:
                             self.pending_queries.pop(query_id, None)
 
+                        # 【Phase 3】把分頁身份附在 data 上，供 poll_ai 做路由判斷
+                        if pending.get("session_id") is not None:
+                            data["session_id"] = pending["session_id"]
                         pending["response_queue"].put(data)
                         
                         # 只有完整的分析結果(含rootInfo)才存入快取
@@ -1600,7 +1760,12 @@ def auto_analyze():
         
     board.clear_blue_point()
     set_winrate_text("analysis.thinking")
-    analyzer.send_query(board.stones)
+    # 【Phase 3】附上 active session id，poll_ai 才能正確路由
+    _active = tab_manager.active_session
+    analyzer.send_query(
+        board.stones,
+        session_id=_active.session_id if _active is not None else None,
+    )
 
 
 
@@ -1617,12 +1782,14 @@ def run_full_game_analysis(progress_callback, cancel_state):
     winrates = {}
     scoreLeads = {}
 
+    _active = tab_manager.active_session
     query_id = analyzer.send_query(
         stones_snapshot,
         analyze_turns=analyze_turns,
         response_queue=full_response_queue,
         query_kind="full",
-        use_cache=False
+        use_cache=False,
+        session_id=_active.session_id if _active is not None else None,
     )
     if not query_id:
         return None, None
@@ -2414,8 +2581,12 @@ def on_analyze_button_click():
     # 不再需要 threading.Thread(target=task)，因為發送請求是瞬間的
     board.clear_blue_point()
     set_winrate_text("analysis.ai_thinking")
-    # 直接叫 analyzer 傳送當前棋局
-    analyzer.send_query(board.stones)
+    # 【Phase 3】附上 active session id
+    _active = tab_manager.active_session
+    analyzer.send_query(
+        board.stones,
+        session_id=_active.session_id if _active is not None else None,
+    )
 
 
 
@@ -3034,6 +3205,11 @@ class GoBoard(tk.Canvas):
         global is_playback_mode
         is_playback_mode = False
 
+        # 【Phase 2】標記 active session 為 dirty，並更新分頁列星號
+        if tab_manager.active_session is not None:
+            tab_manager.active_session.is_dirty = True
+            refresh_tab_bar()
+
         color = forced_color if forced_color else self.current_color
         
         # 1. 檢查是否已經有這個分支 (如果有，直接走進該變化圖)
@@ -3458,23 +3634,33 @@ def save_game_as_json():
     status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf():
-    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    # 【多分頁 v1】改為讀寫 active session 的檔案狀態
+    session = tab_manager.active_session
+    if session is None:
+        return
 
-    if not current_sgf_path:
+    if not session.sgf_path:
         save_game_as_sgf_dialog()
         return
 
-    if not loaded_sgf_overwrite_confirmed:
+    if not session.loaded_sgf_overwrite_confirmed:
         should_overwrite = messagebox.askyesno(
             t("dialog.confirm_title"),
-            t("dialog.confirm_overwrite_loaded_sgf", path=current_sgf_path),
+            t("dialog.confirm_overwrite_loaded_sgf", path=session.sgf_path),
         )
         if not should_overwrite:
             return
-        loaded_sgf_overwrite_confirmed = True
+        session.loaded_sgf_overwrite_confirmed = True
 
-    board.export_as_sgf(current_sgf_path)
-    status_var.set(t("status.saved_sgf", path=current_sgf_path))
+    board.export_as_sgf(session.sgf_path)
+    # 同步回模組全域變數（向後相容：切換 session 前由 hydrate 處理）
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    current_sgf_path = session.sgf_path
+    loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
+    # 【Phase 2】儲存成功 → 清掉 dirty 標記
+    session.is_dirty = False
+    refresh_tab_bar()
+    status_var.set(t("status.saved_sgf", path=session.sgf_path))
 
 def save_game_as_json_dialog():
     filename = filedialog.asksaveasfilename(
@@ -3487,6 +3673,10 @@ def save_game_as_json_dialog():
         status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf_dialog():
+    # 【多分頁 v1】改為讀寫 active session 的檔案狀態
+    session = tab_manager.active_session
+    if session is None:
+        return
     global current_sgf_path, loaded_sgf_overwrite_confirmed
 
     filename = filedialog.asksaveasfilename(
@@ -3496,11 +3686,21 @@ def save_game_as_sgf_dialog():
     )
     if filename:
         board.export_as_sgf(filename)
-        current_sgf_path = filename
-        loaded_sgf_overwrite_confirmed = True
+        session.sgf_path = filename
+        session.loaded_sgf_overwrite_confirmed = True
+        # 同步回模組全域變數（向後相容）
+        current_sgf_path = session.sgf_path
+        loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
+        # 【Phase 2】另存新檔成功 → 清掉 dirty
+        session.is_dirty = False
+        refresh_tab_bar()
         status_var.set(t("status.saved_sgf", path=filename))
 
 def on_load_sgf_click():
+    # 【多分頁 v1】改為讀寫 active session 的檔案狀態
+    session = tab_manager.active_session
+    if session is None:
+        return
     global current_sgf_path, loaded_sgf_overwrite_confirmed
 
     file_path = filedialog.askopenfilename(
@@ -3509,17 +3709,30 @@ def on_load_sgf_click():
     )
     if file_path:
         board.load_sgf(file_path)
-        current_sgf_path = file_path
-        loaded_sgf_overwrite_confirmed = False
+        session.sgf_path = file_path
+        session.loaded_sgf_overwrite_confirmed = False
+        # 【Phase 2】載入 SGF → dirty（已載入但尚未做任何編輯也視為未儲存變更的開端）
+        session.is_dirty = True
+        refresh_tab_bar()
+        # 同步回模組全域變數（向後相容）
+        current_sgf_path = session.sgf_path
+        loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
         status_var.set(t("status.loaded_sgf", path=file_path))
 
 def new_game():
+    # 【多分頁 v1】改為讀寫 active session 的檔案狀態
+    session = tab_manager.active_session
+    if session is None:
+        return
     global current_sgf_path, loaded_sgf_overwrite_confirmed, is_playback_mode
 
     if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
         return
-    current_sgf_path = None
-    loaded_sgf_overwrite_confirmed = False
+    session.sgf_path = None
+    session.loaded_sgf_overwrite_confirmed = False
+    # 同步回模組全域變數（向後相容）
+    current_sgf_path = session.sgf_path
+    loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
     # 【修復】新局開始 → 非回放模式
     is_playback_mode = False
     board.root_node = GameNode()
@@ -3857,7 +4070,7 @@ def show_feedback():
         link_box,
         text=FEEDBACK_FORM_URL,
         bg=TEACHER_TEXT_BG,
-        fg=ACCENT_DARK,
+        fg=ACCENT,
         font=("Consolas", 9),
         anchor="w",
     ).pack(fill="x")
@@ -5656,7 +5869,7 @@ def _create_katago_section(parent, katago_info):
 
     frame = ttk.LabelFrame(
         parent,
-        text=" KataGo 引擎狀態 ",
+        text=" KataGo Status",
         style="InfoCard.TLabelframe"
     )
 
@@ -5820,7 +6033,7 @@ def show_system_info_dialog():
 
         ttk.Label(
             container,
-            text="🖥 系統資訊與診斷",
+            text="🖥 System Information & Diagnostics",
             style="HeaderTitle.TLabel"
         ).pack(
             anchor="w"
@@ -5828,7 +6041,7 @@ def show_system_info_dialog():
 
         ttk.Label(
             container,
-            text="Developer Tools • 系統環境檢查 • KataGo 診斷",
+            text="Developer Tools • System Environment Check • KataGo Diagnostics",
             style="HeaderSub.TLabel"
         ).pack(
             anchor="w",
@@ -5845,7 +6058,7 @@ def show_system_info_dialog():
 
         _create_info_section(
             container,
-            "作業系統",
+            "OS",
             [
                 ("Windows Version", system_info["windows_version"]),
                 ("Windows Build", system_info["windows_build"]),
@@ -5855,7 +6068,7 @@ def show_system_info_dialog():
 
         _create_info_section(
             container,
-            "中央處理器 (CPU)",
+            "CPU",
             [
                 ("CPU Name", system_info["cpu_name"]),
                 ("CPU Core Count", system_info["cpu_core_count"]),
@@ -5865,7 +6078,7 @@ def show_system_info_dialog():
 
         _create_info_section(
             container,
-            "記憶體 (RAM)",
+            "RAM",
             [
                 ("Total RAM", system_info["total_ram"]),
                 ("Available RAM", system_info["available_ram"]),
@@ -5875,7 +6088,7 @@ def show_system_info_dialog():
 
         _create_info_section(
             container,
-            "顯卡 (GPU)",
+            "GPU",
             [
                 ("GPU Name", system_info["gpu_name"]),
                 ("GPU Memory", system_info["gpu_memory"]),
@@ -6912,6 +7125,304 @@ def build_menu_bar():
 
 menu_bar = build_menu_bar()
 
+# ============================================================
+# 【Phase 2】分頁列（自製外觀）
+# 放在 menu_bar 下方、main_frame 上方。
+# 每個分頁顯示：標題 + dirty 星號 + 關閉按鈕。
+# 切換時呼叫 hydrate_active_session()。
+# ============================================================
+tab_bar = tk.Frame(root, bg=PANEL_BG, height=34, highlightthickness=0)
+tab_bar.pack(side="top", fill="x", padx=0, pady=0)
+tab_bar.pack_propagate(False)
+
+_tab_buttons = []  # 暫存按鈕參考以避免被 GC
+
+
+def _close_tab_button(parent, idx, bg):
+    """建立分頁上的小關閉按鈕。"""
+    btn = tk.Label(
+        parent,
+        text="×",
+        width=2,
+        bg=bg,
+        fg=TEXT_MUTED,
+        cursor="hand2",
+        font=("Microsoft JhengHei", 10, "bold"),
+    )
+    btn.bind("<Button-1>", lambda e, i=idx: on_close_tab_click(i))
+    btn.bind("<Enter>", lambda e, b=btn: b.config(fg="#c0392b"))
+    btn.bind("<Leave>", lambda e, b=btn: b.config(fg=TEXT_MUTED))
+    return btn
+
+
+def refresh_tab_bar():
+    """依 tab_manager 狀態重繪分頁列。"""
+    global _tab_buttons
+    # 清空舊按鈕
+    for child in tab_bar.winfo_children():
+        child.destroy()
+    _tab_buttons = []
+
+    for idx, session in enumerate(tab_manager):
+        is_active = (idx == tab_manager.active_index)
+        bg = CURRENT_TAB if is_active else PANEL_BG
+        fg = TEXT_MAIN
+        border = ACTIVE_BORDER if is_active else PANEL_BORDER
+
+        tab_frame = tk.Frame(
+            tab_bar,
+            bg=bg,
+            highlightbackground=border,
+            highlightthickness=1,
+        )
+        tab_frame.pack(side="left", padx=(8, 0), pady=4)
+
+        title_text = session.display_title()
+        title_lbl = tk.Label(
+            tab_frame,
+            text=title_text,
+            bg=bg,
+            fg=fg,
+            padx=10,
+            pady=2,
+            cursor="hand2",
+            font=("Microsoft JhengHei", 10, "bold" if is_active else "normal"),
+        )
+        title_lbl.pack(side="left")
+        title_lbl.bind("<Button-1>", lambda e, i=idx: on_tab_click(i))
+
+        close_btn = _close_tab_button(tab_frame, idx, bg)
+        close_btn.pack(side="left", padx=(2, 6))
+        _tab_buttons.append((tab_frame, title_lbl, close_btn))
+
+    # 「+」新增分頁按鈕
+    new_btn = tk.Label(
+        tab_bar,
+        text="  +  ",
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        cursor="hand2",
+        font=("Microsoft JhengHei", 12, "bold"),
+    )
+    new_btn.pack(side="left", padx=(8, 0))
+    new_btn.bind("<Button-1>", lambda e: on_new_tab_click())
+    new_btn.bind("<Enter>", lambda e, b=new_btn: b.config(fg=ACCENT))
+    new_btn.bind("<Leave>", lambda e, b=new_btn: b.config(fg=TEXT_MUTED))
+    _tab_buttons.append((None, None, new_btn))
+
+
+def on_tab_click(idx):
+    """切換到指定分頁。會先把當前棋盤存回離開的 session，再從目標 session 還原。"""
+    if idx == tab_manager.active_index:
+        return
+    # 1) 把目前棋盤存回「即將離開」的分頁
+    leaving = tab_manager.active_session
+    _capture_board_snapshot(leaving)
+    # 2) 切換 active index
+    if not tab_manager.set_active(idx):
+        return
+    # 3) 從新 active session 還原棋盤
+    entering = tab_manager.active_session
+    _restore_board_snapshot(entering)
+    # 4) 重畫 + 同步全域狀態
+    board.rebuild_board()  # 觸發提子邏輯並 refresh_display
+    board.on_state_change()
+    hydrate_active_session()
+    refresh_tab_bar()
+
+
+def on_new_tab_click():
+    """新增空白分頁並切換過去。"""
+    new_session = tab_manager.create_session(title=t("tab.new_tab"))
+    if new_session is None:
+        # 已達分頁上限
+        messagebox.showwarning(
+            t("dialog.tab_limit_title"),
+            t("dialog.tab_limit_message", max_tabs=TabManager.MAX_TABS),
+        )
+        return
+    # 把目前棋盤存回「即將離開」的分頁
+    _capture_board_snapshot(tab_manager.active_session)
+    # 新 session 一律從空白棋盤開始（board_snapshot = None → _restore 會建空白）
+    _restore_board_snapshot(new_session)
+    # 必須呼叫 rebuild_board 以確保 board.board 結構正確且同步
+    board.rebuild_board()
+    # 同步全域 sgf_path（空白 → None）
+    new_session.sgf_path = None
+    new_session.loaded_sgf_overwrite_confirmed = False
+    new_session.is_dirty = False
+    # 同步回模組全域 + 清掉教師面板提示
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    current_sgf_path = None
+    loaded_sgf_overwrite_confirmed = False
+    board.on_state_change()
+    render_teacher_ui(t("teacher.default_message"))
+    status_var.set(t("status.new_game"))
+    refresh_tab_bar()
+
+
+def on_close_tab_click(idx):
+    """關閉分頁：dirty 時彈出 三選一（儲存 / 不儲存 / 取消）。
+
+    為了在關閉流程內支援 "儲存" 動作，會先暫時把這個分頁切為 active，
+    讓既有的 save_game_as_sgf / save_game_as_sgf_dialog 走原本的全域同步路徑。
+    """
+    session = tab_manager[idx]
+
+    if not session.is_dirty:
+        _close_tab_silently(idx)
+        return
+
+    # dirty 時使用自製三選一對話框（messagebox.askyesnocancel 是 yes/no/cancel，
+    # 但語意容易被使用者誤讀，所以用明確的 Custom Dialog）
+    choice = _show_close_tab_dialog(session)
+    if choice == "cancel":
+        return
+    if choice == "save":
+        # 把要關閉的分頁暫時切為 active，再走既有的 save 流程
+        previous_active_index = tab_manager.active_index
+        tab_manager.set_active(idx)
+        # 嘗試儲存（如果沒指定過路徑，會走 save_game_as_sgf_dialog）
+        if session.sgf_path:
+            save_game_as_sgf()
+        else:
+            save_game_as_sgf_dialog()
+        # 若使用者取消存檔對話框，sgf_path 仍為 None / 未變更，視為取消關閉
+        if session.is_dirty:
+            # 沒成功存檔 → 取消關閉
+            tab_manager.set_active(previous_active_index)
+            return
+        # 存檔成功，恢復原本 active 並關閉這個分頁
+        tab_manager.set_active(previous_active_index)
+        _close_tab_silently(idx)
+        return
+    # choice == "discard"
+    _close_tab_silently(idx)
+
+
+def _show_close_tab_dialog(session):
+    """彈出儲存 / 不儲存 / 取消 三選一對話框，回傳 'save' / 'discard' / 'cancel'。"""
+    dialog = tk.Toplevel(root)
+    dialog.title(t("dialog.close_tab_title"))
+    dialog.transient(root)
+    dialog.resizable(False, False)
+    dialog.configure(bg=PANEL_BG)
+
+    result = {"choice": "cancel"}
+
+    def _choose(value):
+        result["choice"] = value
+        dialog.destroy()
+
+    tk.Label(
+        dialog,
+        text=t("dialog.close_tab_message", title=session.display_title()),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10),
+        wraplength=360,
+        justify="left",
+        padx=18,
+        pady=16,
+    ).pack(fill="x")
+
+    btn_frame = tk.Frame(dialog, bg=PANEL_BG)
+    btn_frame.pack(fill="x", padx=18, pady=(0, 16))
+
+    ttk.Button(btn_frame, text=t("button.save"), command=lambda: _choose("save")).pack(side="left", padx=(0, 8))
+    ttk.Button(btn_frame, text=t("button.discard"), command=lambda: _choose("discard")).pack(side="left", padx=(0, 8))
+    ttk.Button(btn_frame, text=t("button.cancel"), command=lambda: _choose("cancel")).pack(side="right")
+
+    dialog.bind("<Escape>", lambda e: _choose("cancel"))
+    dialog.bind("<Return>", lambda e: _choose("save"))
+
+    dialog.update_idletasks()
+    x = root.winfo_rootx() + (root.winfo_width() - dialog.winfo_width()) // 2
+    y = root.winfo_rooty() + (root.winfo_height() - dialog.winfo_height()) // 3
+    dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+    dialog.grab_set()
+    root.wait_window(dialog)
+    return result["choice"]
+
+
+def _close_tab_silently(idx):
+    """實際執行關閉流程（含棋盤快照處理、hydrate 與 bar 重繪）。"""
+    was_active = (idx == tab_manager.active_index)
+    # 1) 若關閉的是 active 分頁，先把棋盤 snapshot 存進它（保持一致性；之後會丟棄）
+    if was_active:
+        _capture_board_snapshot(tab_manager.active_session)
+    ok, reason = tab_manager.close_session(idx)
+    if not ok:
+        return
+    # 2) 關閉後的 active 已是鄰近分頁，從它還原棋盤
+    _restore_board_snapshot(tab_manager.active_session)
+    board.rebuild_board()
+    board.on_state_change()
+    hydrate_active_session()
+    refresh_tab_bar()
+
+
+def _capture_board_snapshot(target_session):
+    """把當前 GoBoard 完整狀態寫入 target_session.board_snapshot。
+
+    包含：stones、整棵分支樹、目前游標位置、目前輪到誰下。
+    棋盤視覺與藍點不在快照範圍（切回時由 rebuild_board + refresh_display 重畫）。
+    """
+    if target_session is None:
+        return
+    target_session.board_snapshot = {
+        "stones": copy.deepcopy(board.stones),
+        "root_node": copy.deepcopy(board.root_node),
+        "current_node": None,  # 補：稍後用 id 比對重建
+        "current_node_id": id(board.current_node),
+        "current_color": board.current_color,
+    }
+    # 因為 deepcopy 後 current_node 已不是原物件，靠 id 對應回去
+    def find_by_id(node, target_id):
+        if id(node) == target_id:
+            return node
+        for child in node.children:
+            r = find_by_id(child, target_id)
+            if r is not None:
+                return r
+        return None
+    snap = target_session.board_snapshot
+    snap["current_node"] = find_by_id(snap["root_node"], snap["current_node_id"])
+
+
+def _restore_board_snapshot(source_session):
+    """從 source_session.board_snapshot 還原到 GoBoard；快照為 None 則建空白棋盤。"""
+    if source_session is None:
+        return
+    snap = source_session.board_snapshot
+    if snap is None:
+        board.root_node = GameNode()
+        board.current_node = board.root_node
+        board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        board.current_color = "black"
+        board.clear_blue_point()
+        return
+    board.root_node = copy.deepcopy(snap["root_node"])
+    board.current_node = snap["current_node"]  # 同一份 deepcopy 內，仍是有效物件
+    board.board = copy.deepcopy(snap["stones"])  # 19x19 list of tuples
+    board.current_color = snap["current_color"]
+    board.clear_blue_point()
+
+
+def hydrate_active_session():
+    """切換分頁後，把 active session 的檔案狀態與棋盤狀態回填。
+
+    注意：棋盤快照的「保存 → 載入」必須在切換點（on_tab_click / on_new_tab_click）
+    內顯式呼叫 _capture_board_snapshot() 與 _restore_board_snapshot()，
+    因為 hydrate_active_session 本身無法區分「哪個是即將離開的 session」。
+    """
+    global current_sgf_path, loaded_sgf_overwrite_confirmed
+    session = tab_manager.active_session
+    if session is None:
+        return
+    current_sgf_path = session.sgf_path
+    loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
+
 # 綁定方向鍵
 root.bind("<Up>", lambda e: board.undo())
 root.bind("<Down>", lambda e: board.redo())
@@ -6941,6 +7452,9 @@ main_frame.pack(fill="both", expand=True)
 main_frame.columnconfigure(0, weight=1)
 main_frame.columnconfigure(1, weight=0)
 main_frame.rowconfigure(0, weight=1)
+
+# 【Phase 2】初次繪製分頁列（顯示預設第一個分頁）
+refresh_tab_bar()
 
 board_shell = tk.Frame(main_frame, bg=PANEL_BG, highlightbackground=PANEL_BORDER, highlightthickness=1, padx=14, pady=14)
 board_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
@@ -7500,6 +8014,8 @@ def refresh_language():
     update_llm_model_label()
     winrate_label.config(text=render_winrate_text(winrate_display_state["key"], winrate_display_state["kwargs"]))
     branch_ui.draw_tree()
+    # 【Phase 5】語言切換後重繪分頁列，讓分頁標題（含 dirty 星號）與「+」按鈕文字隨語言更新
+    refresh_tab_bar()
 
 
 # 初始化 LLM Provider - 根據配置選擇提供商
@@ -7547,8 +8063,16 @@ def poll_ai():
     result = analyzer.get_result()
     # 【新增檢查】【Phase 1】如果正在整盤分析，就不要把結果畫到介面上
     if result and not analyzer.full_analyze_event.is_set():
-        update_ui_with_data(result) 
-    
+        # 【Phase 3】多分頁路由：
+        # 若此結果屬於非 active session，僅消費 queue、不更新 UI（避免切頁後誤把舊分析畫到新頁）
+        active = tab_manager.active_session
+        result_session_id = (result.get("session_id") if isinstance(result, dict) else None)
+        belongs_to_active = (active is None) or (result_session_id is None) or (result_session_id == active.session_id)
+        if belongs_to_active:
+            update_ui_with_data(result)
+        else:
+            logger.debug("略過非 active session 的分析結果: result_session=%s active=%s", result_session_id, active.session_id if active else None)
+
     try:
         root.after(UI_POLL_INTERVAL_MS, poll_ai)
     except tk.TclError:
