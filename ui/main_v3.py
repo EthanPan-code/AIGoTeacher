@@ -7224,8 +7224,10 @@ def on_tab_click(idx):
     # 3) 從新 active session 還原棋盤
     entering = tab_manager.active_session
     _restore_board_snapshot(entering)
-    # 4) 重畫 + 同步全域狀態
+    # 4) 重畫棋盤 + 分支樹 + 同步全域狀態
     board.rebuild_board()  # 觸發提子邏輯並 refresh_display
+    if hasattr(board, 'branch_ui') and board.branch_ui is not None:
+        board.branch_ui.draw_tree()  # 重畫分支樹，清掉殘留
     board.on_state_change()
     hydrate_active_session()
     refresh_tab_bar()
@@ -7247,6 +7249,9 @@ def on_new_tab_click():
     _restore_board_snapshot(new_session)
     # 必須呼叫 rebuild_board 以確保 board.board 結構正確且同步
     board.rebuild_board()
+    # 重畫分支樹，清掉前一個分頁的分支殘留
+    if hasattr(board, 'branch_ui') and board.branch_ui is not None:
+        board.branch_ui.draw_tree()
     # 同步全域 sgf_path（空白 → None）
     new_session.sgf_path = None
     new_session.loaded_sgf_overwrite_confirmed = False
@@ -7357,6 +7362,8 @@ def _close_tab_silently(idx):
     # 2) 關閉後的 active 已是鄰近分頁，從它還原棋盤
     _restore_board_snapshot(tab_manager.active_session)
     board.rebuild_board()
+    if hasattr(board, 'branch_ui') and board.branch_ui is not None:
+        board.branch_ui.draw_tree()
     board.on_state_change()
     hydrate_active_session()
     refresh_tab_bar()
@@ -7365,37 +7372,38 @@ def _close_tab_silently(idx):
 def _capture_board_snapshot(target_session):
     """把當前 GoBoard 完整狀態寫入 target_session.board_snapshot。
 
-    包含：stones、整棵分支樹、目前游標位置、目前輪到誰下。
-    棋盤視覺與藍點不在快照範圍（切回時由 rebuild_board + refresh_display 重畫）。
+    包含：stones、整棵分支樹、目前游標位置（用路徑索引記錄，避免 id 重用問題）、
+    目前輪到誰下。
     """
     if target_session is None:
         return
+    # 用「從 root 走哪條 child index」記錄 current_node 位置，穩定可重現
+    path = []
+    node = board.current_node
+    while node is not None and node.parent is not None:
+        parent = node.parent
+        idx = parent.children.index(node)
+        path.insert(0, idx)
+        node = parent
     target_session.board_snapshot = {
         "stones": copy.deepcopy(board.stones),
         "root_node": copy.deepcopy(board.root_node),
-        "current_node": None,  # 補：稍後用 id 比對重建
-        "current_node_id": id(board.current_node),
+        "current_node_path": path,  # 例如 [0, 1, 0] = root→child[0]→child[1]→child[0]
         "current_color": board.current_color,
     }
-    # 因為 deepcopy 後 current_node 已不是原物件，靠 id 對應回去
-    def find_by_id(node, target_id):
-        if id(node) == target_id:
-            return node
-        for child in node.children:
-            r = find_by_id(child, target_id)
-            if r is not None:
-                return r
-        return None
-    snap = target_session.board_snapshot
-    snap["current_node"] = find_by_id(snap["root_node"], snap["current_node_id"])
 
 
 def _restore_board_snapshot(source_session):
-    """從 source_session.board_snapshot 還原到 GoBoard；快照為 None 則建空白棋盤。"""
+    """從 source_session.board_snapshot 還原到 GoBoard；快照為 None 則建空白棋盤。
+
+    還原後 current_node 會正確指向 deepcopy 樹中的對應節點，
+    其 parent / children 關係完整保留，不會出現 NoneType 崩潰。
+    """
     if source_session is None:
         return
     snap = source_session.board_snapshot
     if snap is None:
+        # 空白棋盤
         board.root_node = GameNode()
         board.current_node = board.root_node
         board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
@@ -7403,8 +7411,14 @@ def _restore_board_snapshot(source_session):
         board.clear_blue_point()
         return
     board.root_node = copy.deepcopy(snap["root_node"])
-    board.current_node = snap["current_node"]  # 同一份 deepcopy 內，仍是有效物件
-    board.board = copy.deepcopy(snap["stones"])  # 19x19 list of tuples
+    # 依路徑索引找回 current_node
+    board.current_node = board.root_node
+    for idx in snap.get("current_node_path", []):
+        if board.current_node is not None and 0 <= idx < len(board.current_node.children):
+            board.current_node = board.current_node.children[idx]
+        else:
+            break
+    board.board = copy.deepcopy(snap["stones"])
     board.current_color = snap["current_color"]
     board.clear_blue_point()
 
