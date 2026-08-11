@@ -1,12 +1,12 @@
 {
   "i18n/en.json": {
-    "mtime": 1786154264.5881295,
-    "ast_hash": "1870fefa0479a658a08e10e0bf58bfc0",
+    "mtime": 1786358881.73064,
+    "ast_hash": "525821fa281661870a31d835c87fd315",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1786154264.3149543,
-    "ast_hash": "0cea8ca5819b2767df586eff59abfba0",
+    "mtime": 1786358881.73064,
+    "ast_hash": "e4ffec6541afa6b5b14162f284cdb2dc",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -80,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1786251170.4593153,
-    "ast_hash": "9d62d67ae805036de4ab1deeb0e5a8cd",
+    "mtime": 1786361743.0472395,
+    "ast_hash": "f130075fa1719c25f6f2a32b58c7c325",
     "semantic_hash": ""
   },
   "version.py": {
@@ -150,13 +150,13 @@
     "semantic_hash": ""
   },
   "services/theme_service.py": {
-    "mtime": 1786251170.1612372,
-    "ast_hash": "2d90a22cae0602102ae1fbdb2eac66df",
+    "mtime": 1786355682.115189,
+    "ast_hash": "98f21150194b81ff4cdb6ea50e125e2c",
     "semantic_hash": ""
   },
   "ui/fake_menu.py": {
-    "mtime": 1786250685.1766517,
-    "ast_hash": "1b433fb8069252cca064ff9a9c66abeb",
+    "mtime": 1786253320.6549516,
+    "ast_hash": "1746caa160a384277557a973f4c9ecb3",
     "semantic_hash": ""
   }
 }

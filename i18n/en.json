@@ -202,6 +202,8 @@
   "dialog.close_tab_message": "Tab \"{title}\" has unsaved changes. Close it anyway?",
   "dialog.tab_limit_title": "Tab Limit Reached",
   "dialog.tab_limit_message": "You can have at most {max_tabs} tabs open at the same time.",
+  "dialog.confirm_overwrite_current_tab_title": "Overwrite Current Tab",
+  "dialog.confirm_overwrite_current_tab_message": "The current tab already has stones. Loading an SGF will overwrite its content. Continue?",
   "dialog.feedback_title": "Feedback",
   "dialog.feedback_heading": "Help Improve AI Go Teacher",
   "dialog.feedback_message": "Thank you for using this tool. If you found a bug, have a suggestion, or want a better teaching experience, please send feedback through the form.",

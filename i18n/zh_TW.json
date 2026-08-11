@@ -205,6 +205,8 @@
   "dialog.close_tab_message": "分頁「{title}」有未儲存的變更，仍要關閉嗎？",
   "dialog.tab_limit_title": "已達分頁數量上限",
   "dialog.tab_limit_message": "最多只能同時開啟 {max_tabs} 個分頁。",
+  "dialog.confirm_overwrite_current_tab_title": "覆蓋目前分頁",
+  "dialog.confirm_overwrite_current_tab_message": "目前分頁已有棋子，載入棋譜會覆蓋現有內容。確定要繼續嗎？",
   "dialog.katago_title": "選擇 KataGo 執行檔",
   "dialog.model_title": "選擇 KataGo 模型檔案",
   "dialog.config_title": "選擇 KataGo 配置檔案",

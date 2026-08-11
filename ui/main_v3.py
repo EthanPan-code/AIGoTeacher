@@ -3708,9 +3708,18 @@ def on_load_sgf_click():
         filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
     )
     if file_path:
+        # 若目前分頁已有落子，詢問是否覆蓋
+        if board.stones:
+            if not messagebox.askyesno(
+                t("dialog.confirm_overwrite_current_tab_title"),
+                t("dialog.confirm_overwrite_current_tab_message"),
+            ):
+                return
         board.load_sgf(file_path)
         session.sgf_path = file_path
         session.loaded_sgf_overwrite_confirmed = False
+        # 分頁標題改為檔名（不含副檔名）
+        session.title = os.path.splitext(os.path.basename(file_path))[0]
         # 【Phase 2】載入 SGF → dirty（已載入但尚未做任何編輯也視為未儲存變更的開端）
         session.is_dirty = True
         refresh_tab_bar()
@@ -7373,11 +7382,26 @@ def _close_tab_silently(idx):
     refresh_tab_bar()
 
 
+def _copy_game_tree(node, parent=None):
+    """遞迴複製 GameNode 樹，不複製 parent（避免循環引用）。
+
+    回傳新樹的 root，所有節點的 parent 在複製後重新串接。
+    """
+    if node is None:
+        return None
+    new_node = GameNode(move=node.move, parent=parent)
+    new_node.active_child_idx = node.active_child_idx
+    for child in node.children:
+        new_child = _copy_game_tree(child, parent=new_node)
+        new_node.children.append(new_child)
+    return new_node
+
+
 def _capture_board_snapshot(target_session):
     """把當前 GoBoard 完整狀態寫入 target_session.board_snapshot。
 
-    包含：stones、整棵分支樹、目前游標位置（用路徑索引記錄，避免 id 重用問題）、
-    目前輪到誰下。
+    包含：stones、整棵分支樹（用自訂複製避免循環引用）、
+    目前游標位置（用路徑索引記錄）、目前輪到誰下。
     """
     if target_session is None:
         return
@@ -7390,9 +7414,9 @@ def _capture_board_snapshot(target_session):
         path.insert(0, idx)
         node = parent
     target_session.board_snapshot = {
-        "stones": copy.deepcopy(board.stones),
-        "root_node": copy.deepcopy(board.root_node),
-        "current_node_path": path,  # 例如 [0, 1, 0] = root→child[0]→child[1]→child[0]
+        "stones": [list(row) for row in board.stones],  # 淺複製 2D list 即可
+        "root_node": _copy_game_tree(board.root_node),  # 自訂複製，避免 deepcopy 循環
+        "current_node_path": path,
         "current_color": board.current_color,
     }
 
@@ -7414,7 +7438,7 @@ def _restore_board_snapshot(source_session):
         board.current_color = "black"
         board.clear_blue_point()
         return
-    board.root_node = copy.deepcopy(snap["root_node"])
+    board.root_node = snap["root_node"]  # 已是獨立複製，直接使用
     # 依路徑索引找回 current_node
     board.current_node = board.root_node
     for idx in snap.get("current_node_path", []):
@@ -7422,7 +7446,7 @@ def _restore_board_snapshot(source_session):
             board.current_node = board.current_node.children[idx]
         else:
             break
-    board.board = copy.deepcopy(snap["stones"])
+    board.board = [list(row) for row in snap["stones"]]  # 淺複製 2D list
     board.current_color = snap["current_color"]
     board.clear_blue_point()
 
