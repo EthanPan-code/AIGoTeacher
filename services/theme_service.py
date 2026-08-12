@@ -35,6 +35,10 @@ PALETTES = {
     "CURRENT_TAB": "#F3F1EE",
 
     "ACTIVE_BORDER": "#2bb8ff",
+    "WELCOME_BOARD_BG": "#d9a95f",
+    "WELCOME_PANEL_BG": "#fffaf2",
+    "WELCOME_PANEL_BORDER": "#b99b68",
+    "WELCOME_LINK": "#1967d2",
     },
     "dark": {
 
@@ -102,7 +106,11 @@ PALETTES = {
         # ========= Tab ========
 
         "CURRENT_TAB": "#414652",
-        "ACTIVE_BORDER": "#FF2B2B"
+        "ACTIVE_BORDER": "#FF2B2B",
+        "WELCOME_BOARD_BG": "#CEA15C",
+        "WELCOME_PANEL_BG": "#252a33",
+        "WELCOME_PANEL_BORDER": "#6d7788",
+        "WELCOME_LINK": "#78a7ff"
     }
 }
 

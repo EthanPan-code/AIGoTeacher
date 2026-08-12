@@ -2,6 +2,8 @@
   "app.title": "Go AI Teacher",
   "app.title_with_move": "Go AI Teacher - Move {moves}",
   "tab.default_title": "Untitled Board",
+  "tab.welcome_title": "Welcome",
+  "welcome.title": "Welcome",
   "tab.new_tab": "New Tab",
   "language.zh_TW": "繁體中文",
   "language.en": "English",

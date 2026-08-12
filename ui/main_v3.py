@@ -76,6 +76,10 @@ SELECTION_BG = None
 SELECTION_FG = None
 CURRENT_TAB = None
 ACTIVE_BORDER = None
+WELCOME_BOARD_BG = "#ead7a8"
+WELCOME_PANEL_BG = "#fffaf2"
+WELCOME_PANEL_BORDER = "#b99b68"
+WELCOME_LINK = "#1967d2"
 
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
@@ -751,11 +755,13 @@ class TabSession:
         "created_at",
         # 【棋盤快照】每分頁獨立保存 stones / 樹狀結構 / 當前顏色
         "board_snapshot",
+        "tab_type",
     )
 
-    def __init__(self, session_id, title):
+    def __init__(self, session_id, title, tab_type="game"):
         self.session_id = session_id
         self.title = title
+        self.tab_type = tab_type
         # --- 檔案狀態 ---
         self.sgf_path = None
         self.loaded_sgf_overwrite_confirmed = False
@@ -802,17 +808,18 @@ class TabManager:
         """建立第一個分頁並設為 active。供 main 流程開機時呼叫一次。"""
         if self._sessions:
             return self.active_session
-        return self.create_session(title=initial_title, mark_active=True)
+        tab_type = "welcome" if initial_title == t("tab.welcome_title") else "game"
+        return self.create_session(title=initial_title, mark_active=True, tab_type=tab_type)
 
     # ---------- 建立 / 移除 ----------
-    def create_session(self, title=t("tab.default_title"), mark_active=True):
+    def create_session(self, title=t("tab.default_title"), mark_active=True, tab_type="game"):
         """建立新分頁。若已達 MAX_TABS，回傳 None。"""
         if len(self._sessions) >= self.MAX_TABS:
             logger.warning("已達分頁上限 %d，拒絕新增", self.MAX_TABS)
             return None
         session_id = self._next_id
         self._next_id += 1
-        session = TabSession(session_id=session_id, title=title)
+        session = TabSession(session_id=session_id, title=title, tab_type=tab_type)
         self._sessions.append(session)
         if mark_active:
             self._active_index = len(self._sessions) - 1
@@ -875,7 +882,7 @@ class TabManager:
 # 【Phase 1 末段上線】多分頁管理器實例
 # 在 board / 全域 state 收斂完後，於 main() 流程初始化時使用。
 tab_manager = TabManager()
-tab_manager.initialize_default(initial_title=t("tab.default_title"))
+tab_manager.initialize_default(initial_title=t("tab.welcome_title"))
 
 # 【Phase 1】解說快取 — 儲存 LLM 生成的解說
 # Key 格式: (turn, player_move_str) → Value: 解說文本
@@ -3124,11 +3131,12 @@ class GoBoard(tk.Canvas):
         margin = MARGIN
 
         # 如果有自訂背景圖片，繪製背景
-        if self.board_bg_image:
+        if self.board_bg_image and not self.is_welcome_mode():
             self.create_image(0, 0, image=self.board_bg_image, anchor="nw")
         else:
             # 使用預設背景色
-            self.create_rectangle(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill=BOARD_BG, outline="")
+            board_fill = WELCOME_BOARD_BG if self.is_welcome_mode() else BOARD_BG
+            self.create_rectangle(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill=board_fill, outline="")
 
         # 畫線
         for i in range(BOARD_SIZE):
@@ -3145,6 +3153,50 @@ class GoBoard(tk.Canvas):
 
 
         self.draw_coordinates(margin)
+
+    def is_welcome_mode(self):
+        session = tab_manager.active_session
+        return session is not None and session.tab_type == "welcome"
+
+    def draw_welcome_overlay(self):
+        """在淺色棋盤上繪製不可落子的歡迎操作面板。"""
+        if not self.is_welcome_mode():
+            return
+        cx, cy = CANVAS_SIZE // 2, CANVAS_SIZE // 2
+        panel_w, panel_h = 330, 220
+        self.create_rectangle(
+            cx - panel_w // 2, cy - panel_h // 2,
+            cx + panel_w // 2, cy + panel_h // 2,
+            fill=WELCOME_PANEL_BG, outline=WELCOME_PANEL_BORDER,
+            width=2, tags=("welcome_panel",),
+        )
+        self.create_text(
+            cx, cy - 62, text=t("welcome.title"),
+            fill=TEXT_MAIN, font=("Microsoft JhengHei", 22, "bold"),
+            tags=("welcome_text",),
+        )
+        actions = (
+            ("welcome_new", f"1. {t('dialog.new_game_title')}", cy - 5),
+            ("welcome_load", f"2. {t('dialog.load_sgf_title')}", cy + 45),
+        )
+        for tag, label, y in actions:
+            self.create_text(
+                cx, y, text=label, fill=WELCOME_LINK,
+                font=("Microsoft JhengHei", 13, "underline"),
+                tags=("welcome_action", tag),
+            )
+            self.tag_bind(tag, "<Enter>", lambda _e, item=tag: self.itemconfigure(item, fill=ACCENT_DARK))
+            self.tag_bind(tag, "<Leave>", lambda _e, item=tag: self.itemconfigure(item, fill=WELCOME_LINK))
+
+    def _welcome_action_click(self, event):
+        if not self.is_welcome_mode():
+            return
+        item = self.find_closest(event.x, event.y)
+        tags = self.gettags(item)
+        if "welcome_new" in tags:
+            start_new_game_from_welcome()
+        elif "welcome_load" in tags:
+            on_load_sgf_click()
 
     def draw_coordinates(self, margin):
         font = ("Arial", 10)
@@ -3173,6 +3225,9 @@ class GoBoard(tk.Canvas):
             self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, y, text=row, font=font, fill=TEXT_MUTED)
 
     def preview(self, event):
+        if self.is_welcome_mode():
+            self.on_leave()
+            return
         if self.score_estimate_active:
             self._handle_recommendation_hover(None)
             return
@@ -3249,6 +3304,9 @@ class GoBoard(tk.Canvas):
         return True
 
     def on_click(self, event):
+        if self.is_welcome_mode():
+            self._welcome_action_click(event)
+            return
         if self.score_estimate_active:
             return
         margin = self.margin
@@ -3307,6 +3365,7 @@ class GoBoard(tk.Canvas):
     def refresh_display(self):
         self.delete("all")
         self.draw_board()
+        self.draw_welcome_overlay()
         margin = self.margin
 
         # 1. 繪製所有在棋盤上的棋子 (從 self.board 讀取，而非 history)
@@ -3715,6 +3774,8 @@ def on_load_sgf_click():
                 t("dialog.confirm_overwrite_current_tab_message"),
             ):
                 return
+        if session.tab_type == "welcome":
+            session.tab_type = "game"
         board.load_sgf(file_path)
         session.sgf_path = file_path
         session.loaded_sgf_overwrite_confirmed = False
@@ -3727,6 +3788,16 @@ def on_load_sgf_click():
         current_sgf_path = session.sgf_path
         loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
         status_var.set(t("status.loaded_sgf", path=file_path))
+        update_welcome_controls()
+
+
+def start_new_game_from_welcome():
+    session = tab_manager.active_session
+    if session is None or session.tab_type != "welcome":
+        return
+    session.tab_type = "game"
+    session.title = t("tab.default_title")
+    new_game()
 
 def new_game():
     # 【多分頁 v1】改為讀寫 active session 的檔案狀態
@@ -3734,6 +3805,10 @@ def new_game():
     if session is None:
         return
     global current_sgf_path, loaded_sgf_overwrite_confirmed, is_playback_mode
+
+    if session.tab_type == "welcome":
+        session.tab_type = "game"
+        session.title = t("tab.default_title")
 
     if board.stones and not messagebox.askyesno(t("dialog.new_game_title"), t("dialog.new_game_message")):
         return
@@ -3753,6 +3828,7 @@ def new_game():
     board.on_state_change()
     render_teacher_ui(t("teacher.default_message"))
     status_var.set(t("status.new_game"))
+    update_welcome_controls()
 
 def show_about():
     messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message", version=APP_VERSION))
@@ -7240,6 +7316,7 @@ def on_tab_click(idx):
     board.on_state_change()
     hydrate_active_session()
     refresh_tab_bar()
+    update_welcome_controls()
 
 
 def on_new_tab_click():
@@ -7277,6 +7354,7 @@ def on_new_tab_click():
     render_teacher_ui(t("teacher.default_message"))
     status_var.set(t("status.new_game"))
     refresh_tab_bar()
+    update_welcome_controls()
 
 
 def on_close_tab_click(idx):
@@ -7380,6 +7458,7 @@ def _close_tab_silently(idx):
     board.on_state_change()
     hydrate_active_session()
     refresh_tab_bar()
+    update_welcome_controls()
 
 
 def _copy_game_tree(node, parent=None):
@@ -7449,6 +7528,22 @@ def _restore_board_snapshot(source_session):
     board.board = [list(row) for row in snap["stones"]]  # 淺複製 2D list
     board.current_color = snap["current_color"]
     board.clear_blue_point()
+
+
+def update_welcome_controls():
+    """歡迎頁隱藏棋局操作能力，但保留檔案選單與中央兩個入口。"""
+    session = tab_manager.active_session
+    disabled = session is not None and session.tab_type == "welcome"
+    for name in (
+        "btn_analyze", "btn_full_analysis", "btn_undo", "btn_redo",
+        "btn_load_sgf", "btn_save_sgf_as", "btn_score_estimate",
+    ):
+        widget = globals().get(name)
+        if widget is not None:
+            try:
+                widget.configure(state="disabled" if disabled else "normal")
+            except tk.TclError:
+                pass
 
 
 def hydrate_active_session():
@@ -8028,6 +8123,7 @@ def apply_theme(theme_name, persist=True):
         )
         status_bar.configure(background=STATUS_BG, foreground=TEXT_MUTED)
         board.refresh_display()
+        update_welcome_controls()
         branch_ui.draw_tree()
         if 'board_frame_bg_label' in globals():
             board._apply_frame_background()
@@ -8038,6 +8134,8 @@ def apply_theme(theme_name, persist=True):
 apply_theme(configured_theme, persist=False)
 
 def refresh_language():
+    if tab_manager.active_session is not None and tab_manager.active_session.tab_type == "welcome":
+        tab_manager.active_session.title = t("tab.welcome_title")
     root.title(t("app.title_with_move", moves=len(board.stones)) if board.stones else t("app.title"))
 
     rebuild_menu_bar()
@@ -8056,6 +8154,8 @@ def refresh_language():
     update_llm_model_label()
     winrate_label.config(text=render_winrate_text(winrate_display_state["key"], winrate_display_state["kwargs"]))
     branch_ui.draw_tree()
+    board.refresh_display()
+    update_welcome_controls()
     # 【Phase 5】語言切換後重繪分頁列，讓分頁標題（含 dirty 星號）與「+」按鈕文字隨語言更新
     refresh_tab_bar()
 
