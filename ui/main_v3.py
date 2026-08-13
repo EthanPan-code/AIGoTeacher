@@ -1081,6 +1081,7 @@ class KataGoAnalyzer:
         include_ownership=False,
         include_ownership_stdev=False,
         session_id=None,
+        report_during_search_every=None,
     ):
         if self.closed or self.process.poll() is not None:
             return None
@@ -1129,6 +1130,8 @@ class KataGoAnalyzer:
             query["includeOwnership"] = True
         if include_ownership_stdev:
             query["includeOwnershipStdev"] = True
+        if report_during_search_every is not None:
+            query["reportDuringSearchEvery"] = report_during_search_every
 
         with self.lock:
             self.pending_queries[query_id] = {
@@ -1136,6 +1139,7 @@ class KataGoAnalyzer:
                 "pending_turns": set(analyze_turns),
                 "response_queue": target_queue,
                 "kind": query_kind,
+                "streaming": report_during_search_every is not None,
                 # 【Phase 3】多分頁路由：紀錄這個查詢是為哪個分頁發出的
                 "session_id": session_id,
             }
@@ -1178,17 +1182,20 @@ class KataGoAnalyzer:
                             )
                             continue
 
-                        pending["pending_turns"].remove(result_turn)
-                        if not pending["pending_turns"]:
-                            self.pending_queries.pop(query_id, None)
+                        if not pending.get("streaming"):
+                            pending["pending_turns"].remove(result_turn)
+                            if not pending["pending_turns"]:
+                                self.pending_queries.pop(query_id, None)
 
                         # 【Phase 3】把分頁身份附在 data 上，供 poll_ai 做路由判斷
                         if pending.get("session_id") is not None:
                             data["session_id"] = pending["session_id"]
+                        if pending.get("streaming"):
+                            data["continuous_analysis"] = True
                         pending["response_queue"].put(data)
                         
                         # 只有完整的分析結果(含rootInfo)才存入快取
-                        if "rootInfo" in data:
+                        if "rootInfo" in data and not pending.get("streaming"):
                             result_hash = self.get_board_hash_from_moves(pending["moves"][:result_turn])
                             self._store_cache(result_hash, data)
                 except json.JSONDecodeError as e:
@@ -1220,6 +1227,22 @@ class KataGoAnalyzer:
     def cancel_query(self, query_id):
         with self.lock:
             self.pending_queries.pop(query_id, None)
+
+    def discard_query_results(self, query_id):
+        """Remove already-queued responses belonging to a cancelled query."""
+        if not query_id:
+            return
+        retained = []
+        with self.lock:
+            while True:
+                try:
+                    result = self.response_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if result.get("id") != query_id:
+                    retained.append(result)
+            for result in retained:
+                self.response_queue.put(result)
 
     def close(self, timeout=2):
         self.closed = True
@@ -2518,7 +2541,7 @@ def update_ui_with_data(result):
         # 【改進】無論手數是否匹配，都將結果保存到快取
         # 這樣即使棋局推進，舊手數的分析結果仍可被查詢，用於判定失誤時的比較
         moves = result.get("moves", [])
-        if moves:
+        if moves and not result.get("continuous_analysis"):
             board_hash = analyzer.get_board_hash_from_moves(moves[:result_turn])
             analyzer._store_cache(board_hash, result)
             logger.debug("分析結果已快取: turn=%s cache_size=%s", result_turn, len(analyzer.analysis_cache))
@@ -2544,6 +2567,9 @@ def update_ui_with_data(result):
             board.clear_blue_point()
 
         # ====== 教學觸發邏輯 (原本的邏輯搬過來) ======
+        # 持續回報每秒更新棋盤資訊，但不能每秒重複觸發 LLM 解說。
+        if result.get("continuous_analysis"):
+            return
         last_move_gtp = "Pass"
         if board.stones:
             last_x, last_y, _ = board.stones[-1]
@@ -2578,9 +2604,41 @@ def update_ui_with_data(result):
     except (TypeError, ValueError, IndexError) as e:
         logger.warning("UI 更新失敗，分析結果格式或座標異常: error=%s result=%s", e, result)
 
+def stop_continuous_analysis(reason=None):
+    """Stop the active continuous query and clear its routing state."""
+    global continuous_analysis_query_id, continuous_analysis_enabled
+    query_id = continuous_analysis_query_id
+    continuous_analysis_query_id = None
+    was_enabled = continuous_analysis_enabled
+    continuous_analysis_enabled = False
+    if query_id is not None and analyzer is not None:
+        analyzer.cancel_query(query_id)
+        analyzer.discard_query_results(query_id)
+    if was_enabled:
+        board.clear_blue_point()
+        if reason:
+            logger.info("持續分析已停止: reason=%s query_id=%s", reason, query_id)
+    update_continuous_analysis_ui()
+
+
+def update_continuous_analysis_ui():
+    """Refresh controls that expose the continuous-analysis state."""
+    if globals().get("menu_bar") is not None:
+        try:
+            rebuild_menu_bar()
+        except (AttributeError, tk.TclError):
+            pass
+
+
 def on_analyze_button_click():
+    global is_playback_mode, continuous_analysis_enabled, continuous_analysis_query_id
     if not is_analyzer_ready():
         show_analyzer_not_ready()
+        return
+
+    if continuous_analysis_enabled:
+        stop_continuous_analysis("user_toggle")
+        set_winrate_text("analysis.not_analyzed")
         return
 
     # 【修復】手動分析 → 非回放模式，允許觸發 LLM 解說
@@ -2592,10 +2650,19 @@ def on_analyze_button_click():
     set_winrate_text("analysis.ai_thinking")
     # 【Phase 3】附上 active session id
     _active = tab_manager.active_session
-    analyzer.send_query(
+    query_id = analyzer.send_query(
         board.stones,
+        query_kind="continuous",
+        use_cache=False,
         session_id=_active.session_id if _active is not None else None,
+        report_during_search_every=1,
     )
+    if query_id is None:
+        set_winrate_text("analysis.not_analyzed")
+        return
+    continuous_analysis_query_id = query_id
+    continuous_analysis_enabled = True
+    update_continuous_analysis_ui()
 
 
 
@@ -3101,6 +3168,8 @@ class GoBoard(tk.Canvas):
             self._show_playback_commentary()
 
     def on_state_change(self):
+        if continuous_analysis_enabled:
+            stop_continuous_analysis("board_state_changed")
         if self.score_estimate_active:
             self.clear_score_estimate()
             update_score_estimate_button_label()
@@ -7191,6 +7260,8 @@ llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
 analyzer = None
 analyzer_initializing = False
+continuous_analysis_enabled = False
+continuous_analysis_query_id = None
 is_shutting_down = False
 data_cleanup_completed = False
 current_sgf_path = None
@@ -7212,6 +7283,7 @@ def on_closing():
     if is_shutting_down and not data_cleanup_completed:
         return
     is_shutting_down = True
+    stop_continuous_analysis("application_closing")
     analyzer_initializing = False
 
     try:
@@ -7337,7 +7409,10 @@ def build_menu_bar():
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
         ]},
         {"label": t("menu.analysis"), "items": [
-            command(t("menu.analyze_current"), on_analyze_button_click, "Ctrl+R"),
+            {"type": "check", "label": t("menu.analyze_current"),
+             "get_state": lambda: continuous_analysis_enabled,
+             "command": on_analyze_button_click,
+             "accelerator": "Ctrl+R"},
             command(t("menu.full_analysis"), show_winrate_chart, "Ctrl+Shift+R"),
         ]},
         {"label": t("menu.settings"), "items": [
@@ -7487,6 +7562,7 @@ def on_tab_click(idx):
     """切換到指定分頁。會先把當前棋盤存回離開的 session，再從目標 session 還原。"""
     if idx == tab_manager.active_index:
         return
+    stop_continuous_analysis("tab_switched")
     # 1) 把目前棋盤存回「即將離開」的分頁
     leaving = tab_manager.active_session
     _capture_board_snapshot(leaving)
@@ -7508,6 +7584,7 @@ def on_tab_click(idx):
 
 def on_new_tab_click():
     """新增空白分頁並切換過去。"""
+    stop_continuous_analysis("new_tab")
     # 1) 先記住即將離開的 session，把當前棋盤存進去
     leaving_session = tab_manager.active_session
     _capture_board_snapshot(leaving_session)
@@ -7631,6 +7708,8 @@ def _show_close_tab_dialog(session):
 def _close_tab_silently(idx):
     """實際執行關閉流程（含棋盤快照處理、hydrate 與 bar 重繪）。"""
     was_active = (idx == tab_manager.active_index)
+    if was_active:
+        stop_continuous_analysis("tab_closed")
     # 1) 若關閉的是 active 分頁，先把棋盤 snapshot 存進它（保持一致性；之後會丟棄）
     if was_active:
         _capture_board_snapshot(tab_manager.active_session)
@@ -7997,6 +8076,8 @@ def create_katago_startup_popup():
 
 def start_analyzer_async(show_success=False, replacing=False):
     global analyzer, analyzer_initializing
+
+    stop_continuous_analysis("analyzer_reinitializing")
 
     if analyzer_initializing:
         status_var.set(t("status.katago_initializing"))
