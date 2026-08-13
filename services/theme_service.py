@@ -30,7 +30,7 @@ PALETTES = {
 
     "INFO": "#1976a3", "SELECTION_BG": "#ead7b8", "SELECTION_FG": "#2f271f",
 
-    "LOG_BG": "#1e1e1e", "LOG_FG": "#d4d4d4",         
+    "LOG_BG": "#1e1e1e", "LOG_FG": "#d4d4d4",
 
     "CURRENT_TAB": "#F3F1EE",
 
@@ -39,6 +39,17 @@ PALETTES = {
     "WELCOME_PANEL_BG": "#fffaf2",
     "WELCOME_PANEL_BORDER": "#b99b68",
     "WELCOME_LINK": "#1967d2",
+
+    # ===== Combobox (ttk + popdown Listbox) =====
+    "COMBO_FIELD_BG": "#ffffff",       # 文字輸入區底色
+    "COMBO_FIELD_FG": "#2f271f",       # 輸入區文字色
+    "COMBO_ARROW_BG": "#ead7b8",       # 下拉箭頭按鈕底色
+    "COMBO_ARROW_FG": "#2f271f",       # 箭頭圖示色
+    "COMBO_BORDER": "#b99b68",         # 邊框色
+    "COMBO_DROPDOWN_BG": "#fffaf2",    # 下拉清單底色
+    "COMBO_DROPDOWN_FG": "#2f271f",    # 下拉清單文字色
+    "COMBO_DROPDOWN_SELECT_BG": "#1f6f78",  # 下拉清單選中底色
+    "COMBO_DROPDOWN_SELECT_FG": "#ffffff",  # 下拉清單選中文字色
     },
     "dark": {
 
@@ -110,7 +121,18 @@ PALETTES = {
         "WELCOME_BOARD_BG": "#CEA15C",
         "WELCOME_PANEL_BG": "#252a33",
         "WELCOME_PANEL_BORDER": "#6d7788",
-        "WELCOME_LINK": "#78a7ff"
+        "WELCOME_LINK": "#78a7ff",
+
+        # ===== Combobox (ttk + popdown Listbox) =====
+        "COMBO_FIELD_BG": "#2A2F38",        # 輸入區底色（與 INPUT_BG 同步偏深）
+        "COMBO_FIELD_FG": "#ECEFF3",        # 輸入區文字色
+        "COMBO_ARROW_BG": "#303642",        # 箭頭按鈕底色
+        "COMBO_ARROW_FG": "#E6E8EB",        # 箭頭圖示色
+        "COMBO_BORDER": "#4A4F58",          # 邊框色
+        "COMBO_DROPDOWN_BG": "#1B1D22",     # 下拉清單底色
+        "COMBO_DROPDOWN_FG": "#E6E8EB",     # 下拉清單文字色
+        "COMBO_DROPDOWN_SELECT_BG": "#3C8E3D",  # 下拉清單選中底色
+        "COMBO_DROPDOWN_SELECT_FG": "#FFFFFF",  # 下拉清單選中文字色
     }
 }
 

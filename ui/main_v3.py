@@ -76,6 +76,15 @@ SELECTION_BG = None
 SELECTION_FG = None
 CURRENT_TAB = None
 ACTIVE_BORDER = None
+COMBO_FIELD_BG = None
+COMBO_FIELD_FG = None
+COMBO_ARROW_BG = None
+COMBO_ARROW_FG = None
+COMBO_BORDER = None
+COMBO_DROPDOWN_BG = None
+COMBO_DROPDOWN_FG = None
+COMBO_DROPDOWN_SELECT_BG = None
+COMBO_DROPDOWN_SELECT_FG = None
 WELCOME_BOARD_BG = "#ead7a8"
 WELCOME_PANEL_BG = "#fffaf2"
 WELCOME_PANEL_BORDER = "#b99b68"
@@ -990,12 +999,14 @@ class KataGoAnalyzer:
         self.response_queue = queue.Queue()
         self.analysis_cache = OrderedDict() # LRU：存儲已經分析過的局面
         self.pending_queries = {} # query_id -> {"board_hash": ..., "turn": ...}
+        self.cancelled_query_ids = set()
         self.query_counter = itertools.count(1)
         self.cache_hits = 0
         self.cache_misses = 0
         
         # 【Phase 1】線程安全機制
         self.lock = threading.Lock()  # 保護 response_queue 和 analysis_cache
+        self.write_lock = threading.Lock()  # 保護對 KataGo stdin 的寫入
         self.full_analyze_event = threading.Event()  # 原子操作替代 is_full_analyzing 全局標誌
         
         # 啟動讀取執行緒，避免阻塞 UI
@@ -1145,8 +1156,9 @@ class KataGoAnalyzer:
             }
 
         try:
-            self.process.stdin.write(json.dumps(query) + "\n")
-            self.process.stdin.flush()
+            with self.write_lock:
+                self.process.stdin.write(json.dumps(query) + "\n")
+                self.process.stdin.flush()
             return query_id
         except (BrokenPipeError, OSError) as e:
             with self.lock:
@@ -1167,11 +1179,21 @@ class KataGoAnalyzer:
                 try:
                     data = json.loads(line)
                     query_id = data["id"]
+                    # terminate/query_models 等控制查詢會回傳 action 物件，
+                    # 它們不是一般分析結果，不需要進入分析 pending 流程。
+                    if data.get("action") in {"terminate", "terminate_all", "query_models"}:
+                        logger.debug("收到 KataGo 控制回應: action=%s id=%s", data.get("action"), query_id)
+                        continue
                     # 【Phase 1】使用鎖保護 queue 和快取的寫入
                     with self.lock:
                         pending = self.pending_queries.get(query_id)
                         if pending is None:
-                            logger.warning("收到未知或已處理的 KataGo 回應，丟棄: id=%s", query_id)
+                            if query_id in self.cancelled_query_ids:
+                                if data.get("isDuringSearch") is False:
+                                    self.cancelled_query_ids.discard(query_id)
+                                logger.debug("收到已終止查詢的回應，丟棄: id=%s during=%s", query_id, data.get("isDuringSearch"))
+                            else:
+                                logger.warning("收到未知或已處理的 KataGo 回應，丟棄: id=%s", query_id)
                             continue
 
                         result_turn = data["turnNumber"]
@@ -1228,6 +1250,33 @@ class KataGoAnalyzer:
         with self.lock:
             self.pending_queries.pop(query_id, None)
 
+    def terminate_query(self, query_id):
+        """Ask KataGo to stop an analysis query immediately, then detach it."""
+        if not query_id or self.closed or self.process.poll() is not None:
+            self.cancel_query(query_id)
+            return False
+
+        control_id = f"terminate_{next(self.query_counter)}"
+        terminate = {
+            "id": control_id,
+            "action": "terminate",
+            "terminateId": query_id,
+        }
+        try:
+            with self.write_lock:
+                self.process.stdin.write(json.dumps(terminate) + "\n")
+                self.process.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            logger.warning("KataGo terminate 指令送出失敗: query_id=%s error=%s", query_id, e)
+            self.cancel_query(query_id)
+            return False
+
+        with self.lock:
+            self.cancelled_query_ids.add(query_id)
+            self.pending_queries.pop(query_id, None)
+        logger.debug("已送出 KataGo terminate: query_id=%s control_id=%s", query_id, control_id)
+        return True
+
     def discard_query_results(self, query_id):
         """Remove already-queued responses belonging to a cancelled query."""
         if not query_id:
@@ -1248,6 +1297,7 @@ class KataGoAnalyzer:
         self.closed = True
         with self.lock:
             self.pending_queries.clear()
+            self.cancelled_query_ids.clear()
 
         if not self.process:
             return
@@ -2612,17 +2662,24 @@ def stop_continuous_analysis(reason=None):
     was_enabled = continuous_analysis_enabled
     continuous_analysis_enabled = False
     if query_id is not None and analyzer is not None:
-        analyzer.cancel_query(query_id)
+        analyzer.terminate_query(query_id)
         analyzer.discard_query_results(query_id)
-    if was_enabled:
-        board.clear_blue_point()
-        if reason:
-            logger.info("持續分析已停止: reason=%s query_id=%s", reason, query_id)
+    if was_enabled and reason:
+        logger.info("持續分析已停止: reason=%s query_id=%s", reason, query_id)
     update_continuous_analysis_ui()
 
 
 def update_continuous_analysis_ui():
     """Refresh controls that expose the continuous-analysis state."""
+    button = globals().get("btn_analyze")
+    if button is not None:
+        try:
+            button.configure(
+                text=t("button.cancel_continuous" if continuous_analysis_enabled else "button.analyze"),
+                style="CancelContinuous.TButton" if continuous_analysis_enabled else "Primary.TButton",
+            )
+        except tk.TclError:
+            pass
     if globals().get("menu_bar") is not None:
         try:
             rebuild_menu_bar()
@@ -2638,7 +2695,6 @@ def on_analyze_button_click():
 
     if continuous_analysis_enabled:
         stop_continuous_analysis("user_toggle")
-        set_winrate_text("analysis.not_analyzed")
         return
 
     # 【修復】手動分析 → 非回放模式，允許觸發 LLM 解說
@@ -2655,7 +2711,7 @@ def on_analyze_button_click():
         query_kind="continuous",
         use_cache=False,
         session_id=_active.session_id if _active is not None else None,
-        report_during_search_every=1,
+        report_during_search_every=0.2,
     )
     if query_id is None:
         set_winrate_text("analysis.not_analyzed")
@@ -7227,6 +7283,8 @@ style.configure("Muted.TLabel", background=PANEL_BG, foreground=TEXT_MUTED)
 style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN, font=("Microsoft JhengHei", 13, "bold"))
 style.configure("Primary.TButton", background=ACCENT, foreground="white", padding=(14, 8), borderwidth=0)
 style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", "#9eb9bd")])
+style.configure("CancelContinuous.TButton", background=ERROR, foreground=STONE_WHITE, padding=(14, 8), borderwidth=0)
+style.map("CancelContinuous.TButton", background=[("active", ACCENT_DARK), ("disabled", PANEL_BORDER)])
 style.configure(
     "Tool.TButton",
     background=PANEL_BG,
@@ -7251,7 +7309,36 @@ style.map(
 )
 style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN, padding=(10, 7))
 style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
-style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+style.configure(
+    "TCombobox",
+    fieldbackground=COMBO_FIELD_BG,
+    foreground=COMBO_FIELD_FG,
+    background=COMBO_FIELD_BG,
+    arrowcolor=COMBO_ARROW_FG,
+    bordercolor=COMBO_BORDER,
+    lightcolor=COMBO_FIELD_BG,
+    darkcolor=COMBO_BORDER,
+    selectbackground=COMBO_DROPDOWN_SELECT_BG,
+    selectforeground=COMBO_DROPDOWN_SELECT_FG,
+)
+style.map(
+    "TCombobox",
+    fieldbackground=[("readonly", COMBO_FIELD_BG), ("disabled", PANEL_BG)],
+    foreground=[("disabled", TEXT_MUTED)],
+    background=[("active", COMBO_ARROW_BG), ("pressed", COMBO_ARROW_BG), ("readonly", COMBO_FIELD_BG)],
+    bordercolor=[("focus", ACCENT), ("!focus", COMBO_BORDER)],
+    arrowcolor=[("disabled", TEXT_MUTED), ("!disabled", COMBO_ARROW_FG)],
+)
+# 【修正】下拉清單 (Popdown Listbox) 是獨立 Tk widget，不受 ttk style 控制
+# 必須透過 root.option_add 才能在主題切換時同步變色
+try:
+    root.option_add("*TCombobox*Listbox.background", COMBO_DROPDOWN_BG, "interactive")
+    root.option_add("*TCombobox*Listbox.foreground", COMBO_DROPDOWN_FG, "interactive")
+    root.option_add("*TCombobox*Listbox.selectBackground", COMBO_DROPDOWN_SELECT_BG, "interactive")
+    root.option_add("*TCombobox*Listbox.selectForeground", COMBO_DROPDOWN_SELECT_FG, "interactive")
+    root.option_add("*TCombobox*Listbox.font", ("Microsoft JhengHei", 10), "interactive")
+except (tk.TclError, AttributeError):
+    pass
 style.configure("TCheckbutton", background=PANEL_BG, foreground=TEXT_MAIN)
 style.configure("TRadiobutton", background=PANEL_BG, foreground=TEXT_MAIN)
 
@@ -7409,7 +7496,8 @@ def build_menu_bar():
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
         ]},
         {"label": t("menu.analysis"), "items": [
-            {"type": "check", "label": t("menu.analyze_current"),
+            {"type": "check",
+             "label": t("menu.cancel_continuous" if continuous_analysis_enabled else "menu.analyze_current"),
              "get_state": lambda: continuous_analysis_enabled,
              "command": on_analyze_button_click,
              "accelerator": "Ctrl+R"},
@@ -8339,6 +8427,8 @@ def apply_theme(theme_name, persist=True):
         style.configure("Title.TLabel", background=PANEL_BG, foreground=TEXT_MAIN)
         style.configure("Primary.TButton", background=ACCENT, foreground=STONE_WHITE)
         style.map("Primary.TButton", background=[("active", ACCENT_DARK), ("disabled", PANEL_BORDER)])
+        style.configure("CancelContinuous.TButton", background=ERROR, foreground=STONE_WHITE)
+        style.map("CancelContinuous.TButton", background=[("active", ACCENT_DARK), ("disabled", PANEL_BORDER)])
         style.configure(
             "Tool.TButton",
             background=PANEL_BG,
@@ -8362,7 +8452,34 @@ def apply_theme(theme_name, persist=True):
         )
         style.configure("Feedback.TButton", background=PANEL_BG, foreground=TEXT_MAIN)
         style.configure("TEntry", fieldbackground=INPUT_BG, foreground=INPUT_FG)
-        style.configure("TCombobox", fieldbackground=INPUT_BG, foreground=INPUT_FG)
+        style.configure(
+            "TCombobox",
+            fieldbackground=COMBO_FIELD_BG,
+            foreground=COMBO_FIELD_FG,
+            background=COMBO_FIELD_BG,
+            arrowcolor=COMBO_ARROW_FG,
+            bordercolor=COMBO_BORDER,
+            lightcolor=COMBO_FIELD_BG,
+            darkcolor=COMBO_BORDER,
+            selectbackground=COMBO_DROPDOWN_SELECT_BG,
+            selectforeground=COMBO_DROPDOWN_SELECT_FG,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", COMBO_FIELD_BG), ("disabled", PANEL_BG)],
+            foreground=[("disabled", TEXT_MUTED)],
+            background=[("active", COMBO_ARROW_BG), ("pressed", COMBO_ARROW_BG), ("readonly", COMBO_FIELD_BG)],
+            bordercolor=[("focus", ACCENT), ("!focus", COMBO_BORDER)],
+            arrowcolor=[("disabled", TEXT_MUTED), ("!disabled", COMBO_ARROW_FG)],
+        )
+        # 【修正】下拉清單 (Popdown Listbox) 在主題切換時同步更新
+        try:
+            root.option_add("*TCombobox*Listbox.background", COMBO_DROPDOWN_BG, "interactive")
+            root.option_add("*TCombobox*Listbox.foreground", COMBO_DROPDOWN_FG, "interactive")
+            root.option_add("*TCombobox*Listbox.selectBackground", COMBO_DROPDOWN_SELECT_BG, "interactive")
+            root.option_add("*TCombobox*Listbox.selectForeground", COMBO_DROPDOWN_SELECT_FG, "interactive")
+        except (tk.TclError, AttributeError):
+            pass
         style.configure("TCheckbutton", background=PANEL_BG, foreground=TEXT_MAIN)
         style.configure("TRadiobutton", background=PANEL_BG, foreground=TEXT_MAIN)
     except (NameError, tk.TclError):
@@ -8409,7 +8526,7 @@ def refresh_language():
     rebuild_menu_bar()
 
     ai_analysis_label.config(text=t("label.ai_analysis"))
-    btn_analyze.config(text=t("button.analyze"))
+    update_continuous_analysis_ui()
     btn_full_analysis.config(text=t("button.full_analysis"))
     btn_undo.config(text=t("button.undo"))
     btn_redo.config(text=t("button.redo"))
