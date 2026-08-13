@@ -11,3 +11,4 @@ httpx
 pydantic
 requests
 certifi
+pywinstyles

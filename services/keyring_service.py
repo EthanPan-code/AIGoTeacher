@@ -51,3 +51,25 @@ def get_openrouter_api_key():
 def set_openrouter_api_key(api_key):
     """Store OpenRouter API key in the OS keyring. Does not write to .env."""
     keyring.set_password(SERVICE_NAME, OPENROUTER_API_KEY_USERNAME, normalize_api_key(api_key))
+
+
+def _delete_api_key(username):
+    """Delete one application credential, treating a missing credential as success."""
+    try:
+        keyring.delete_password(SERVICE_NAME, username)
+    except Exception as exc:
+        password_delete_error = getattr(getattr(keyring, "errors", None), "PasswordDeleteError", ())
+        if password_delete_error and isinstance(exc, password_delete_error):
+            return False
+        raise
+    return True
+
+
+def delete_nvidia_api_key():
+    """Delete the NVIDIA API key owned by this application."""
+    return _delete_api_key(NVIDIA_API_KEY_USERNAME)
+
+
+def delete_openrouter_api_key():
+    """Delete the OpenRouter API key owned by this application."""
+    return _delete_api_key(OPENROUTER_API_KEY_USERNAME)

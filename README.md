@@ -4,7 +4,7 @@
 [![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)](https://katagotraining.org/)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-red)](https://mit-license.org/)
-[![Version](https://img.shields.io/badge/Version-0.4.0--beta-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
+[![Version](https://img.shields.io/badge/Version-0.5.0--beta-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
 
 ---
 

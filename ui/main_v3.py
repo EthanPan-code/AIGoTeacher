@@ -257,6 +257,8 @@ LOADED_DOTENV_PATHS = load_runtime_dotenv()
 
 from services.config_service import ConfigService
 from services.keyring_service import (
+    delete_nvidia_api_key,
+    delete_openrouter_api_key,
     get_nvidia_api_key,
     get_openrouter_api_key,
     normalize_api_key,
@@ -6540,6 +6542,188 @@ def show_analysis_log_dialog():
         width=12
     ).grid(row=3, column=0, sticky="se")
 
+
+def _runtime_data_inventory():
+    """Return only application-owned, non-SGF data that may be cleared."""
+    runtime_root = get_runtime_data_root()
+    if is_frozen_app():
+        tuning_paths = [os.path.join(runtime_root, "KataGoData")]
+    else:
+        tuning_paths = list(dict.fromkeys([
+            os.path.join(runtime_root, "opencltuning"),
+            os.path.join(runtime_root, "KataGoData"),
+            os.path.join(os.getcwd(), "opencltuning"),
+        ]))
+    items = [
+        {"id": "settings", "label": t("delete_data.settings"),
+         "paths": [get_runtime_file_path("ui_settings.json")], "kind": "file"},
+        {"id": "logs", "label": t("delete_data.logs"),
+         "paths": [os.path.join(runtime_root, "analysis_logs"),
+                   os.path.join(runtime_root, "logs", "analysis_logs")],
+         "kind": "directory"},
+        {"id": "diagnostics", "label": t("delete_data.diagnostics"),
+         "paths": [os.path.join(runtime_root, "diagnostics")], "kind": "directory"},
+        {"id": "tuning", "label": t("delete_data.tuning"),
+         "paths": tuning_paths, "kind": "directory"},
+    ]
+    if is_frozen_app():
+        items.append({"id": "runtime", "label": t("delete_data.runtime"),
+                      "paths": [os.path.join(runtime_root, RUNTIME_BUNDLE_DIR_NAME)],
+                      "kind": "directory"})
+    return items
+
+
+def _delete_runtime_path(path, kind):
+    """Delete one inventory path without following links or escaping app roots."""
+    if not os.path.lexists(path):
+        return False
+    normalized = os.path.abspath(path)
+    roots = [os.path.abspath(get_runtime_data_root()), os.path.abspath(PROJECT_ROOT)]
+    if not any(os.path.commonpath([normalized, root]) == root for root in roots):
+        raise ValueError(f"Refusing to delete path outside application data roots: {path}")
+    if kind == "file":
+        if os.path.isdir(path) and not os.path.islink(path):
+            raise ValueError(f"Expected a file, got a directory: {path}")
+        os.remove(path)
+    elif os.path.islink(path):
+        os.remove(path)
+    else:
+        shutil.rmtree(path)
+    return True
+
+
+def _clear_selected_runtime_data(selected_ids):
+    """Stop engine processes and clear selected data, returning result rows."""
+    global is_shutting_down, analyzer_initializing, data_cleanup_completed
+    analyzer_initializing = False
+    is_shutting_down = True
+    data_cleanup_completed = True
+    for owner, label in ((analyzer, "KataGo"), (score_analyzer, "Score KataGo")):
+        if owner and hasattr(owner, "process"):
+            try:
+                owner.close(timeout=3)
+            except Exception as exc:
+                logger.warning("Unable to close %s before data deletion: %s", label, exc)
+
+    results = []
+    for item in _runtime_data_inventory():
+        if item["id"] not in selected_ids:
+            continue
+        for path in item["paths"]:
+            try:
+                _delete_runtime_path(path, item["kind"])
+            except Exception as exc:
+                logger.exception("Failed to delete runtime data: %s", path)
+                results.append((item["label"], path, False, str(exc)))
+            else:
+                results.append((item["label"], path, not os.path.lexists(path), ""))
+
+    if "credentials" in selected_ids:
+        for label, delete_func in (
+            (t("delete_data.nvidia_key"), delete_nvidia_api_key),
+            (t("delete_data.openrouter_key"), delete_openrouter_api_key),
+        ):
+            try:
+                delete_func()
+            except Exception as exc:
+                logger.exception("Failed to delete credential: %s", label)
+                results.append((label, t("delete_data.keyring_location"), False, str(exc)))
+            else:
+                results.append((label, t("delete_data.keyring_location"), True, ""))
+    return results
+
+
+def show_delete_data_dialog():
+    """Show a guarded, itemized dialog for deleting application runtime data."""
+    win = tk.Toplevel(root)
+    win.title(t("delete_data.title"))
+    win.transient(root)
+    win.grab_set()
+    win.resizable(False, False)
+    win.configure(bg=PANEL_BG)
+    try:
+        win.iconbitmap(resource_path("image/logo.ico"))
+        pywinstyles.change_header_color(win, color=PANEL_BG)
+        pywinstyles.change_title_color(win, color=TEXT_MAIN)
+    except Exception:
+        pass
+
+    outer = tk.Frame(win, bg=PANEL_BG, padx=20, pady=18)
+    outer.pack(fill="both", expand=True)
+    tk.Label(outer, text=t("delete_data.warning_title"), bg=PANEL_BG,
+             fg=ERROR, font=("Microsoft JhengHei", 14, "bold")).pack(anchor="w")
+    tk.Label(outer, text=t("delete_data.warning_message"), bg=PANEL_BG,
+             fg=ERROR, justify="left", wraplength=640,
+             font=("Microsoft JhengHei", 10, "bold")).pack(anchor="w", pady=(6, 14))
+
+    variables = {}
+    for item in _runtime_data_inventory():
+        variable = tk.BooleanVar(value=False)
+        variables[item["id"]] = variable
+        row = tk.Frame(outer, bg=PANEL_BG)
+        row.pack(fill="x", pady=2)
+        tk.Checkbutton(row, text=item["label"], variable=variable, bg=PANEL_BG,
+                       fg=TEXT_MAIN, activebackground=PANEL_BG,
+                       activeforeground=TEXT_MAIN, selectcolor=INPUT_BG,
+                       anchor="w", font=("Microsoft JhengHei", 10)).pack(side="left")
+        tk.Label(row, text=" / ".join(item["paths"]), bg=PANEL_BG, fg=TEXT_MUTED,
+                 font=("Consolas", 8)).pack(side="right")
+
+    variables["credentials"] = tk.BooleanVar(value=False)
+    tk.Checkbutton(outer, text=t("delete_data.credentials"),
+                   variable=variables["credentials"], bg=PANEL_BG, fg=ERROR,
+                   activebackground=PANEL_BG, activeforeground=ERROR,
+                   selectcolor=INPUT_BG, anchor="w",
+                   font=("Microsoft JhengHei", 10, "bold")).pack(fill="x", pady=(8, 2))
+    tk.Label(outer, text=t("delete_data.credentials_hint"), bg=PANEL_BG,
+             fg=TEXT_MUTED, justify="left", wraplength=640,
+             font=("Microsoft JhengHei", 9)).pack(anchor="w", padx=(24, 0))
+
+    buttons = tk.Frame(outer, bg=PANEL_BG)
+    buttons.pack(fill="x", pady=(18, 0))
+    delete_button = ttk.Button(buttons, text=t("button.delete"), state="disabled")
+    delete_button.pack(side="right")
+    ttk.Button(buttons, text=t("button.cancel"), command=win.destroy).pack(side="right", padx=(0, 8))
+
+    def refresh_button(*_args):
+        delete_button.configure(state="normal" if any(v.get() for v in variables.values()) else "disabled")
+
+    for variable in variables.values():
+        variable.trace_add("write", refresh_button)
+
+    def confirm_and_delete():
+        selected = {item_id for item_id, variable in variables.items() if variable.get()}
+        if not selected:
+            return
+        labels = [item["label"] for item in _runtime_data_inventory() if item["id"] in selected]
+        if "credentials" in selected:
+            labels.append(t("delete_data.credentials"))
+        if not messagebox.askyesno(
+            t("delete_data.confirm_title"),
+            t("delete_data.confirm_message", items="\n".join(f"• {label}" for label in labels)),
+            parent=win,
+        ):
+            return
+        delete_button.configure(state="disabled")
+        results = _clear_selected_runtime_data(selected)
+        win.destroy()
+        failed = [row for row in results if not row[2]]
+        if failed:
+            detail = "\n".join(f"• {label}: {error}" for label, _, _, error in failed)
+            messagebox.showerror(t("delete_data.result_error_title"),
+                                 t("delete_data.result_partial", detail=detail), parent=root)
+        else:
+            messagebox.showinfo(t("delete_data.result_title"),
+                                t("delete_data.result_success"), parent=root)
+        messagebox.showwarning(t("delete_data.restart_title"),
+                               t("delete_data.restart_message"), parent=root)
+
+    delete_button.configure(command=confirm_and_delete)
+    win.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width() - win.winfo_width()) // 2
+    y = root.winfo_y() + (root.winfo_height() - win.winfo_height()) // 2
+    win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
 def show_custom_prompt_dialog():
     """顯示自訂提示詞對話框"""
     from providers import tone_templates
@@ -7008,6 +7192,7 @@ language_var = tk.StringVar(value=i18n.language)
 analyzer = None
 analyzer_initializing = False
 is_shutting_down = False
+data_cleanup_completed = False
 current_sgf_path = None
 loaded_sgf_overwrite_confirmed = False
 
@@ -7024,7 +7209,7 @@ data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)
 
 def on_closing():
     global is_shutting_down, analyzer_initializing
-    if is_shutting_down:
+    if is_shutting_down and not data_cleanup_completed:
         return
     is_shutting_down = True
     analyzer_initializing = False
@@ -7175,6 +7360,8 @@ def build_menu_bar():
                 for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items()
             ]},
             command(t("menu.custom_prompts"), show_custom_prompt_dialog),
+            {"type": "separator"},
+            command(t("menu.delete_data"), show_delete_data_dialog),
             {"type": "separator"},
             command(t("menu.reinit_analyzer"), reinitialize_analyzer),
         ]},

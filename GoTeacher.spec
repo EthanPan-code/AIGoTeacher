@@ -55,6 +55,7 @@ a = Analysis(
         *collect_submodules('win32ctypes'),
         *collect_submodules('opencc'),
         *collect_submodules('PIL'),
+        *collect_submodules('pywinstyles'),
         'certifi',
         'charset_normalizer',
         'idna',
