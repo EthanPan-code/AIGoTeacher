@@ -38,6 +38,5 @@
   "36": "_handle_score_estimate_result",
   "37": "show_first_run_onboarding_dialog",
   "38": "add_to_commentary_cache",
-  "39": "detect_ollama_installed",
-  "40": ".get_nim_publisher_for_model"
+  "39": "detect_ollama_installed"
 }

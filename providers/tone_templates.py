@@ -4,9 +4,15 @@ Single-block LLM prompt templates for AI Go teacher commentary.
 The application appends move number, student move, winrate drop, and KataGo's
 recommendation in code. These templates should stay plain text and should not
 require user-editable placeholders.
+
+Display names and descriptions are looked up via the i18n `t()` function so the
+UI shows English names when the user's language is set to English, etc. The
+raw Chinese keys are kept only as a fallback when no translator is available
+(e.g. headless / early-init contexts).
 """
 
-TONE_DISPLAY_NAMES = {
+# 硬編碼的中文 fallback。正式 UI 顯示請用 get_tone_display_name() / get_tone_description()。
+_TONE_DISPLAY_NAMES_FALLBACK = {
     "strict": "嚴格/專業",
     "friendly": "友善/鼓勵",
     "concise": "簡潔/直接",
@@ -15,7 +21,7 @@ TONE_DISPLAY_NAMES = {
     "motivational": "激勵/心理",
 }
 
-TONE_DESCRIPTIONS = {
+_TONE_DESCRIPTIONS_FALLBACK = {
     "strict": "直接指出問題，適合進階棋友。",
     "friendly": "溫和鼓勵，適合初學者。",
     "concise": "短而清楚，適合快速複盤。",
@@ -23,6 +29,11 @@ TONE_DESCRIPTIONS = {
     "socratic": "用問題引導學生自己思考。",
     "motivational": "重視信心與下一步練習方向。",
 }
+
+# 向後相容：舊代碼若仍直接 import TONE_DISPLAY_NAMES / TONE_DESCRIPTIONS 仍可運作
+# （init 階段沒有 i18n translator 時退到中文 fallback）。正式 UI 請用函式版本。
+TONE_DISPLAY_NAMES = _TONE_DISPLAY_NAMES_FALLBACK
+TONE_DESCRIPTIONS = _TONE_DESCRIPTIONS_FALLBACK
 
 TONE_PROMPTS = {
     "strict": (
@@ -62,12 +73,46 @@ def get_tone_prompt(tone: str, translator=None) -> str:
     return TONE_PROMPTS.get(tone, TONE_PROMPTS["friendly"])
 
 
-def get_all_tones() -> dict:
+def _resolve_translator(translator):
+    """若呼叫端未提供 translator，嘗試用 ui.i18n 全域 t()。"""
+    if translator is not None:
+        return translator
+    try:
+        from ui.i18n import t as _t  # 避免循環引用；只在需要時 import
+        return _t
+    except Exception:
+        return None
+
+
+def get_tone_display_name(tone: str, translator=None) -> str:
+    """取得 tone 對應的本地化名稱。translator 為 None 時退到中文 fallback。"""
+    t = _resolve_translator(translator)
+    if t is not None:
+        try:
+            return t(f"tone.{tone}")
+        except Exception:
+            pass
+    return _TONE_DISPLAY_NAMES_FALLBACK.get(tone, tone)
+
+
+def get_tone_description(tone: str, translator=None) -> str:
+    """取得 tone 對應的本地化描述。translator 為 None 時退到中文 fallback。"""
+    t = _resolve_translator(translator)
+    if t is not None:
+        try:
+            return t(f"tone.{tone}_desc")
+        except Exception:
+            pass
+    return _TONE_DESCRIPTIONS_FALLBACK.get(tone, "")
+
+
+def get_all_tones(translator=None) -> dict:
+    """回傳所有 tone 的本地化資訊，給 UI 列表/選單用。"""
     return {
         tone_id: {
             "id": tone_id,
-            "name": TONE_DISPLAY_NAMES[tone_id],
-            "description": TONE_DESCRIPTIONS.get(tone_id, ""),
+            "name": get_tone_display_name(tone_id, translator),
+            "description": get_tone_description(tone_id, translator),
         }
-        for tone_id in TONE_DISPLAY_NAMES
+        for tone_id in _TONE_DISPLAY_NAMES_FALLBACK
     }

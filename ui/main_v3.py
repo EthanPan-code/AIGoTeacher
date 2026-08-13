@@ -5699,11 +5699,11 @@ def show_llm_selection_dialog():
 def set_llm_tone(tone: str):
     """設定 LLM 回應語氣"""
     from providers import tone_templates
-    
+
     config_service.set_llm_tone(tone)
     config_service.save()
-    
-    tone_name = tone_templates.TONE_DISPLAY_NAMES.get(tone, tone)
+
+    tone_name = tone_templates.get_tone_display_name(tone, translator=t)
     status_var.set(t("status.tone_changed", tone=tone_name))
     
     # 更新全局 provider 實例的語氣（如果存在）
@@ -7518,9 +7518,9 @@ def build_menu_bar():
             ]},
             command(t("menu.llm_model"), show_llm_selection_dialog),
             {"type": "submenu", "label": t("menu.llm_tone"), "items": [
-                radio(tone_name, tone_id, current_tone_var,
+                radio(t(f"tone.{tone_id}"), tone_id, current_tone_var,
                       lambda selected=tone_id: set_llm_tone(selected))
-                for tone_id, tone_name in tone_templates.TONE_DISPLAY_NAMES.items()
+                for tone_id in tone_templates.TONE_DISPLAY_NAMES
             ]},
             command(t("menu.custom_prompts"), show_custom_prompt_dialog),
             {"type": "separator"},
