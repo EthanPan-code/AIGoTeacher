@@ -7573,21 +7573,30 @@ tab_bar.pack_propagate(False)
 _tab_buttons = []  # 暫存按鈕參考以避免被 GC
 
 
-def _close_tab_button(parent, idx, bg):
-    """建立分頁上的小關閉按鈕。"""
+def _tab_options_button(parent, idx, bg):
+    """建立分頁選項按鈕，提供複製與移除操作。"""
     btn = tk.Label(
         parent,
-        text="×",
+        text="⁝",
         width=2,
         bg=bg,
         fg=TEXT_MUTED,
         cursor="hand2",
         font=("Microsoft JhengHei", 10, "bold"),
     )
-    btn.bind("<Button-1>", lambda e, i=idx: on_close_tab_click(i))
-    btn.bind("<Enter>", lambda e, b=btn: b.config(fg="#c0392b"))
+    btn.bind("<Button-1>", lambda e, i=idx, b=btn: _show_tab_options_menu(i, b))
+    btn.bind("<Enter>", lambda e, b=btn: b.config(fg=ACCENT))
     btn.bind("<Leave>", lambda e, b=btn: b.config(fg=TEXT_MUTED))
     return btn
+
+
+def _show_tab_options_menu(idx, button):
+    """在指定分頁按鈕旁顯示分頁操作選單。"""
+    menu = tk.Menu(root, tearoff=False)
+    menu.add_command(label=t("tab.copy"), command=lambda: on_copy_tab_click(idx))
+    menu.add_command(label=t("tab.remove"), command=lambda: on_close_tab_click(idx))
+    menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+    menu.grab_release()
 
 
 def refresh_tab_bar():
@@ -7626,9 +7635,9 @@ def refresh_tab_bar():
         title_lbl.pack(side="left")
         title_lbl.bind("<Button-1>", lambda e, i=idx: on_tab_click(i))
 
-        close_btn = _close_tab_button(tab_frame, idx, bg)
-        close_btn.pack(side="left", padx=(2, 6))
-        _tab_buttons.append((tab_frame, title_lbl, close_btn))
+        options_btn = _tab_options_button(tab_frame, idx, bg)
+        options_btn.pack(side="left", padx=(2, 6))
+        _tab_buttons.append((tab_frame, title_lbl, options_btn))
 
     # 「+」新增分頁按鈕
     new_btn = tk.Label(
@@ -7707,6 +7716,42 @@ def on_new_tab_click():
     status_var.set(t("status.new_game"))
     refresh_tab_bar()
     update_welcome_controls()
+
+
+def on_copy_tab_click(idx):
+    """複製指定分頁的棋局內容，但保持目前 active 分頁不變。"""
+    if not (0 <= idx < len(tab_manager)):
+        return
+
+    source_session = tab_manager[idx]
+    if idx == tab_manager.active_index:
+        _capture_board_snapshot(source_session)
+
+    source_snapshot = source_session.board_snapshot
+    new_session = tab_manager.create_session(
+        title=t("tab.copy_title", title=source_session.title),
+        mark_active=False,
+        tab_type=source_session.tab_type,
+    )
+    if new_session is None:
+        messagebox.showwarning(
+            t("dialog.tab_limit_title"),
+            t("dialog.tab_limit_message", max_tabs=TabManager.MAX_TABS),
+        )
+        return
+
+    # 重新建立所有可變資料，避免兩個分頁共用 stones 或 GameNode 節點。
+    if source_snapshot is not None:
+        new_session.board_snapshot = {
+            "stones": [list(row) for row in source_snapshot["stones"]],
+            "root_node": _copy_game_tree(source_snapshot["root_node"]),
+            "current_node_path": list(source_snapshot["current_node_path"]),
+            "current_color": source_snapshot["current_color"],
+        }
+    new_session.sgf_path = None
+    new_session.loaded_sgf_overwrite_confirmed = False
+    new_session.is_dirty = False
+    refresh_tab_bar()
 
 
 def on_close_tab_click(idx):
