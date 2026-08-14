@@ -46,7 +46,7 @@ class LLMProvider:
 
         from . import tone_templates
 
-        return tone_templates.get_tone_prompt(self.tone)
+        return tone_templates.get_tone_prompt(self.tone, language=self.language_getter())
 
     def build_commentary_prompt(self, data: dict) -> str:
         """Build the final prompt sent to the model from plain user text plus data."""

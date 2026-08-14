@@ -292,6 +292,33 @@ i18n = I18n(
 )
 config_service = ConfigService(i18n)
 
+
+def switch_app_language(language):
+    """Switch language and migrate only an untouched preset custom prompt."""
+    if language not in i18n.available_languages or language == i18n.language:
+        return
+
+    from providers import tone_templates
+
+    previous_language = i18n.language
+    custom_prompt = config_service.get_custom_prompt("")
+    preset_tone = tone_templates.find_preset_tone(custom_prompt, previous_language)
+    migrated_prompt = None
+    if preset_tone is not None:
+        migrated_prompt = tone_templates.get_tone_prompt(preset_tone, language=language)
+        config_service.set_custom_prompt(migrated_prompt)
+
+    i18n.set_language(language)
+
+    if migrated_prompt is not None:
+        try:
+            if hasattr(analyzer, "provider") and analyzer.provider:
+                analyzer.provider.set_custom_prompt(migrated_prompt)
+            if current_llm_worker:
+                current_llm_worker.set_custom_prompt(migrated_prompt)
+        except (NameError, AttributeError) as exc:
+            print(f"更新提供商提示詞失敗: {exc}")
+
 # Resolve ``system`` once at startup; changing Windows appearance while the
 # app is running intentionally does not trigger an implicit switch.
 configured_theme, _theme_palette = resolve_theme(config_service.get_ui_theme())
@@ -476,7 +503,7 @@ def show_first_run_onboarding_dialog():
         # 套用語言（i18n.set_language 會寫入 settings dict，但尚未 save 到磁碟）
         new_lang = language_var_local.get()
         if new_lang in i18n.available_languages and new_lang != i18n.language:
-            i18n.set_language(new_lang)
+            switch_app_language(new_lang)
             language_var.set(new_lang)
             # 立即重新翻譯 dialog 內所有字串（讓切換視覺上即時生效）
             _refresh_dialog_strings()
@@ -622,7 +649,7 @@ def show_first_run_onboarding_dialog():
 
         # 寫入語言（若與目前不同則 i18n.set_language 已寫進 settings dict）
         if chosen_lang != i18n.language:
-            i18n.set_language(chosen_lang)
+            switch_app_language(chosen_lang)
             language_var.set(chosen_lang)
 
         # 寫入 LLM provider
@@ -6532,8 +6559,8 @@ def create_dev_menu():
         {"type": "command", "label": t("menu.export_diagnostics"), "command": export_diagnostic_report},
         {"type": "separator"},
         {"type": "command", "label": t("menu.check_log_title"), "command": show_analysis_log_dialog},
-        {"type": "separator"},
-        {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
+        # {"type": "separator"},
+        # {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
     ]
 
 
@@ -6884,7 +6911,7 @@ def show_custom_prompt_dialog():
     prompt_text.config(yscrollcommand=prompt_scrollbar.set)
 
     custom_prompt = config_service.get_custom_prompt("")
-    prompt_text.insert("1.0", custom_prompt or tone_templates.get_tone_prompt(current_tone))
+    prompt_text.insert("1.0", custom_prompt or tone_templates.get_tone_prompt(current_tone, language=i18n.language))
     
     # 按鈕區塊
     button_frame = ttk.Frame(main_frame)
@@ -7436,7 +7463,7 @@ def build_menu_bar():
         }
 
     def set_language(language):
-        i18n.set_language(language)
+        switch_app_language(language)
         language_var.set(language)
         refresh_language()
         status_var.set(t("status.language_changed", language=t(f"language.{language}")))
@@ -8569,6 +8596,34 @@ def apply_theme(theme_name, persist=True):
 # 初始執行
 apply_theme(configured_theme, persist=False)
 
+
+def refresh_teacher_static_message():
+    """Refresh a known static teacher prompt without touching LLM output."""
+    try:
+        current_message = teacher_text.get("1.0", "end-1c").strip()
+    except (NameError, tk.TclError):
+        return
+
+    if not current_message:
+        return
+
+    # Read both translations so a prompt shown before the language switch can
+    # still be recognized after i18n.translations has changed.
+    for key in (
+        "teacher.default_message",
+        "teacher.thinking",
+        "teacher.nvidia_thinking",
+        "teacher.openrouter_thinking",
+        "teacher.nvidia_fallback",
+        "teacher.openrouter_fallback",
+    ):
+        for language in i18n.available_languages:
+            translation = i18n._load_file(language).get(key)
+            if translation and current_message == translation.strip():
+                render_teacher_ui(t(key))
+                return
+
+
 def refresh_language():
     if tab_manager.active_session is not None and tab_manager.active_session.tab_type == "welcome":
         tab_manager.active_session.title = t("tab.welcome_title")
@@ -8587,6 +8642,7 @@ def refresh_language():
     branch_title_label.config(text=t("branch.tree_title"))
     # branch_hint_label.config(text=t("branch.collapse_hint"))
     teacher_title_label.config(text=t("label.teacher"))
+    refresh_teacher_static_message()
     update_llm_model_label()
     winrate_label.config(text=render_winrate_text(winrate_display_state["key"], winrate_display_state["kwargs"]))
     branch_ui.draw_tree()

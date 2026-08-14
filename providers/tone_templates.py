@@ -62,6 +62,37 @@ TONE_PROMPTS = {
     ),
 }
 
+TONE_PROMPTS_EN = {
+    "strict": (
+        "You are a rigorous Go teacher. Based on the position information provided by the system, "
+        "directly point out the main problem with the student's move and explain why KataGo's recommendation "
+        "is better. Keep the tone professional and precise, without excessive reassurance. Keep it under 60 words."
+    ),
+    "friendly": (
+        "You are a friendly Go teacher. Based on the position information provided by the system, give the student "
+        "an easy-to-understand suggestion in English. First acknowledge the idea behind the move, then explain its "
+        "problem and the benefit of KataGo's recommendation. Keep it under 80 words."
+    ),
+    "concise": (
+        "You are a concise Go commentator. Based on the position information provided by the system, use as few words "
+        "as possible to point out the problem, the recommended direction, and what to watch for next. Keep it under 40 words."
+    ),
+    "detailed": (
+        "You are a Go teacher skilled at breaking down Go principles. Based on the position information provided by the system, "
+        "explain the student's move, KataGo's recommendation, the risk represented by the win-rate change, and one idea to practice. "
+        "Do not pretend to see local details that are not in the data. Keep it under 150 words."
+    ),
+    "socratic": (
+        "You are a Go teacher who guides students with questions. Based on the position information provided by the system, "
+        "ask 2 to 3 short questions to help the student think, then add one hint so they understand the direction of KataGo's recommendation. "
+        "Keep it under 80 words."
+    ),
+    "motivational": (
+        "You are an encouraging Go teacher. Based on the position information provided by the system, first help the student maintain confidence, "
+        "then point out the cost of the move, and finish with one clear, actionable direction for improvement. Keep it under 90 words."
+    ),
+}
+
 PRESET_PROMPTS = {
     "default": TONE_PROMPTS["friendly"],
     "expert": TONE_PROMPTS["detailed"],
@@ -69,8 +100,24 @@ PRESET_PROMPTS = {
 }
 
 
-def get_tone_prompt(tone: str, translator=None) -> str:
-    return TONE_PROMPTS.get(tone, TONE_PROMPTS["friendly"])
+def get_tone_prompt(tone: str, translator=None, language=None) -> str:
+    """Return the preset prompt in the requested UI language."""
+    if language is None and translator is not None:
+        # Translators in the UI expose the active language through their owner,
+        # but plain translator callables do not. Keep the historical Chinese
+        # fallback for those callers.
+        language = getattr(getattr(translator, "__self__", None), "language", None)
+    prompts = TONE_PROMPTS_EN if language == "en" else TONE_PROMPTS
+    return prompts.get(tone, prompts["friendly"])
+
+
+def find_preset_tone(prompt: str, language=None):
+    """Return the tone if prompt is an untouched preset, otherwise ``None``."""
+    if not prompt:
+        return None
+    prompts = TONE_PROMPTS_EN if language == "en" else TONE_PROMPTS
+    normalized = prompt.strip()
+    return next((tone for tone, preset in prompts.items() if normalized == preset), None)
 
 
 def _resolve_translator(translator):
