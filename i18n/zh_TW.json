@@ -221,7 +221,7 @@
   "delete_data.title": "刪除應用程式資料",
   "delete_data.warning_title": "危險操作：刪除資料",
   "delete_data.warning_message": "此操作無法復原。刪除設定可能使程式恢復預設值；刪除調校資料後，下次啟動可能需要重新調校 GPU。請確認只選取不再需要的資料。",
-  "delete_data.settings": "ui_settings.json（介面與模型設定）",
+  "delete_data.settings": "介面與模型設定檔",
   "delete_data.logs": "KataGo 日誌",
   "delete_data.diagnostics": "診斷報告",
   "delete_data.tuning": "KataGo GPU 調校資料",

@@ -48,8 +48,8 @@ ACCENT_DARK = "#15565d"
 STONE_BLACK = "#171717"
 STONE_WHITE = "#f7f3eb"
 BEST_MOVE_BLUE = "#1967d2"
-RECOMMENDATION_LIMIT = 5
-RECOMMENDATION_GREENS = ["#0b6b3a", "#198754", "#2ea66a", "#55bf7f"]
+RECOMMENDATION_LIMIT = 10
+RECOMMENDATION_GREENS = ["#226a45", "#198754", "#2ea66a", "#55bf7f"]
 RECOMMENDATION_RADIUS = 15
 VARIATION_HOVER_DELAY_MS = 1000
 VARIATION_PREVIEW_LIMIT = 12
@@ -6680,7 +6680,7 @@ def _runtime_data_inventory():
             os.path.join(os.getcwd(), "opencltuning"),
         ]))
     items = [
-        {"id": "settings", "label": t("delete_data.settings"),
+        {"id": "settings", "label": t("delete_data.settings"), 
          "paths": [get_runtime_file_path("ui_settings.json")], "kind": "file"},
         {"id": "logs", "label": t("delete_data.logs"),
          "paths": [os.path.join(runtime_root, "analysis_logs"),
