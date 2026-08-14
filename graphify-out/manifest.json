@@ -1,12 +1,12 @@
 {
   "i18n/en.json": {
-    "mtime": 1786617102.673375,
-    "ast_hash": "9777f69cfcefe243f899af057462d836",
+    "mtime": 1786700484.3391347,
+    "ast_hash": "4945e7d84a01d21d8bbf115a811a8614",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1786617090.1227398,
-    "ast_hash": "a54940e9edb1904b0c0366283c6c0561",
+    "mtime": 1786700479.7735932,
+    "ast_hash": "a6de7d81c891bf7d5df92017e7ae9133",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -15,9 +15,9 @@
     "semantic_hash": ""
   },
   "providers/base.py": {
-    "mtime": 1783419758.7779293,
-    "ast_hash": "b4ae456ec240d64a90f7f9dd5769dbce",
-    "semantic_hash": "b4ae456ec240d64a90f7f9dd5769dbce"
+    "mtime": 1786700940.883434,
+    "ast_hash": "c27a59ee8dc8af2f7cd40a5efa696468",
+    "semantic_hash": ""
   },
   "providers/nvidia_provider.py": {
     "mtime": 1785590850.5629504,
@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "providers/tone_templates.py": {
-    "mtime": 1786629375.6545885,
-    "ast_hash": "668a6fd0e2d78865f6997305e80a6f18",
+    "mtime": 1786700940.5569956,
+    "ast_hash": "834bf28b179cdab4460bd0fe32404e14",
     "semantic_hash": ""
   },
   "pyinstaller.py": {
@@ -80,8 +80,8 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1786629383.0743067,
-    "ast_hash": "857d5bc20ae6106bbb0df65f79a6210b",
+    "mtime": 1786702518.8865318,
+    "ast_hash": "9708054c4fcea9a6b4731b54eb2a69e4",
     "semantic_hash": ""
   },
   "version.py": {

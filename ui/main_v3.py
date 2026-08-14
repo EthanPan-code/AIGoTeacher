@@ -6559,6 +6559,7 @@ def create_dev_menu():
         {"type": "command", "label": t("menu.export_diagnostics"), "command": export_diagnostic_report},
         {"type": "separator"},
         {"type": "command", "label": t("menu.check_log_title"), "command": show_analysis_log_dialog},
+        # llm chat box
         # {"type": "separator"},
         # {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
     ]
@@ -8167,6 +8168,7 @@ teacher_text = tk.Text(
 )
 teacher_text.pack(fill="both", expand=True, pady=(6, 0))
 
+# status bar doesn't apppear ∵ no enough space
 status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 1), background="#e8dfd2", foreground=TEXT_MUTED)
 status_bar.pack(side="bottom", fill="x")
 
