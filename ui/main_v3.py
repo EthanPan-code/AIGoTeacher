@@ -6789,14 +6789,20 @@ def show_delete_data_dialog():
         row.pack(fill="x", pady=2)
         tk.Checkbutton(row, text=item["label"], variable=variable, bg=PANEL_BG,
                        fg=TEXT_MAIN, activebackground=PANEL_BG,
-                       activeforeground=TEXT_MAIN, selectcolor=INPUT_BG,
+                       activeforeground=ERROR, selectcolor=INPUT_BG,
                        anchor="w", font=("Microsoft JhengHei", 10)).pack(side="left")
-        tk.Label(row, text=" / ".join(item["paths"]), bg=PANEL_BG, fg=TEXT_MUTED,
-                 font=("Consolas", 8)).pack(side="right")
+        tk.Label(row, 
+                    text=" ".join(item["paths"]), 
+                    bg=PANEL_BG, 
+                    fg=TEXT_MUTED, 
+                    font=("Consolas", 8), 
+                    justify="left",
+                    wraplength=640,
+        ).pack(side="right")
 
     variables["credentials"] = tk.BooleanVar(value=False)
     tk.Checkbutton(outer, text=t("delete_data.credentials"),
-                   variable=variables["credentials"], bg=PANEL_BG, fg=ERROR,
+                   variable=variables["credentials"], bg=PANEL_BG, fg=TEXT_MAIN,
                    activebackground=PANEL_BG, activeforeground=ERROR,
                    selectcolor=INPUT_BG, anchor="w",
                    font=("Microsoft JhengHei", 10, "bold")).pack(fill="x", pady=(8, 2))
