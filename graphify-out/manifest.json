@@ -1,12 +1,12 @@
 {
   "i18n/en.json": {
-    "mtime": 1786700484.3391347,
-    "ast_hash": "4945e7d84a01d21d8bbf115a811a8614",
+    "mtime": 1786719582.9217775,
+    "ast_hash": "ed4282b9579e65846a61bedd68e230e0",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1786700479.7735932,
-    "ast_hash": "a6de7d81c891bf7d5df92017e7ae9133",
+    "mtime": 1786719582.4505396,
+    "ast_hash": "0e3cd4f1c55f0c7f1447c21c3c63b287",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -80,18 +80,18 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1786702518.8865318,
-    "ast_hash": "9708054c4fcea9a6b4731b54eb2a69e4",
+    "mtime": 1786758060.258563,
+    "ast_hash": "a8e4fbed0daa1c8af38e40afe613f2da",
     "semantic_hash": ""
   },
   "version.py": {
-    "mtime": 1786010387.892522,
-    "ast_hash": "c19eb398a945197bffd0f37e47136822",
+    "mtime": 1786718503.4537022,
+    "ast_hash": "9df17ea17970ebb55a0d3cb92563a21e",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1786613190.8485682,
-    "ast_hash": "80605090e783891a8554d77a931e0b3c",
+    "mtime": 1786718614.918581,
+    "ast_hash": "1ffa966a9ddf27da76f0f90eb9bb6e1d",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -100,8 +100,8 @@
     "semantic_hash": ""
   },
   "version_info.txt": {
-    "mtime": 1786010371.033966,
-    "ast_hash": "2edaaea9943936ca5e875fb2f234abbc",
+    "mtime": 1786718503.4584668,
+    "ast_hash": "bdc8a09429a2b3c1518e9f103be25812",
     "semantic_hash": ""
   },
   "image/available.png": {

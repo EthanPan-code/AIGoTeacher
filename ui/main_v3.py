@@ -2,13 +2,12 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles 
-import webbrowser
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat
 from collections import OrderedDict
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib as mpl
 from dotenv import load_dotenv
 from i18n import I18n
 try:
@@ -6734,14 +6733,33 @@ def _delete_runtime_path(path, kind):
     roots = [os.path.abspath(get_runtime_data_root()), os.path.abspath(PROJECT_ROOT)]
     if not any(os.path.commonpath([normalized, root]) == root for root in roots):
         raise ValueError(f"Refusing to delete path outside application data roots: {path}")
-    if kind == "file":
-        if os.path.isdir(path) and not os.path.islink(path):
-            raise ValueError(f"Expected a file, got a directory: {path}")
-        os.remove(path)
-    elif os.path.islink(path):
-        os.remove(path)
-    else:
-        shutil.rmtree(path)
+    def remove_readonly(func, target, _exc_info):
+        """Allow deletion of files copied from a packaged read-only bundle."""
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    last_error = None
+    for attempt in range(5):
+        try:
+            if kind == "file":
+                if os.path.isdir(path) and not os.path.islink(path):
+                    raise ValueError(f"Expected a file, got a directory: {path}")
+                os.remove(path)
+            elif os.path.islink(path):
+                os.remove(path)
+            else:
+                shutil.rmtree(path, onerror=remove_readonly)
+            break
+        except OSError as exc:
+            last_error = exc
+            if attempt == 4:
+                raise
+            # KataGo and its reader threads may release Windows file handles
+            # just after close() returns.  Give the OS a short, bounded window
+            # before reporting that runtime cleanup failed.
+            time.sleep(0.2 * (attempt + 1))
+    if last_error and os.path.lexists(path):
+        raise last_error
     return True
 
 
@@ -6871,11 +6889,12 @@ def show_delete_data_dialog():
             detail = "\n".join(f"• {label}: {error}" for label, _, _, error in failed)
             messagebox.showerror(t("delete_data.result_error_title"),
                                  t("delete_data.result_partial", detail=detail), parent=root)
-        else:
-            messagebox.showinfo(t("delete_data.result_title"),
-                                t("delete_data.result_success"), parent=root)
-        messagebox.showwarning(t("delete_data.restart_title"),
-                               t("delete_data.restart_message"), parent=root)
+        messagebox.showinfo(
+            t("delete_data.close_title"),
+            t("delete_data.close_message"),
+            parent=root,
+        )
+        on_closing()
 
     delete_button.configure(command=confirm_and_delete)
     win.update_idletasks()
@@ -7471,9 +7490,11 @@ def build_menu_bar():
 
     def toggle_teacher_panel():
         if show_teacher_var.get():
+            branch_ui.configure(height=90)
             teacher_section.grid()
         else:
             teacher_section.grid_remove()
+            branch_ui.configure(height=260)
 
     def toggle_branch_panel():
         if show_branch_var.get():
@@ -8083,45 +8104,51 @@ btn_save_sgf_as.grid(row=5, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
 btn_score_estimate.grid(row=6, column=0, padx=(0, 4), pady=(0, 14), sticky="ew")
 
-branch_section = tk.Frame(info_frame, bg=PANEL_BG)
-branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
-branch_title_label = tk.Label(
-    branch_section,
-    text=t("branch.tree_title"),
-    bg=PANEL_BG,
-    fg=TEXT_MAIN,
-    font=("Microsoft JhengHei", 10, "bold"),
-    bd=0,
-    padx=0,
-    pady=8
-)
-branch_title_label.pack(anchor="w")
-'''
-branch_hint_label = tk.Label(
-    branch_section,
-    text=t("branch.collapse_hint"),
-    bg=PANEL_BG,
-    fg=TEXT_MUTED,
-    font=("Microsoft JhengHei", 8),
-    bd=0,
-    padx=0,
-    pady=0,
-    wraplength=240,
-    justify="left"
-)
+def build_branch_section():
+    global branch_section, branch_title_label, branch_view_frame, branch_ui
+    branch_section = tk.Frame(info_frame, bg=PANEL_BG)
+    branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+    branch_title_label = tk.Label(
+        branch_section,
+        text=t("branch.tree_title"),
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        font=("Microsoft JhengHei", 10, "bold"),
+        bd=0,
+        padx=0,
+        pady=8
+    )
+    branch_title_label.pack(anchor="w")
+    '''
+    branch_hint_label = tk.Label(
+        branch_section,
+        text=t("branch.collapse_hint"),
+        bg=PANEL_BG,
+        fg=TEXT_MUTED,
+        font=("Microsoft JhengHei", 8),
+        bd=0,
+        padx=0,
+        pady=0,
+        wraplength=240,
+        justify="left"
+    )
 
-branch_hint_label.pack(anchor="w", pady=(2, 6))
-'''
-branch_view_frame = tk.Frame(branch_section, bg=PANEL_BG)
-branch_view_frame.pack(fill="both", expand=True)
+    branch_hint_label.pack(anchor="w", pady=(2, 6))
+    '''
+    branch_view_frame = tk.Frame(branch_section, bg=PANEL_BG)
+    branch_view_frame.pack(fill="both", expand=True)
+    if show_branch_var.get:
+        branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, height=90, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
+    else:
+        branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
+    branch_scrollbar = ttk.Scrollbar(branch_view_frame, orient="vertical", command=branch_ui.yview)
+    branch_ui.configure(yscrollcommand=branch_scrollbar.set)
+    branch_ui.pack(side="left", fill="both", expand=True)
+    branch_scrollbar.pack(side="right", fill="y")
 
-branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, height=90, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
-branch_scrollbar = ttk.Scrollbar(branch_view_frame, orient="vertical", command=branch_ui.yview)
-branch_ui.configure(yscrollcommand=branch_scrollbar.set)
-branch_ui.pack(side="left", fill="both", expand=True)
-branch_scrollbar.pack(side="right", fill="y")
+    board.branch_ui = branch_ui
 
-board.branch_ui = branch_ui
+build_branch_section()
 
 teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
 teacher_section.grid(row=8, column=0, columnspan=2, sticky="nsew")

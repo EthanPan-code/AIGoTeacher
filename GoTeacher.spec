@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 block_cipher = None
 
@@ -13,6 +13,7 @@ a = Analysis(
 
     binaries=[
         ('katago.exe', '.'),
+        *collect_dynamic_libs('matplotlib'),
     ],
 
     datas=[
@@ -40,6 +41,7 @@ a = Analysis(
         # ===== Package data required by dynamic LLM imports =====
         *collect_data_files('certifi'),
         *collect_data_files('opencc'),
+        *collect_data_files('matplotlib'),
     ],
 
     hiddenimports=[
@@ -56,6 +58,7 @@ a = Analysis(
         *collect_submodules('opencc'),
         *collect_submodules('PIL'),
         *collect_submodules('pywinstyles'),
+        *collect_submodules('matplotlib'),
         'certifi',
         'charset_normalizer',
         'idna',

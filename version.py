@@ -2,7 +2,7 @@
 
 Run this file to update every project file that stores the app version:
 
-    py version.py 0.6.0-beta
+    py version.py 1.0.1
 """
 
 from __future__ import annotations

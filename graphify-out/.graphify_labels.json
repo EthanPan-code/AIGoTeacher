@@ -42,5 +42,15 @@
   "40": "show_first_run_onboarding_dialog",
   "41": "refresh_language",
   "42": "render_teacher_ui",
-  "43": "add_to_commentary_cache"
+  "43": "add_to_commentary_cache",
+  "44": "_close_tab_silently",
+  "45": "OllamaProvider",
+  "46": ".rebuild_board",
+  "47": ".on_state_change",
+  "48": "GameNode",
+  "49": "_show_llm_selection_dialog",
+  "50": "show_first_run_onboarding_dialog",
+  "51": "get_publisher_from_model_id",
+  "52": "._resize_frame_background",
+  "53": "on_closing"
 }
