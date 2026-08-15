@@ -1,6 +1,6 @@
 {
-  "app.title": "圍棋 AI 老師",
-  "app.title_with_move": "圍棋 AI 老師 - 第 {moves} 手",
+  "app.title": " AI 圍棋老師",
+  "app.title_with_move": " AI 圍棋老師 - 第 {moves} 手",
   "tab.default_title": "未命名棋盤",
   "tab.welcome_title": "歡迎",
   "welcome.title": "歡迎",

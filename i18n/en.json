@@ -1,6 +1,6 @@
 {
-  "app.title": "Go AI Teacher",
-  "app.title_with_move": "Go AI Teacher - Move {moves}",
+  "app.title": "AI Go Teacher",
+  "app.title_with_move": "AI Go Teacher - Move {moves}",
   "tab.default_title": "Untitled Board",
   "tab.welcome_title": "Welcome",
   "welcome.title": "Welcome",
