@@ -4,7 +4,7 @@
 [![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)](https://katagotraining.org/)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-red)](https://mit-license.org/)
-[![Version](https://img.shields.io/badge/Version-0.5.0--beta-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
+[![Version](https://img.shields.io/badge/Version-1.0.0-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
 
 ---
 
@@ -12,7 +12,7 @@
 
 ---
 
-![framework](.github/image/ui.png)
+![framework](.github/image/GUI.png)
 
 ---
 
@@ -116,12 +116,20 @@ python ui/main_v3.py
 
 ## Python Dependencies
 ```text
-matplotlib >= 3.7
-pillow >= 10.0
-python-dotenv >= 1.0
-keyring >= 24.0
-requests >= 2.31
+python-dotenv
+keyring
+pywin32-ctypes
 opencc-python-reimplemented
+matplotlib
+numpy
+Pillow
+pyinstaller
+ollama
+httpx
+pydantic
+requests
+certifi
+pywinstyles
 ```
 
 ---
@@ -163,7 +171,7 @@ The LLM commentary feature supports multiple tone templates, allowing the depth 
 ### Python Commands
 ```bash
 py ui/main_v3.py           # Launch the main application
-py version.py 0.4.0-beta   # Update the version number
+py version.py 1.0.0   # Update the version number
 ```
 
 ---
@@ -290,12 +298,20 @@ py ui/main_v3.py
 ## Python 相依套件
 
 ```text
-matplotlib >= 3.7
-pillow >= 10.0
-python-dotenv >= 1.0
-keyring >= 24.0
-requests >= 2.31
+python-dotenv
+keyring
+pywin32-ctypes
 opencc-python-reimplemented
+matplotlib
+numpy
+Pillow
+pyinstaller
+ollama
+httpx
+pydantic
+requests
+certifi
+pywinstyles
 ```
 
 ---
@@ -356,7 +372,7 @@ LLM 評論支援多種語氣模板，可根據學習者程度調整解說深度�
 
 ```bash
 py ui/main_v3.py           # 啟動主程式
-py version.py 0.4.0-beta   # 更新版本號
+py version.py 1.0.0   # 更新版本號
 ```
 
 ---
