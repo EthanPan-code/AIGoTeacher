@@ -55,18 +55,27 @@ class LLMProvider:
 
         user_prompt = data.get("user_prompt")
         system_prompt = data.get("system_prompt")
+        context = data.get("game_context", "")
+        semantic_rules = (
+            "FACTUAL DATA RULES: Keep mistake_move and mistake_player as the move/player that made the mistake. "
+            "pre_move_best_moves are alternatives available to the mistake player BEFORE that move. "
+            "post_mistake_opponent_best_moves are responses available to the opponent AFTER the mistake. "
+            "Never describe the latter as the mistake player's alternative. If a field is unavailable, say so; "
+            "do not substitute another player's recommendation or invent a move, reading, life-and-death result, joseki, or variation."
+        )
         if user_prompt or system_prompt:
-            return "\n\n".join(part.strip() for part in (system_prompt, user_prompt) if part and part.strip())
+            return "\n\n".join(part.strip() for part in (system_prompt, semantic_rules, user_prompt, context) if part and part.strip())
 
         base_prompt = self.get_prompt_template().strip()
         turn = data.get("turn", "?")
         user_move = data.get("user_move", "?")
         winrate_drop = data.get("winrate_drop", 0) * 100
         player = data.get("player", "")  # "Black" or "White"
-        best_moves = data.get("current_best_moves") or []
+        pre_moves = data.get("pre_move_best_moves") or []
+        post_moves = data.get("post_mistake_opponent_best_moves") or []
         best_move = self.tr("teacher.best_unknown")
-        if best_moves:
-            best_move = best_moves[0].get("move", best_move)
+        pre_text = ", ".join(item.get("move", str(item)) if isinstance(item, dict) else str(item) for item in pre_moves) or "unavailable"
+        post_text = ", ".join(item.get("move", str(item)) if isinstance(item, dict) else str(item) for item in post_moves) or "unavailable"
 
         # Get localized player name (stone.black or stone.white)
         player_name = ""
@@ -80,30 +89,34 @@ class LLMProvider:
             info_block = (
                 "=== Position Information ===\n"
                 f"Move: {turn}\n"
-                f"Student move: {user_move}\n"
+                f"Mistake move: {user_move}\n"
                 f"Winrate drop: {winrate_drop:.1f}%\n"
             )
             if player_name:
                 info_block += f"Mistake by: {player_name}\n"
             info_block += (
-                f"KataGo recommendation: {best_move}\n"
+                f"Mistake player's alternatives before the move: {pre_text}\n"
+                f"Opponent's best responses after the mistake: {post_text}\n"
+                "Explain the problem created by the mistake first, then the opponent's opportunity.\n"
                 "Please give teaching feedback based on the information above."
             )
         else:
             info_block = (
                 "=== 局面資訊 ===\n"
                 f"第 {turn} 手\n"
-                f"學生下在：{user_move}\n"
+                f"失誤手：{user_move}\n"
                 f"勝率下降：{winrate_drop:.1f}%\n"
             )
             if player_name:
                 info_block += f"失誤方：{player_name}\n"
             info_block += (
-                f"KataGo 推薦：{best_move}\n"
+                f"失誤方落子前可考慮：{pre_text}\n"
+                f"失誤後對手最佳應手：{post_text}\n"
+                "先解釋失誤留下的問題，再解釋對手應手的價值；兩者不可混稱。\n"
                 "請根據以上資訊給出教學解說。"
             )
-
-        return f"{base_prompt}\n\n{info_block}" if base_prompt else info_block
+        context = data.get("game_context", "")
+        return "\n\n".join(part for part in (base_prompt, semantic_rules, info_block, context) if part)
 
     def set_model(self, model_name):
         raise NotImplementedError("Subclass must implement set_model()")

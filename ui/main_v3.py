@@ -923,22 +923,32 @@ tab_manager.initialize_default(initial_title=t("tab.welcome_title"))
 
 # 【Phase 1】解說快取 — 儲存 LLM 生成的解說
 # Key 格式: (turn, player_move_str) → Value: 解說文本
-commentary_cache = {}  # {(turn, player_move): "解說文本", ...}
+COMMENTARY_PROMPT_FORMAT_VERSION = "go-context-v2"
+commentary_cache = {}  # {(format, game-prefix-hash, turn, player_move): text}
 commentary_cache_lock = threading.Lock()  # 執行緒安全保護
 full_game_commentary_cache = OrderedDict()
 full_game_commentary_lock = threading.Lock()
 FULL_GAME_COMMENTARY_CACHE_LIMIT = 50
 
-def get_commentary_from_cache(turn, player_move):
+def _commentary_cache_key(turn, player_move, board_hash=None):
+    if board_hash is None and globals().get("analyzer") is not None:
+        try:
+            prefix = board.stones[:max(0, int(turn))]
+            board_hash = analyzer.get_board_hash(prefix)
+        except (AttributeError, TypeError, ValueError):
+            board_hash = "unknown"
+    return (COMMENTARY_PROMPT_FORMAT_VERSION, board_hash or "unknown", int(turn), str(player_move) if player_move else "Pass")
+
+
+def get_commentary_from_cache(turn, player_move, board_hash=None):
     """從快取中取得該手數的解說 (執行緒安全)"""
     with commentary_cache_lock:
-        key = (turn, str(player_move) if player_move else "Pass")
-        return commentary_cache.get(key)
+        return commentary_cache.get(_commentary_cache_key(turn, player_move, board_hash))
 
-def add_to_commentary_cache(turn, player_move, text):
+def add_to_commentary_cache(turn, player_move, text, board_hash=None):
     """將解說文本新增到快取 (執行緒安全，儲存全部手數)"""
     with commentary_cache_lock:
-        key = (turn, str(player_move) if player_move else "Pass")
+        key = _commentary_cache_key(turn, player_move, board_hash)
         commentary_cache[key] = text
         logger.debug(f"已快取第 {turn} 手解說 (快取大小: {len(commentary_cache)})")
 
@@ -1393,7 +1403,12 @@ class GoDataFilter:
         self.latest_black_scoreLead = 0.0
         self.has_triggered_this_turn = False
     
-    def load_baseline_from_cache(self, turn, analyzer):
+    def _analysis_for_stones(self, stones, analyzer):
+        moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in stones]
+        with analyzer.lock:
+            return analyzer.analysis_cache.get(analyzer.get_board_hash_from_moves(moves))
+
+    def load_baseline_from_cache(self, turn, analyzer, stones=None):
         """【改進】從快取中查詢上一手 (turn-1) 的分析結果，取出勝率和目數作為基準
         
         Args:
@@ -1408,7 +1423,7 @@ class GoDataFilter:
         
         prev_turn = turn - 1
         # 取得棋局前 prev_turn 手的 hash（即上一手完成後的狀態）
-        moves = board.stones[:prev_turn]
+        moves = (stones if stones is not None else board.stones)[:prev_turn]
         moves_gtp = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in moves]
         board_hash = analyzer.get_board_hash_from_moves(moves_gtp)
         
@@ -1426,7 +1441,7 @@ class GoDataFilter:
                     turn, prev_turn, board_hash[:50])
         return None
 
-    def process_analysis(self, current_turn, raw_result, last_move_gtp, *, is_playback=False):
+    def process_analysis(self, current_turn, raw_result, last_move_gtp, *, is_playback=False, stones=None):
         root_info = raw_result.get("rootInfo", {})
         
         # 1. 取得原始數據 (永遠是黑棋勝率/領先目數)
@@ -1436,7 +1451,7 @@ class GoDataFilter:
         # 2. 處理手數切換
         if current_turn > self.current_turn:
             # 前進：從快取查詢上一手的數據作為基準
-            cache_result = self.load_baseline_from_cache(current_turn, analyzer)
+            cache_result = self.load_baseline_from_cache(current_turn, analyzer, stones)
             if cache_result:
                 baseline_wr, baseline_sl = cache_result
                 if baseline_wr is not None:
@@ -1499,17 +1514,53 @@ class GoDataFilter:
             self.has_triggered_this_turn = True
             
             # 準備給 Ollama 的數據
-            current_top_moves = []
-            if "moveInfos" in raw_result:
-                for info in raw_result["moveInfos"][:3]:
-                    current_top_moves.append({"move": info["move"], "winrate": info["winrate"]})
+            current_stones = list(stones if stones is not None else board.stones)
+            before_stones = current_stones[:current_turn - 1]
+            before_analysis = self._analysis_for_stones(before_stones, analyzer)
+            post_moves = []
+            for info in (raw_result.get("moveInfos") or [])[:3]:
+                post_moves.append({"move": info.get("move"), "winrate": info.get("winrate"), "scoreLead": info.get("scoreLead")})
+            pre_moves = []
+            if before_analysis:
+                for info in (before_analysis.get("moveInfos") or [])[:3]:
+                    pre_moves.append({"move": info.get("move"), "winrate": info.get("winrate"), "scoreLead": info.get("scoreLead")})
+
+            from services.llm_game_context import serialize_game_context
+            mistake = {
+                "mistake_move": last_move_gtp,
+                "mistake_player": player_just_moved,
+                "winrate_before": round(self.baseline_black_winrate, 4),
+                "winrate_after": round(current_black_winrate, 4),
+                "score_lead_before": round(self.baseline_black_scoreLead, 3),
+                "score_lead_after": round(current_black_scoreLead, 3),
+                "pre_move_best_moves": pre_moves,
+                "post_mistake_opponent_best_moves": post_moves,
+            }
 
             return {
                 "turn": current_turn,
                 "player": player_just_moved,
                 "user_move": last_move_gtp,
+                "mistake_move": last_move_gtp,
+                "mistake_player": player_just_moved,
                 "winrate_drop": round(winrate_drop, 3),
-                "current_best_moves": current_top_moves
+                "winrate_before": self.baseline_black_winrate,
+                "winrate_after": current_black_winrate,
+                "score_lead_before": self.baseline_black_scoreLead,
+                "score_lead_after": current_black_scoreLead,
+                "pre_move_best_moves": pre_moves,
+                "post_mistake_opponent_best_moves": post_moves,
+                "pre_move_analysis_available": bool(before_analysis),
+                "post_mistake_analysis_available": bool(raw_result),
+                "game_hash": analyzer.get_board_hash(current_stones),
+                "game_context": serialize_game_context(
+                    current_stones,
+                    before_stones=before_stones,
+                    after_stones=current_stones,
+                    mistake=mistake,
+                    before_analysis=before_analysis,
+                    after_analysis=raw_result,
+                ),
             }
 
         return None
@@ -2323,7 +2374,8 @@ def plot_window(winrates, scoreLeads):
                 "loss": move_losses[idx],
                 "before": before,
                 "after": after,
-                "suggestions": collect_top_moves(idx - 1),
+                "pre_move_best_moves": collect_top_moves(idx - 1),
+                "post_mistake_opponent_best_moves": collect_top_moves(idx),
             })
 
         blunder = None
@@ -2333,7 +2385,8 @@ def plot_window(winrates, scoreLeads):
                 "loss": move_losses[blunder_idx],
                 "before": black_winrates[blunder_idx - 1] if blunder_idx > 0 else black_winrates[blunder_idx],
                 "after": black_winrates[blunder_idx],
-                "suggestions": collect_top_moves(blunder_idx - 1),
+                "pre_move_best_moves": collect_top_moves(blunder_idx - 1),
+                "post_mistake_opponent_best_moves": collect_top_moves(blunder_idx),
             }
 
         return {
@@ -2373,11 +2426,11 @@ def plot_window(winrates, scoreLeads):
             player_name = get_player_name(item['move'])
             if language == "en":
                 mistake_lines.append(
-                    f"- Move {item['move'].split()[0][:-1]}: ({player_name}) loss {item['loss']:.1f}%, black winrate {item['before']:.1f}% -> {item['after']:.1f}%, KataGo: {item['suggestions']}"
+                    f"- Move {item['move'].split()[0][:-1]}: ({player_name}) loss {item['loss']:.1f}%, black winrate {item['before']:.1f}% -> {item['after']:.1f}%, pre-move alternatives for {player_name}: {item['pre_move_best_moves']}; opponent responses after mistake: {item['post_mistake_opponent_best_moves']}"
                 )
             else:
                 mistake_lines.append(
-                    f"- {item['move']}（{player_name}）: 失誤 {item['loss']:.1f}%，黑勝率 {item['before']:.1f}% → {item['after']:.1f}%，KataGo 推薦：{item['suggestions']}"
+                    f"- {item['move']}（{player_name}）: 失誤 {item['loss']:.1f}%，黑勝率 {item['before']:.1f}% → {item['after']:.1f}%，失誤方落子前可考慮：{item['pre_move_best_moves']}；失誤後對手應手：{item['post_mistake_opponent_best_moves']}"
                 )
         if not mistake_lines:
             if language == "en":
@@ -2397,16 +2450,16 @@ def plot_window(winrates, scoreLeads):
             if language == "en":
                 blunder_text = (
                     f"Move {b['move'].split()[0][:-1]} ({player_name}): loss {b['loss']:.1f}%, black winrate {b['before']:.1f}% -> {b['after']:.1f}%, "
-                    f"KataGo: {b['suggestions']}"
+                    f"pre-move alternatives: {b['pre_move_best_moves']}; opponent responses: {b['post_mistake_opponent_best_moves']}"
                 )
             else:
                 blunder_text = (
                     f"{b['move']}（{player_name}）：失誤 {b['loss']:.1f}%，黑勝率 {b['before']:.1f}% → {b['after']:.1f}%，"
-                    f"KataGo 推薦：{b['suggestions']}"
+                    f"失誤方落子前可考慮：{b['pre_move_best_moves']}；失誤後對手應手：{b['post_mistake_opponent_best_moves']}"
                 )
 
         if language == "en":
-            system_prompt = "You are a calm, practical Go teacher. Give concise teaching feedback based on KataGo analysis. Each mistake is marked with the player who made it (Black or White)."
+            system_prompt = "You are a calm, practical Go teacher. Use only the supplied board diagrams, current mainline, and KataGo facts. Each mistake is marked with the player who made it (Black or White). Do not invent unread variations, life-and-death conclusions, or joseki details."
             user_prompt = (
                 "Summarize this full Go game in 3-5 short teaching sentences.\n"
                 "Focus on the overall trend, the decisive mistake, turning points, and one practical study suggestion.\n"
@@ -2421,10 +2474,9 @@ def plot_window(winrates, scoreLeads):
             system_prompt = """
             你是一位有經驗的圍棋老師。
 
-            你看不到棋盤，只能根據 KataGo 的勝率變化與推薦著法進行教學回饋。
+            請只根據系統提供的棋盤圖、目前主線與 KataGo 資料進行教學回饋。
 
-            請避免分析具體局部戰鬥、死活、定石或形狀，
-            因為資料不足以支持這些判斷。
+            不要捏造未提供的讀秒變化、死活結論、定石細節或分支。
 
             請專注於：
 
@@ -2445,7 +2497,7 @@ def plot_window(winrates, scoreLeads):
                 "要求：\n"
                 "- 不要逐條列出數據。\n"
                 "- 不要重複大量勝率百分比。\n"
-                "- 不要假裝看得到棋盤內容。\n"
+                "- 只根據提供的棋盤圖、目前主線與 KataGo 資料判斷。\n"
                 "- 可以根據勝率變化判斷局勢起伏。\n"
                 "- 以失誤方的角度解說失誤如何影響局面。\n"
                 "- 語氣自然，像老師下課後給學生的評語。\n\n"
@@ -2468,6 +2520,21 @@ def plot_window(winrates, scoreLeads):
                 f"主要轉折點：\n{chr(10).join(sharp_lines)}"
             )
 
+        from services.llm_game_context import serialize_game_context, serialize_board
+        snapshot_parts = []
+        for item in data["mistakes"][:8]:
+            move_number = int(item["move"].split(".")[0])
+            snapshot_parts.append(
+                f"MOVE {move_number} BEFORE ({item['pre_move_best_moves']}):\n"
+                f"{serialize_board(chart_stones[:max(0, move_number - 1)])}\n"
+                f"MOVE {move_number} AFTER; OPPONENT RESPONSES ({item['post_mistake_opponent_best_moves']}):\n"
+                f"{serialize_board(chart_stones[:move_number])}"
+            )
+        game_context = serialize_game_context(
+            chart_stones,
+            full_game=data,
+        ) + ("\n\nKEY MISTAKE SNAPSHOTS:\n" + "\n\n".join(snapshot_parts) if snapshot_parts else "")
+        user_prompt += "\n\nCURRENT MAINLINE AND BOARD CONTEXT:\n" + game_context
         fallback_text = (
             t("analysis.teacher_fallback_none")
             if not data["mistakes"]
@@ -2482,7 +2549,8 @@ def plot_window(winrates, scoreLeads):
     def get_summary_cache_key(language):
         provider_name = config_service.get_setting("llm_provider", "ollama")
         model_name = ProviderFactory.get_configured_model(config_service, provider_name)
-        return chart_board_hash + f"|{language}|{provider_name}|{model_name}"
+        from services.llm_game_context import PROMPT_FORMAT_VERSION
+        return PROMPT_FORMAT_VERSION + "|" + chart_board_hash + f"|{language}|{provider_name}|{model_name}"
 
     def generate_teacher_summary(force=False):
         language = summary_language.get()
@@ -2653,11 +2721,13 @@ def update_ui_with_data(result):
 
         # 檢查是否需要叫老師出來說話
         critical_event = data_filter.process_analysis(
-            current_turn, result, last_move_gtp, is_playback=is_playback_mode
+            current_turn, result, last_move_gtp, is_playback=is_playback_mode, stones=list(board.stones)
         )
         if critical_event:
             # 【Phase 1】檢查是否已有快取的解說，若有則直接顯示，否則呼叫 LLM 生成新的
-            cached_commentary = get_commentary_from_cache(critical_event["turn"], critical_event["user_move"])
+            cached_commentary = get_commentary_from_cache(
+                critical_event["turn"], critical_event["user_move"], critical_event.get("game_hash")
+            )
             if cached_commentary:
                 logger.debug(f"快取命中：第 {critical_event['turn']} 手 ({critical_event['user_move']}) 已有解說，直接顯示")
                 render_teacher_ui(cached_commentary)
@@ -8457,7 +8527,8 @@ def on_commentary_generation_complete():
             add_to_commentary_cache(
                 current_critical_event["turn"],
                 current_critical_event["user_move"],
-                current_generated_commentary
+                current_generated_commentary,
+                current_critical_event.get("game_hash"),
             )
             logger.info(f"已將第 {current_critical_event['turn']} 手的解說存儲到快取")
         except Exception as e:

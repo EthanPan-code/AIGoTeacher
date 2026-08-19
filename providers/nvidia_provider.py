@@ -238,7 +238,7 @@ class NvidiaProvider(LLMProvider):
         user_move = data.get("user_move", "?")
         winrate_drop = data.get("winrate_drop", 0) * 100
         best_move = self.tr("teacher.best_unknown")
-        best_moves = data.get("current_best_moves") or []
+        best_moves = data.get("post_mistake_opponent_best_moves") or []
         if best_moves:
             best_move = best_moves[0].get("move", self.tr("teacher.best_unknown"))
 

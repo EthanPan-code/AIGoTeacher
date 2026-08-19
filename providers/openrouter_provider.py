@@ -206,7 +206,7 @@ class OpenRouterProvider(LLMProvider):
     def _fallback_commentary(self, data, error):
         if data.get("fallback_text"):
             return data["fallback_text"]
-        best_moves = data.get("current_best_moves") or []
+        best_moves = data.get("post_mistake_opponent_best_moves") or []
         best_move = best_moves[0].get("move", self.tr("teacher.best_unknown")) if best_moves else self.tr("teacher.best_unknown")
         return self.tr(
             "teacher.fallback",
