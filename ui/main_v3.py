@@ -1660,53 +1660,52 @@ class BranchTreeView(tk.Canvas):
             self.layout_cache = None
             return {}
 
-        h_gap = 40
+        h_gap = 44
         v_gap = 40
         top_margin = 30
         side_margin = 24
-        metrics = {}
-
-        def measure(node):
-            children = self._visible_children(node)
-            if not children:
-                metrics[node] = (1, 1)
-                return metrics[node]
-
-            widths = []
-            depths = []
-            for child in children:
-                child_width, child_depth = measure(child)
-                widths.append(child_width)
-                depths.append(child_depth)
-
-            total_width = max(sum(widths), 1)
-            total_depth = 1 + max(depths)
-            metrics[node] = (total_width, total_depth)
-            return metrics[node]
-
-        total_width, total_depth = measure(root)
         layout = {}
+        max_lane = 0
+        max_depth = 0
+        next_branch_lane = 0
 
-        def assign(node, left_units, depth):
-            width_units, _ = metrics[node]
-            x = side_margin + (left_units + width_units / 2) * h_gap
+        def assign(node, lane, depth):
+            """Place the main line in lane 0 and branches in new right lanes.
+
+            Child 0 is the continuation of the main line for that node.  It
+            keeps its parent's lane, while every additional child gets a new
+            lane to the right.  Lanes are never reused, so a long branch can
+            never bend back through the main line or an earlier branch.
+            """
+            nonlocal max_lane, max_depth, next_branch_lane
+
+            x = side_margin + lane * h_gap
             y = top_margin + depth * v_gap
             layout[node] = (x, y)
+            max_lane = max(max_lane, lane)
+            max_depth = max(max_depth, depth)
+
             children = self._visible_children(node)
-            cursor = left_units
-            for child in children:
-                child_width, _ = metrics[child]
-                assign(child, cursor, depth + 1)
-                cursor += child_width
+            if not children:
+                return
+
+            # The first child continues the current (main or branch) line.
+            assign(children[0], lane, depth + 1)
+
+            # All alternatives move right into their own permanent lane.
+            for child in children[1:]:
+                next_branch_lane += 1
+                assign(child, next_branch_lane, depth + 1)
 
         assign(root, 0, 0)
-        max_x = side_margin * 2 + total_width * h_gap
-        max_y = top_margin + total_depth * v_gap + 20
+        max_x = side_margin * 2 + (max_lane + 1) * h_gap
+        max_y = top_margin + (max_depth + 1) * v_gap + 20
         self.node_positions = layout
         self.layout_cache = {
             "positions": layout,
             "scrollregion": (0, 0, max_x, max_y),
-            "metrics": metrics,
+            "max_lane": max_lane,
+            "max_depth": max_depth,
         }
         return layout
 
