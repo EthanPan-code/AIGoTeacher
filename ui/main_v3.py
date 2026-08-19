@@ -1643,9 +1643,14 @@ class BranchTreeView(tk.Canvas):
         self.bind("<Button-5>", self.on_scroll)
         self.bind("<Double-Button-1>", self.on_double_click)
 
-    def _count_descendants(self, node):
+    def _count_descendants(self, node, only_alternatives=True):
+        # When a branch point is collapsed, the count badge should describe
+        # only the hidden alternative subtrees (children[1:]).  The main
+        # continuation (children[0]) stays visible and is therefore not
+        # part of the "collapsed" count.
+        children = node.children[1:] if only_alternatives else node.children
         total = 0
-        stack = list(node.children)
+        stack = list(children)
         while stack:
             child = stack.pop()
             total += 1
@@ -1653,10 +1658,13 @@ class BranchTreeView(tk.Canvas):
         return total
 
     def _visible_children(self, node):
-        # A collapsed node hides only an actual variation point.  A node with
-        # one child is ordinary continuation and must always remain visible.
+        # Collapsing a branch point must hide only the alternative children
+        # (children[1:]).  The main continuation (children[0]) always stays
+        # visible so that pressing `-` never strands the user with a blank
+        # next move.  A node with a single child is a plain continuation and
+        # never carries a toggle in the first place.
         if len(node.children) > 1 and id(node) in self.collapsed_nodes:
-            return []
+            return list(node.children[:1])
         return list(node.children)
 
     def _compute_layout(self):
