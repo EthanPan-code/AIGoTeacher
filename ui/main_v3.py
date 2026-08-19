@@ -8152,8 +8152,40 @@ info_frame.rowconfigure(8, weight=1)
 
 ai_analysis_label = ttk.Label(info_frame, text=t("label.ai_analysis"), style="Title.TLabel")
 ai_analysis_label.grid(row=0, column=0, columnspan=2, sticky="w")
-winrate_label = ttk.Label(info_frame, text=t("analysis.not_analyzed"), style="Panel.TLabel", justify="left", anchor="w")
-winrate_label.grid(row=1, column=0, columnspan=2, pady=(8, 14), sticky="ew")
+
+# 【修復】分析狀態區改用固定高度容器
+# 原本 winrate_label 直接放在 grid row=1，當文字在 1 行 ("AI 正在思考...")
+# 與 3 行 ("黑勝率/白勝率/下一手" 摘要) 之間切換時，整個 row 高度會變，
+# 導致下方的分支樹按鈕位置跟著上下跳動，操控分支時容易點錯。
+# 解法：包進一個高度固定的 Frame，Frame 內的 Label 撐滿但不影響 grid row 高度。
+WINRATE_LABEL_HEIGHT = 54  # 預留約 3 行 Panel.TLabel 高度的空間
+winrate_section = ttk.Frame(info_frame, style="Panel.TFrame", height=WINRATE_LABEL_HEIGHT)
+winrate_section.grid(row=1, column=0, columnspan=2, pady=(8, 14), sticky="nsew")
+winrate_section.grid_propagate(False)  # 關掉 propagate → Frame 維持固定高度
+winrate_section.columnconfigure(0, weight=1)
+winrate_section.rowconfigure(0, weight=1)
+winrate_label = ttk.Label(
+    winrate_section,
+    text=t("analysis.not_analyzed"),
+    style="Panel.TLabel",
+    justify="left",
+    anchor="nw",  # 文字靠左上對齊，1 行時不會垂直置中
+    wraplength=260,
+)
+winrate_label.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+
+# 【修復】讓 wraplength 跟著 info_frame 實際寬度走，避免不同解析度下文字換行位置怪異
+# info_frame padding=(14,14,14,14) → 左右各 14，內部可用寬度 = width - 28
+def _update_winrate_wraplength(event=None):
+    try:
+        available_width = max(120, info_frame.winfo_width() - 28)
+        winrate_label.configure(wraplength=available_width)
+    except Exception:
+        pass
+
+info_frame.bind("<Configure>", _update_winrate_wraplength, add="+")
+# 延遲再跑一次，避免初始時 winfo_width() 還沒更新
+root.after(150, _update_winrate_wraplength)
 
 btn_analyze = ttk.Button(info_frame, text=t("button.analyze"), command=on_analyze_button_click, style="Primary.TButton")
 btn_analyze.grid(row=2, column=0, columnspan=2, pady=(0, 8), sticky="ew")
