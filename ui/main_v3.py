@@ -1627,9 +1627,14 @@ class BranchTreeView(tk.Canvas):
         self.node_radius = 14
         self.collapsed_nodes = set()
         self.node_positions = {}
+        self.toggle_positions = {}
         self.drag_data = None
         self.layout_cache = None
-        self.configure(xscrollincrement=20, yscrollincrement=20)
+        self._tree_initialized = False
+        self._last_path_ids = None
+        # The branch panel is intentionally vertical-only.  A horizontal
+        # scroll region makes a large variation tree difficult to operate.
+        self.configure(yscrollincrement=20)
         self.bind("<Button-1>", self.on_click)
         self.bind("<ButtonRelease-1>", self.on_release)
         self.bind("<B1-Motion>", self.on_drag)
@@ -1648,8 +1653,9 @@ class BranchTreeView(tk.Canvas):
         return total
 
     def _visible_children(self, node):
-        protected_nodes = getattr(self, "_protected_node_ids", set())
-        if id(node) in self.collapsed_nodes and id(node) not in protected_nodes:
+        # A collapsed node hides only an actual variation point.  A node with
+        # one child is ordinary continuation and must always remain visible.
+        if len(node.children) > 1 and id(node) in self.collapsed_nodes:
             return []
         return list(node.children)
 
@@ -1660,52 +1666,43 @@ class BranchTreeView(tk.Canvas):
             self.layout_cache = None
             return {}
 
-        h_gap = 44
-        v_gap = 40
-        top_margin = 30
-        side_margin = 24
+        indent = 18
+        row_height = 30
+        top_margin = 28
+        side_margin = 28
         layout = {}
         max_lane = 0
-        max_depth = 0
-        next_branch_lane = 0
+        row = 0
 
-        def assign(node, lane, depth):
-            """Place the main line in lane 0 and branches in new right lanes.
-
-            Child 0 is the continuation of the main line for that node.  It
-            keeps its parent's lane, while every additional child gets a new
-            lane to the right.  Lanes are never reused, so a long branch can
-            never bend back through the main line or an earlier branch.
-            """
-            nonlocal max_lane, max_depth, next_branch_lane
-
-            x = side_margin + lane * h_gap
-            y = top_margin + depth * v_gap
-            layout[node] = (x, y)
+        def assign(node, lane):
+            nonlocal max_lane, row
+            # A continuation stays in the same lane.  Only an alternative
+            # child creates a new lane to the right, matching a conventional
+            # variation tree and the MutiGo-style presentation.
+            layout[node] = (side_margin + min(lane, 8) * indent, top_margin + row * row_height)
+            row += 1
             max_lane = max(max_lane, lane)
-            max_depth = max(max_depth, depth)
-
             children = self._visible_children(node)
-            if not children:
-                return
+            # Render alternatives immediately below their parent, then
+            # continue the main line.  This keeps a variation's first move
+            # visibly attached to the previous move at its lower-right,
+            # instead of placing it after the whole main subtree.
+            ordered_children = children[1:] + children[:1]
+            for child in ordered_children:
+                child_lane = lane if child is children[0] else lane + 1
+                assign(child, child_lane)
 
-            # The first child continues the current (main or branch) line.
-            assign(children[0], lane, depth + 1)
-
-            # All alternatives move right into their own permanent lane.
-            for child in children[1:]:
-                next_branch_lane += 1
-                assign(child, next_branch_lane, depth + 1)
-
-        assign(root, 0, 0)
-        max_x = side_margin * 2 + (max_lane + 1) * h_gap
-        max_y = top_margin + (max_depth + 1) * v_gap + 20
+        assign(root, 0)
+        # Keep the canvas width bounded by the panel.  Deep trees are still
+        # usable because their labels are clipped rather than expanding the
+        # window or introducing horizontal scrolling.
+        max_x = max(260, side_margin * 2 + (min(max_lane, 8) + 1) * indent + 220)
+        max_y = top_margin + row * row_height + 18
         self.node_positions = layout
         self.layout_cache = {
             "positions": layout,
             "scrollregion": (0, 0, max_x, max_y),
             "max_lane": max_lane,
-            "max_depth": max_depth,
         }
         return layout
 
@@ -1720,9 +1717,11 @@ class BranchTreeView(tk.Canvas):
 
     def _get_node_at(self, canvas_x, canvas_y):
         for node, (x, y) in self.node_positions.items():
+            # Make the complete row clickable, not only the stone circle.
+            # The toggle hit area is checked first by on_click().
             dx = canvas_x - x
             dy = canvas_y - y
-            if dx * dx + dy * dy <= (self.node_radius + 5) * (self.node_radius + 5):
+            if abs(dy) <= 14 and -10 <= dx <= 220:
                 return node
         return None
 
@@ -1730,23 +1729,50 @@ class BranchTreeView(tk.Canvas):
         node = self.board_ref.current_node
         if node not in self.node_positions:
             return
-        x, y = self.node_positions[node]
+        _x, y = self.node_positions[node]
         scrollregion = self.bbox("all")
         if not scrollregion:
             return
         x1, y1, x2, y2 = scrollregion
         visible_width = max(self.winfo_width(), 1)
         visible_height = max(self.winfo_height(), 1)
-        max_x = max(x2 - x1 - visible_width, 1)
         max_y = max(y2 - y1 - visible_height, 1)
-        target_x = (x - visible_width / 2) / max_x if max_x else 0
         target_y = (y - visible_height / 2) / max_y if max_y else 0
-        self.xview_moveto(max(0.0, min(target_x, 1.0)))
         self.yview_moveto(max(0.0, min(target_y, 1.0)))
 
+    def _all_branch_nodes(self):
+        result = []
+        stack = list(self.board_ref.root_node.children if self.board_ref.root_node else [])
+        while stack:
+            node = stack.pop()
+            result.append(node)
+            stack.extend(node.children)
+        return result
+
+    def _sync_current_path_expansion(self):
+        path_ids = self._current_path_ids()
+        if not self._tree_initialized:
+            # Start with only the active route visible.  This is the key
+            # difference from the former all-lanes layout.
+            self.collapsed_nodes = {
+                id(node) for node in self._all_branch_nodes()
+                if len(node.children) > 1 and id(node) not in path_ids
+            }
+            self._tree_initialized = True
+        elif path_ids != self._last_path_ids:
+            # Navigation must never strand the active node inside a collapsed
+            # ancestor, while manual expansions remain intact.
+            self.collapsed_nodes.difference_update(path_ids)
+        self._last_path_ids = path_ids
+
     def draw_tree(self):
+        # 重畫樹狀圖時保留使用者目前的垂直視角。原本每次重畫都
+        # `_focus_current_node()`，導致點擊任意節點後畫面被強制捲到該節點。
+        # 第一次建立樹時仍保留自動定位，方便直接看到目前棋步。
+        previous_yview = self.yview()[0] if self._tree_initialized else None
         self.delete("all")
         self.drag_data = None
+        self.toggle_positions = {}
         root = self.board_ref.root_node
         if not root:
             self.configure(scrollregion=(0, 0, 1, 1))
@@ -1754,6 +1780,7 @@ class BranchTreeView(tk.Canvas):
             return
 
         self._protected_node_ids = self._current_path_ids()
+        self._sync_current_path_expansion()
         layout = self._compute_layout()
         if not layout:
             self.configure(scrollregion=(0, 0, 1, 1))
@@ -1772,7 +1799,10 @@ class BranchTreeView(tk.Canvas):
             px, py = layout[node.parent]
             edge_color = ACCENT if (node in current_path and node.parent in current_path) else "#9d8f7f"
             edge_width = 3 if edge_color == ACCENT else 1
-            self.create_line(px, py + self.node_radius, x, y - self.node_radius, fill=edge_color, width=edge_width)
+            elbow_x = max(px, x - 8)
+            self.create_line(px, py + self.node_radius, px, y, fill=edge_color, width=edge_width)
+            self.create_line(px, y, elbow_x, y, fill=edge_color, width=edge_width)
+            self.create_line(elbow_x, y, x - self.node_radius, y, fill=edge_color, width=edge_width)
 
         for node, (x, y) in layout.items():
             node_id = self._node_tag(node)
@@ -1791,6 +1821,19 @@ class BranchTreeView(tk.Canvas):
                 text_color = "#ffffff" if node_move and node_move[2] == "black" else "#111111"
 
             width = 3 if is_current else 1
+            if len(node.children) > 1:
+                toggle_x = max(7, x - self.node_radius - 10)
+                toggle_y = y
+                self.toggle_positions[node] = (toggle_x, toggle_y)
+                expanded = id(node) not in self.collapsed_nodes
+                self.create_rectangle(
+                    toggle_x - 6, toggle_y - 6, toggle_x + 6, toggle_y + 6,
+                    fill=PANEL_BG, outline=TEXT_MUTED, width=1,
+                    tags=(f"toggle_{id(node)}",),
+                )
+                self.create_line(toggle_x - 3, toggle_y, toggle_x + 3, toggle_y, fill=TEXT_MAIN)
+                if not expanded:
+                    self.create_line(toggle_x, toggle_y - 3, toggle_x, toggle_y + 3, fill=TEXT_MAIN)
             self.create_oval(
                 x - self.node_radius,
                 y - self.node_radius,
@@ -1845,7 +1888,10 @@ class BranchTreeView(tk.Canvas):
                         font=("Microsoft JhengHei", 8, "bold"),
                     )
 
-        self._focus_current_node()
+        if previous_yview is None:
+            self._focus_current_node()
+        else:
+            self.yview_moveto(previous_yview)
 
     def draw_branches(self):
         self.draw_tree()
@@ -1853,37 +1899,25 @@ class BranchTreeView(tk.Canvas):
     def on_click(self, event):
         canvas_x = self.canvasx(event.x)
         canvas_y = self.canvasy(event.y)
+        for node, (x, y) in self.toggle_positions.items():
+            if (canvas_x - x) ** 2 + (canvas_y - y) ** 2 <= 8 ** 2:
+                if id(node) in self.collapsed_nodes:
+                    self.collapsed_nodes.remove(id(node))
+                else:
+                    self.collapsed_nodes.add(id(node))
+                self.draw_tree()
+                return
         node = self._get_node_at(canvas_x, canvas_y)
         if node:
             self.board_ref.jump_to_node(node)
             return
-        self.drag_data = {
-            "start_x": event.x,
-            "start_y": event.y,
-            "orig_xview": self.xview()[0],
-            "orig_yview": self.yview()[0],
-        }
+        self.drag_data = None
 
     def on_release(self, event):
         self.drag_data = None
 
     def on_drag(self, event):
-        if not self.drag_data:
-            return
-        scrollregion = self.bbox("all")
-        if not scrollregion:
-            return
-        x1, y1, x2, y2 = scrollregion
-        visible_width = max(self.winfo_width(), 1)
-        visible_height = max(self.winfo_height(), 1)
-        max_x = max(x2 - x1 - visible_width, 1)
-        max_y = max(y2 - y1 - visible_height, 1)
-        dx = event.x - self.drag_data["start_x"]
-        dy = event.y - self.drag_data["start_y"]
-        new_x = self.drag_data["orig_xview"] - (dx / max_x)
-        new_y = self.drag_data["orig_yview"] - (dy / max_y)
-        self.xview_moveto(max(0.0, min(new_x, 1.0)))
-        self.yview_moveto(max(0.0, min(new_y, 1.0)))
+        return
 
     def on_scroll(self, event):
         delta = getattr(event, "delta", 0)
@@ -1891,19 +1925,13 @@ class BranchTreeView(tk.Canvas):
             self.yview_scroll(-3, "units")
         elif getattr(event, "num", None) == 5 or delta < 0:
             self.yview_scroll(3, "units")
+        # 阻止事件繼續冒泡到 root，避免 root.on_mouse_wheel 同時觸發
+        # board.undo()/board.redo()。這是修正「在分支圖滾動時當前棋步
+        # 也會跳」的關鍵。回傳 "break" 會中斷 Tkinter 的事件傳遞鏈。
+        return "break"
 
     def on_double_click(self, event):
-        canvas_x = self.canvasx(event.x)
-        canvas_y = self.canvasy(event.y)
-        node = self._get_node_at(canvas_x, canvas_y)
-        if not node or node.parent is None:
-            return
-        node_id = id(node)
-        if node_id in self.collapsed_nodes:
-            self.collapsed_nodes.remove(node_id)
-        else:
-            self.collapsed_nodes.add(node_id)
-        self.draw_tree()
+        return
 
 def auto_analyze():
     if not is_analyzer_ready():
@@ -7382,6 +7410,21 @@ def show_appearance_settings_dialog():
 
 # 滾輪事件處理
 def on_mouse_wheel(event):
+    # 【修正】當滑鼠位於分支圖（branch_ui）或其內部時，不要處理
+    # 棋盤當前手數滾動。這是「在分支圖外才處理棋盤滾動」的
+    # 雙重保險之一（另一個是 BranchTreeView.on_scroll 回傳 "break"）。
+    try:
+        widget = event.widget
+        branch_widget = getattr(board, "branch_ui", None)
+        if branch_widget is not None:
+            # 向上走 widget 父鏈，若最終抵達 branch_widget 即視為在分支圖內
+            cur = widget
+            while cur is not None:
+                if cur is branch_widget:
+                    return "break"
+                cur = cur.master
+    except Exception:
+        pass
     # Windows: event.delta, Linux/Mac: event.num
     if event.delta > 0 or event.num == 4: # 滾輪向上 -> 上一步
         board.undo()
@@ -7563,7 +7606,7 @@ def build_menu_bar():
             teacher_section.grid()
         else:
             teacher_section.grid_remove()
-            branch_ui.configure(height=260)
+            branch_ui.configure(height=240)
 
     def toggle_branch_panel():
         if show_branch_var.get():
@@ -8238,10 +8281,15 @@ def build_branch_section():
     '''
     branch_view_frame = tk.Frame(branch_section, bg=PANEL_BG)
     branch_view_frame.pack(fill="both", expand=True)
-    if show_branch_var.get:
-        branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, height=90, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
-    else:
-        branch_ui = BranchTreeView(branch_view_frame, board_ref=board, width=240, bg=PANEL_BG, highlightbackground=PANEL_BORDER,  highlightthickness=1)
+    branch_ui = BranchTreeView(
+        branch_view_frame,
+        board_ref=board,
+        width=240,
+        height=90,
+        bg=PANEL_BG,
+        highlightbackground=PANEL_BORDER,
+        highlightthickness=1,
+    )
     branch_scrollbar = ttk.Scrollbar(branch_view_frame, orient="vertical", command=branch_ui.yview)
     branch_ui.configure(yscrollcommand=branch_scrollbar.set)
     branch_ui.pack(side="left", fill="both", expand=True)
