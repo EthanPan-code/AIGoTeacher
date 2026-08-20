@@ -4,7 +4,7 @@
 [![KataGo](https://img.shields.io/badge/KataGo-v1.16.4-2EA043)](https://katagotraining.org/)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-red)](https://mit-license.org/)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
+[![Version](https://img.shields.io/badge/Version-1.0.1-blue)](https://github.com/EthanPan-code/AIGoTeacher/releases)
 
 ---
 
@@ -18,7 +18,7 @@
 
 <a id="English"></a>
 
-**AI Go Teacher v1.0.0** is an interactive Go teaching system powered by the **KataGo v1.16.4** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
+**AI Go Teacher v1.0.1** is an interactive Go teaching system powered by the **KataGo v1.16.4** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
 
 ## Contents
 - Features

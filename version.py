@@ -2,7 +2,7 @@
 
 Run this file to update every project file that stores the app version:
 
-    py version.py 1.0.1
+    py version.py 1.0.2
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 VERSION_INFO_PATH = PROJECT_ROOT / "version_info.txt"
