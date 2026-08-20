@@ -1632,6 +1632,9 @@ class BranchTreeView(tk.Canvas):
         self.layout_cache = None
         self._tree_initialized = False
         self._last_path_ids = None
+        self._layout_signature = None
+        self._node_canvas_items = {}
+        self._edge_canvas_items = {}
         # The branch panel is intentionally vertical-only.  A horizontal
         # scroll region makes a large variation tree difficult to operate.
         self.configure(yscrollincrement=20)
@@ -1672,7 +1675,22 @@ class BranchTreeView(tk.Canvas):
         if not root:
             self.node_positions = {}
             self.layout_cache = None
+            self._layout_signature = None
             return {}
+
+        # Layout depends only on the tree shape and collapsed state.  The
+        # current node is deliberately excluded so navigation can reuse the
+        # coordinates and update only the highlight colors.
+        signature_items = []
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            signature_items.append((id(node), len(node.children), id(node) in self.collapsed_nodes))
+            stack.extend(reversed(node.children))
+        layout_signature = tuple(signature_items)
+        if self.layout_cache is not None and layout_signature == self._layout_signature:
+            self.node_positions = self.layout_cache["positions"]
+            return self.node_positions
 
         indent = 18
         row_height = 30
@@ -1712,6 +1730,7 @@ class BranchTreeView(tk.Canvas):
             "scrollregion": (0, 0, max_x, max_y),
             "max_lane": max_lane,
         }
+        self._layout_signature = layout_signature
         return layout
 
     def _current_path_set(self):
@@ -1781,6 +1800,8 @@ class BranchTreeView(tk.Canvas):
         self.delete("all")
         self.drag_data = None
         self.toggle_positions = {}
+        self._node_canvas_items = {}
+        self._edge_canvas_items = {}
         root = self.board_ref.root_node
         if not root:
             self.configure(scrollregion=(0, 0, 1, 1))
@@ -1808,9 +1829,12 @@ class BranchTreeView(tk.Canvas):
             edge_color = ACCENT if (node in current_path and node.parent in current_path) else "#9d8f7f"
             edge_width = 3 if edge_color == ACCENT else 1
             elbow_x = max(px, x - 8)
-            self.create_line(px, py + self.node_radius, px, y, fill=edge_color, width=edge_width)
-            self.create_line(px, y, elbow_x, y, fill=edge_color, width=edge_width)
-            self.create_line(elbow_x, y, x - self.node_radius, y, fill=edge_color, width=edge_width)
+            edge_items = [
+                self.create_line(px, py + self.node_radius, px, y, fill=edge_color, width=edge_width, tags=("branch_edge",)),
+                self.create_line(px, y, elbow_x, y, fill=edge_color, width=edge_width, tags=("branch_edge",)),
+                self.create_line(elbow_x, y, x - self.node_radius, y, fill=edge_color, width=edge_width, tags=("branch_edge",)),
+            ]
+            self._edge_canvas_items[node] = edge_items
 
         for node, (x, y) in layout.items():
             node_id = self._node_tag(node)
@@ -1842,7 +1866,7 @@ class BranchTreeView(tk.Canvas):
                 self.create_line(toggle_x - 3, toggle_y, toggle_x + 3, toggle_y, fill=TEXT_MAIN)
                 if not expanded:
                     self.create_line(toggle_x, toggle_y - 3, toggle_x, toggle_y + 3, fill=TEXT_MAIN)
-            self.create_oval(
+            node_item = self.create_oval(
                 x - self.node_radius,
                 y - self.node_radius,
                 x + self.node_radius,
@@ -1850,8 +1874,9 @@ class BranchTreeView(tk.Canvas):
                 fill=fill_color,
                 outline=outline_color,
                 width=width,
-                tags=(node_id,)
+                tags=(node_id, "branch_node_shape")
             )
+            self._node_canvas_items[node] = node_item
 
             if is_root:
                 self.create_text(
@@ -1900,6 +1925,40 @@ class BranchTreeView(tk.Canvas):
             self._focus_current_node()
         else:
             self.yview_moveto(previous_yview)
+
+    def update_highlight(self):
+        """Update only current-path colors after navigation.
+
+        Node coordinates and static Canvas items remain untouched, which keeps
+        Undo/Redo and variation switching cheap for large SGF trees.
+        """
+        if not self.layout_cache or not self._node_canvas_items:
+            self.draw_tree()
+            return
+
+        previous_signature = self._layout_signature
+        self._sync_current_path_expansion()
+        self._compute_layout()
+        if self._layout_signature != previous_signature or self.board_ref.current_node not in self.node_positions:
+            self.draw_tree()
+            return
+
+        current_path = self._current_path_set()
+        for node, item in self._node_canvas_items.items():
+            if node.parent is None:
+                fill_color = PANEL_BG
+                outline_color = ACCENT if node is self.board_ref.current_node else TEXT_MUTED
+            else:
+                stone_color = STONE_BLACK if node.move and node.move[2] == "black" else STONE_WHITE
+                fill_color = stone_color if node not in current_path else ("#1f1f1f" if node.move and node.move[2] == "black" else "#f7f2e9")
+                outline_color = ACCENT if node is self.board_ref.current_node else ("#111111" if node.move and node.move[2] == "black" else "#b8ab9b")
+            self.itemconfigure(item, fill=fill_color, outline=outline_color, width=3 if node is self.board_ref.current_node else 1)
+
+        for node, items in self._edge_canvas_items.items():
+            active = node in current_path and node.parent in current_path
+            for item in items:
+                self.itemconfigure(item, fill=ACCENT if active else "#9d8f7f", width=3 if active else 1)
+        self._focus_current_node()
 
     def draw_branches(self):
         self.draw_tree()
@@ -3354,7 +3413,7 @@ class GoBoard(tk.Canvas):
             self.on_state_change()
             self._show_playback_commentary()
 
-    def on_state_change(self):
+    def on_state_change(self, structure_changed=False):
         if continuous_analysis_enabled:
             stop_continuous_analysis("board_state_changed")
         if self.score_estimate_active:
@@ -3367,7 +3426,10 @@ class GoBoard(tk.Canvas):
             set_winrate_text("analysis.engine_not_ready")
             status_var.set(t("status.katago_initializing"))
             if hasattr(self, 'branch_ui'):
-                self.branch_ui.draw_tree()
+                if structure_changed:
+                    self.branch_ui.draw_tree()
+                else:
+                    self.branch_ui.update_highlight()
             return
 
         # 只有在非整盤分析狀態下才顯示「盤面更新中」
@@ -3376,7 +3438,10 @@ class GoBoard(tk.Canvas):
             set_winrate_text("analysis.board_updating")
             
         if hasattr(self, 'branch_ui'):
-            self.branch_ui.draw_tree()
+            if structure_changed:
+                self.branch_ui.draw_tree()
+            else:
+                self.branch_ui.update_highlight()
                 
         if self.analyze_timer:
             root.after_cancel(self.analyze_timer)
@@ -3558,7 +3623,7 @@ class GoBoard(tk.Canvas):
         self.current_node = new_node
         self.current_color = opponent
         self.refresh_display()
-        self.on_state_change()
+        self.on_state_change(structure_changed=True)
         return True
 
     def on_click(self, event):
