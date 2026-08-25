@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import threading
 import time
 import traceback
@@ -31,6 +32,173 @@ _FONT_BOLD = ("Segoe UI", 10, "bold")
 _FONT_SMALL = ("Segoe UI", 8)
 _FONT_TITLE = ("Segoe UI", 14, "bold")
 _FONT_TINY = ("Segoe UI", 7)
+_FONT_CODE = ("Consolas", 9)
+_FONT_ITALIC = ("Segoe UI", 10, "italic")
+_FONT_H1 = ("Segoe UI", 13, "bold")
+_FONT_H2 = ("Segoe UI", 11, "bold")
+_FONT_H3 = ("Segoe UI", 10, "bold")
+_CODE_BG = "#0b1220"          # 程式碼區塊背景
+_USER_BUBBLE_ACCENT = "#2563eb"  # 使用者氣泡（藍色）
+
+
+# ============================================================
+# 輕量 Markdown 渲染器（Phase 1：無新依賴，純 Text tag 實作）
+# ============================================================
+_MD_INLINE_RE = re.compile(r"(\*\*.+?\*\*|\*[^*\n]+\*|`[^`\n]+?`)")
+_MD_HEADING_RE = re.compile(r"^(#{1,3})\s+(.*)$")
+_MD_ORDERED_RE = re.compile(r"^(\d+)[.)]\s+(.*)$")
+
+
+def _insert_inline_markdown(text_widget, line, base_tag=None):
+    """把單行文字插入 Text widget，支援 **粗體**、*斜體*、`行內程式碼`。"""
+    for part in _MD_INLINE_RE.split(line):
+        if not part:
+            continue
+        tags = (base_tag,) if base_tag else ()
+        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+            text_widget.insert("end", part[2:-2], tags + ("md_bold",))
+        elif part.startswith("`") and part.endswith("`") and len(part) > 2:
+            text_widget.insert("end", part[1:-1], tags + ("md_icode",))
+        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
+            text_widget.insert("end", part[1:-1], tags + ("md_italic",))
+        else:
+            text_widget.insert("end", part, tags)
+
+
+def render_markdown(text_widget, content):
+    """把 Markdown 內容渲染到 Text widget：標題 / 列表 / 粗斜體 / 行程式碼 / 程式碼區塊。"""
+    text_widget.configure(state="normal")
+    text_widget.delete("1.0", "end")
+    in_code = False
+    lines = content.split("\n")
+    while lines and not lines[-1].strip():
+        lines.pop()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            text_widget.insert("end", line + "\n", ("md_code",))
+            continue
+        m = _MD_HEADING_RE.match(stripped)
+        if m:
+            level = len(m.group(1))
+            line_start = text_widget.index("end-1c")
+            _insert_inline_markdown(text_widget, m.group(2))
+            text_widget.insert("end", "\n")
+            text_widget.tag_add(f"md_h{level}", line_start, "end-1c")
+            continue
+        if stripped.startswith(("- ", "* ")) and not stripped.startswith("**"):
+            text_widget.insert("end", "  \u2022 ", ("md_bullet",))
+            _insert_inline_markdown(text_widget, stripped[2:])
+            text_widget.insert("end", "\n")
+            continue
+        ol = _MD_ORDERED_RE.match(stripped)
+        if ol:
+            text_widget.insert("end", f"  {ol.group(1)}. ", ("md_bullet",))
+            _insert_inline_markdown(text_widget, ol.group(2))
+            text_widget.insert("end", "\n")
+            continue
+        _insert_inline_markdown(text_widget, line)
+        text_widget.insert("end", "\n")
+    text_widget.configure(state="disabled")
+
+
+# ============================================================
+# 訊息卡片（頭像 + 角色名 + 複製按鈕 + Markdown 訊息本體）
+# ============================================================
+class MessageBubble(tk.Frame):
+    def __init__(self, parent, window, role, is_error=False):
+        super().__init__(parent, bg=_CHAT_BG)
+        self.window = window
+        self.role = role
+        self.is_error = is_error
+        self.raw_content = ""
+
+        is_user = role == "user"
+        body_bg = _USER_BUBBLE_ACCENT if is_user else (_ERROR_BUBBLE if is_error else _CHAT_BG)
+        body_fg = "white" if is_user else ("#fecaca" if is_error else "#e2e8f0")
+        avatar_bg = _AVATAR_USER if is_user else (_ERROR_BUBBLE if is_error else _AVATAR_AI)
+        if is_user:
+            avatar_text = "你" if str(window.language_getter()).startswith("zh") else "U"
+            role_text = window._tr("chat.role_user", default="User")
+        else:
+            avatar_text = "AI"
+            role_text = window._tr("chat.role_assistant", default="Assistant")
+
+        header = tk.Frame(self, bg=_CHAT_BG)
+        header.pack(fill=tk.X, padx=2, pady=(6, 2))
+
+        avatar = tk.Label(
+            header, text=avatar_text, bg=avatar_bg, fg="white",
+            font=_FONT_SMALL, width=3, pady=2,
+        )
+        avatar.pack(side=tk.LEFT)
+
+        name = tk.Label(
+            header, text=f"  {role_text}", bg=_CHAT_BG, fg=_CHAT_MUTED, font=_FONT_SMALL,
+        )
+        name.pack(side=tk.LEFT)
+
+        copy_btn = tk.Label(
+            header, text="\U0001F4CB", bg=_CHAT_BG, fg=_CHAT_DIM,
+            font=_FONT_SMALL, cursor="hand2",
+        )
+        copy_btn.pack(side=tk.RIGHT)
+        copy_btn.bind("<Button-1>", self._copy_content)
+        copy_btn.bind("<Enter>", lambda _e: copy_btn.config(fg=_CHAT_TEXT))
+        copy_btn.bind("<Leave>", lambda _e: copy_btn.config(fg=_CHAT_DIM))
+        self._copy_btn = copy_btn
+
+        self.body = tk.Text(
+            self, wrap="word", height=1, font=_FONT_MAIN,
+            bg=body_bg, fg=body_fg, relief="flat", bd=0,
+            highlightthickness=0, padx=14, pady=10,
+            spacing1=2, spacing3=2, cursor="arrow", state="disabled",
+        )
+        self._configure_body_tags()
+        self.body.pack(fill=tk.X, expand=True, padx=(38, 2), pady=(0, 6))
+
+        window._bind_wheel(self)
+
+    def _configure_body_tags(self):
+        t = self.body
+        t.tag_configure("md_bold", font=_FONT_BOLD)
+        t.tag_configure("md_italic", font=_FONT_ITALIC)
+        t.tag_configure("md_icode", font=_FONT_CODE, background=_CHAT_BORDER)
+        t.tag_configure(
+            "md_code", font=_FONT_CODE, background=_CODE_BG,
+            foreground="#e2e8f0", lmargin1=8, lmargin2=8,
+        )
+        t.tag_configure("md_h1", font=_FONT_H1, spacing1=6, spacing3=4)
+        t.tag_configure("md_h2", font=_FONT_H2, spacing1=5, spacing3=3)
+        t.tag_configure("md_h3", font=_FONT_H3, spacing1=4, spacing3=2)
+        t.tag_configure("md_bullet", foreground=_BULLET)
+
+    def _copy_content(self, event=None):
+        try:
+            self.window.clipboard_clear()
+            self.window.clipboard_append(self.raw_content)
+        except tk.TclError:
+            pass
+
+    def set_content(self, content):
+        self.raw_content = content
+        render_markdown(self.body, content)
+        self.window.after_idle(self._fix_height)
+
+    def _fix_height(self):
+        """依 wrap 後的 displayline 數調整 Text 高度，消除多餘空白。"""
+        if not self.winfo_exists():
+            return
+        try:
+            self.window.update_idletasks()
+            result = self.body.count("1.0", "end-1c", "displaylines")
+            if result:
+                self.body.configure(height=max(1, int(result[0])))
+        except tk.TclError:
+            pass
 
 
 class LLMChatWindow(tk.Toplevel):
@@ -54,8 +222,6 @@ class LLMChatWindow(tk.Toplevel):
 
         self._busy = False
         self._stream_text = ""
-        self._assistant_started = False
-        self._thinking_start = None
         self._thinking_text = self._tr("chat.thinking", default="Assistant is thinking...")
 
         self._max_messages = 40
@@ -321,103 +487,105 @@ class LLMChatWindow(tk.Toplevel):
     def _build_chat_area(self, parent):
         history_wrap = tk.Frame(parent, bg=_CHAT_BG)
         history_wrap.grid(row=1, column=0, sticky="nsew", padx=24, pady=12)
+        history_wrap.rowconfigure(0, weight=1)
+        history_wrap.columnconfigure(0, weight=1)
 
-        self._history_text = tk.Text(
-            history_wrap,
-            wrap="word",
-            font=_FONT_MAIN,
-            bg=_CHAT_BG,
-            fg=_CHAT_TEXT,
-            insertbackground=_CHAT_ACCENT,
-            relief="flat",
-            bd=0,
-            highlightthickness=0,
-            padx=16,
-            pady=16,
-            state="disabled",
+        self._chat_canvas = tk.Canvas(
+            history_wrap, bg=_CHAT_BG, highlightthickness=0, bd=0,
         )
         history_scroll = ttk.Scrollbar(
             history_wrap,
-            command=self._history_text.yview,
+            command=self._chat_canvas.yview,
             style="Dark.Vertical.TScrollbar",
         )
-        self._history_text.configure(yscrollcommand=history_scroll.set)
+        self._chat_canvas.configure(yscrollcommand=history_scroll.set)
+        self._chat_canvas.grid(row=0, column=0, sticky="nsew")
+        history_scroll.grid(row=0, column=1, sticky="ns")
 
-        self._history_text.pack(side="left", fill="both", expand=True)
-        history_scroll.pack(side="right", fill="y")
+        # 所有訊息卡片都放入 container，隨 Canvas 捲動
+        self._msg_container = tk.Frame(self._chat_canvas, bg=_CHAT_BG)
+        self._msg_window = self._chat_canvas.create_window(
+            (0, 0), window=self._msg_container, anchor="nw",
+        )
+        self._msg_container.bind("<Configure>", self._on_msg_container_configure)
+        self._chat_canvas.bind("<Configure>", self._on_chat_canvas_configure)
 
-        # --- 深色主題對話標籤與氣泡 ---
-        # 使用者訊息靠右
-        self._history_text.tag_configure(
-            "user_role",
-            foreground=_CHAT_DIM,
-            font=_FONT_SMALL,
-            spacing1=15,
-            spacing3=2,
-            justify="right",
-        )
-        self._history_text.tag_configure(
-            "user_body",
-            foreground="#e2e8f0",
-            background=_USER_BUBBLE_BG,
-            spacing3=5,
-            justify="right",
-            rmargin=10,
-            lmargin1=150,
-            lmargin2=150,
-        )
+        self._bubbles = []
+        self._current_bubble = None     # 串流中的 assistant 卡片
+        self._thinking_widget = None
+        self._stick_bottom = True       # 使用者停留在底部時自動跟隨捲動
+        self._resize_job = None
+        self._stream_render_job = None
+        self._bind_wheel(self._chat_canvas)
 
-        # 助手訊息靠左
-        self._history_text.tag_configure(
-            "assistant_role",
-            foreground=_CHAT_DIM,
-            font=_FONT_SMALL,
-            spacing1=15,
-            spacing3=2,
-            justify="left",
-        )
-        self._history_text.tag_configure(
-            "assistant_body",
-            foreground="#e2e8f0",
-            background=_ASSISTANT_BUBBLE,
-            spacing3=5,
-            justify="left",
-            lmargin1=25,
-            lmargin2=25,
-            rmargin=150,
-        )
+    # ------------------------------------------------------------
+    # 捲動 / 縮放管理
+    # ------------------------------------------------------------
+    def _on_msg_container_configure(self, _event=None):
+        try:
+            self._chat_canvas.configure(scrollregion=self._chat_canvas.bbox("all"))
+        except tk.TclError:
+            return
+        if self._stick_bottom:
+            self._chat_canvas.yview_moveto(1.0)
 
-        # 錯誤訊息
-        self._history_text.tag_configure(
-            "error_role",
-            foreground="#fca5a5",
-            font=_FONT_BOLD,
-            spacing1=15,
-            spacing3=2,
-            justify="left",
-        )
-        self._history_text.tag_configure(
-            "error_body",
-            foreground="#fecaca",
-            background=_ERROR_BUBBLE,
-            spacing3=5,
-            justify="left",
-            lmargin1=10,
-            lmargin2=10,
-            rmargin=10,
-        )
+    def _on_chat_canvas_configure(self, event):
+        self._chat_canvas.itemconfigure(self._msg_window, width=event.width)
+        if self._resize_job is not None:
+            try:
+                self.after_cancel(self._resize_job)
+            except tk.TclError:
+                pass
+        self._resize_job = self.after(150, self._relayout_bubbles)
 
-        self._history_text.tag_configure(
-            "thinking",
-            foreground=_CHAT_MUTED,
-            font=("Segoe UI", 10, "italic"),
-            spacing1=10,
-            spacing3=10,
-        )
+    def _relayout_bubbles(self):
+        """視窗寬度改變後重算所有卡片高度。"""
+        self._resize_job = None
+        for bubble in list(self._bubbles):
+            bubble._fix_height()
+        try:
+            self._chat_canvas.configure(scrollregion=self._chat_canvas.bbox("all"))
+            if self._stick_bottom:
+                self._chat_canvas.yview_moveto(1.0)
+        except tk.TclError:
+            pass
 
-        self._history_text.bind("<MouseWheel>", self._on_mousewheel)
-        self._history_text.bind("<Button-4>", self._on_mousewheel_linux)
-        self._history_text.bind("<Button-5>", self._on_mousewheel_linux)
+    def _scroll_to_bottom(self):
+        try:
+            self._chat_canvas.yview_moveto(1.0)
+        except tk.TclError:
+            pass
+
+    def _update_stick_bottom(self):
+        try:
+            self._stick_bottom = self._chat_canvas.yview()[1] >= 0.98
+        except tk.TclError:
+            pass
+
+    def _on_chat_wheel(self, event):
+        try:
+            self._chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        except tk.TclError:
+            pass
+        self.after_idle(self._update_stick_bottom)
+        return "break"
+
+    def _on_chat_wheel_linux(self, event):
+        try:
+            delta = -1 if event.num == 5 else 1
+            self._chat_canvas.yview_scroll(delta, "units")
+        except tk.TclError:
+            pass
+        self.after_idle(self._update_stick_bottom)
+        return "break"
+
+    def _bind_wheel(self, widget):
+        """遞迴綁定滾輪事件，讓游標在卡片上也能捲動聊天區。"""
+        widget.bind("<MouseWheel>", self._on_chat_wheel)
+        widget.bind("<Button-4>", self._on_chat_wheel_linux)
+        widget.bind("<Button-5>", self._on_chat_wheel_linux)
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
 
     # ============================================================
     # 輸入區
@@ -588,14 +756,18 @@ class LLMChatWindow(tk.Toplevel):
             )
 
     def _render_history(self):
-        self._history_text.configure(state="normal")
-        self._history_text.delete("1.0", "end")
-        self._history_text.configure(state="disabled")
+        for child in self._msg_container.winfo_children():
+            child.destroy()
+        self._bubbles = []
+        self._current_bubble = None
+        self._thinking_widget = None
         for msg in self._conversation:
             role = msg.get("role", "assistant")
             if role not in ("user", "assistant"):
                 role = "assistant"
             self._add_message(role, msg.get("content", ""))
+        self._stick_bottom = True
+        self.after_idle(self._scroll_to_bottom)
 
     def _select_conversation(self, index):
         if self._busy:
@@ -846,15 +1018,6 @@ class LLMChatWindow(tk.Toplevel):
     def _export_all_conversations(self):
         self._export_conversations(list(self._conversations), "llm_chat_history.txt")
 
-    def _append_history(self, role_text, content, tag):
-        self._history_text.configure(state="normal")
-        padding_content = f"{content.strip()}  "
-        
-        self._history_text.insert("end", f"{role_text}\n", f"{tag}_role")
-        self._history_text.insert("end", f"{padding_content}\n\n", f"{tag}_body")
-        self._history_text.configure(state="disabled")
-        self._history_text.see("end")
-
     def _schedule(self, callback):
         try:
             if self.winfo_exists():
@@ -863,81 +1026,79 @@ class LLMChatWindow(tk.Toplevel):
             pass
 
     def _add_message(self, role, content, is_error=False):
-        tag = "error" if is_error else role
-        role_text = self._tr("chat.role_user", default="User") if role == "user" else self._tr("chat.role_assistant", default="Assistant")
-        self._append_history(role_text, content, tag)
+        bubble = MessageBubble(self._msg_container, self, role, is_error=is_error)
+        bubble.pack(fill=tk.X)
+        self._bubbles.append(bubble)
+        bubble.set_content(content)
+        if self._stick_bottom:
+            self.after_idle(self._scroll_to_bottom)
+        return bubble
 
     def _show_thinking(self):
-        if self._thinking_start is not None:
+        if self._thinking_widget is not None:
             return
-        self._history_text.configure(state="normal")
-        self._thinking_start = self._history_text.index("end-1c")
-        self._history_text.insert("end", f"💬 {self._thinking_text}\n\n", "thinking")
-        self._history_text.configure(state="disabled")
-        self._history_text.see("end")
+        widget = tk.Label(
+            self._msg_container,
+            text=f"\U0001F4AC {self._thinking_text}",
+            bg=_CHAT_BG,
+            fg=_CHAT_MUTED,
+            font=_FONT_ITALIC,
+            anchor="w",
+        )
+        widget.pack(fill=tk.X, padx=6, pady=8)
+        self._thinking_widget = widget
+        self._bind_wheel(widget)
+        self._scroll_to_bottom()
 
     def _hide_thinking(self):
-        if self._thinking_start is None:
-            return
-        self._history_text.configure(state="normal")
-        try:
-            self._history_text.delete(self._thinking_start, "end")
-        except Exception:
-            pass
-        self._history_text.configure(state="disabled")
-        self._thinking_start = None
-        self._history_text.see("end")
-
-    def _begin_assistant_message(self):
-        if self._assistant_started:
-            return
-        self._hide_thinking()
-        self._history_text.configure(state="normal")
-        self._history_text.insert("end", f"{self._tr('chat.role_assistant', default='Assistant')}\n", "assistant_role")
-        self._history_text.insert("end", "  \n\n", "assistant_body") 
-        self._history_text.configure(state="disabled")
-        self._assistant_started = True
-        self._history_text.see("end")
+        widget = self._thinking_widget
+        self._thinking_widget = None
+        if widget is not None and widget.winfo_exists():
+            widget.destroy()
 
     def _append_assistant_delta(self, chunk_text):
-        if not chunk_text:
+        if not chunk_text or chunk_text == self._thinking_text:
             return
-
-        if chunk_text == self._thinking_text:
-            return
-
-        self._begin_assistant_message()
 
         if self._stream_text and chunk_text.startswith(self._stream_text):
             delta = chunk_text[len(self._stream_text):]
         else:
             delta = chunk_text
-
         if not delta:
             return
 
-        self._history_text.configure(state="normal")
-        # 由於串流是一字字塞入，我們移除結尾換行，交給完成時處理
-        self._history_text.insert("end-2c", delta, "assistant_body")
-        self._history_text.configure(state="disabled")
         self._stream_text = chunk_text
-        self._history_text.see("end")
+        if self._current_bubble is None:
+            self._hide_thinking()
+            self._current_bubble = self._add_message("assistant", "")
+        self._current_bubble.raw_content = self._stream_text
+        # 串流期間 debounce 重繪（120ms），避免每個 chunk 都閃爍
+        if self._stream_render_job is None:
+            self._stream_render_job = self.after(120, self._render_stream_bubble)
+
+    def _render_stream_bubble(self):
+        self._stream_render_job = None
+        if self._current_bubble is not None and self._current_bubble.winfo_exists():
+            self._current_bubble.set_content(self._stream_text)
+            if self._stick_bottom:
+                self._scroll_to_bottom()
 
     def _finish_generation(self):
+        if self._stream_render_job is not None:
+            try:
+                self.after_cancel(self._stream_render_job)
+            except tk.TclError:
+                pass
+            self._stream_render_job = None
 
         if self._stream_text.strip():
-            self._remember(
-                "assistant",
-                self._stream_text,
-            )
-        # 補上最後的對話尾隨換行
-        self._history_text.configure(state="normal")
-        self._history_text.insert("end", "  \n\n", "assistant_body")
-        self._history_text.configure(state="disabled")
-        
+            if self._current_bubble is not None and self._current_bubble.winfo_exists():
+                self._current_bubble.set_content(self._stream_text)
+            self._remember("assistant", self._stream_text)
+
         self._busy = False
         self._hide_thinking()
-        self._assistant_started = False
+        self._current_bubble = None
         self._stream_text = ""
 
     def _show_error(self, error, trace_text):
@@ -991,21 +1152,6 @@ class LLMChatWindow(tk.Toplevel):
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _on_mousewheel(self, event):
-        try:
-            self._history_text.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        except Exception:
-            pass
-        return "break"
-
-    def _on_mousewheel_linux(self, event):
-        try:
-            delta = -1 if event.num == 5 else 1
-            self._history_text.yview_scroll(delta, "units")
-        except Exception:
-            pass
-        return "break"
-    
     def _remember(self, role, content):
         """加入聊天記憶"""
 
