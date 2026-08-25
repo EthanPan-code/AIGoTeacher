@@ -6740,11 +6740,7 @@ def get_board_context_text():
         coord = board.to_gtp_coord(x, y)
         label = "B" if color == "black" else "W"
         lines.append(f"{i}. {label} {coord}")
-    header = t("chat.board_context_header", "目前棋盤局面（19x19，GTP 座標，共 {count} 手）：")
-    try:
-        header = header.format(count=len(moves))
-    except Exception:
-        pass
+    header = t("chat.board_context_header", count=len(moves))
     return header + "\n" + "\n".join(lines)
 
 
@@ -8803,6 +8799,13 @@ def apply_theme(theme_name, persist=True):
         pywinstyles.change_title_color(root, color=TEXT_MAIN)
         recolor(root)
     except (NameError, tk.TclError):
+        pass
+
+    # 同步重繪已開啟的 LLM 聊天視窗（chat_sandbox 自己有淺/深色調色盤）
+    try:
+        from ui import chat_sandbox
+        chat_sandbox.refresh_open_windows()
+    except Exception:
         pass
 
     try:

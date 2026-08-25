@@ -12,24 +12,93 @@ import uuid
 import tkinter as tk
 from tkinter import ttk, font as tkfont, filedialog, messagebox, simpledialog
 
-# --- 深色主題配色方案 (移植自 llm_chat_gui_tkinter.py) ---
-_CHAT_BG = "#0f172a"          # slate-950  主背景
-_CHAT_PANEL = "#1e293b"       # slate-800  側邊欄/輸入框背景
-_CHAT_BORDER = "#334155"      # slate-700  邊框
-_CHAT_TEXT = "#f8fafc"        # slate-50   主文字
-_CHAT_MUTED = "#94a3b8"       # slate-400  次要文字
-_CHAT_DIM = "#64748b"         # slate-500  暗淡文字
-_CHAT_ACCENT = "#2563eb"      # blue-600   主調（發送按鈕）
-_CHAT_ACCENT_D = "#3b82f6"    # blue-500   hover
-_CHAT_ACCENT_HOVER = "#3b82f6"  # blue-500
+# --- 聊天室配色方案（跟隨主程式淺色 / 深色主題） ---
+# dark 為原始設計值，light 仿 ChatGPT 淺色介面。
+# 模組全域變數由 _set_chat_palette() 注入，運行時可整組切換。
+_CHAT_PALETTES = {
+    "dark": {
+        "CHAT_BG": "#0f172a",           # slate-950  主背景
+        "CHAT_PANEL": "#1e293b",        # slate-800  側邊欄/輸入框背景
+        "CHAT_BORDER": "#334155",       # slate-700  邊框
+        "CHAT_TEXT": "#f8fafc",         # slate-50   主文字
+        "CHAT_MUTED": "#94a3b8",        # slate-400  次要文字
+        "CHAT_DIM": "#64748b",          # slate-500  暗淡文字
+        "CHAT_ACCENT": "#2563eb",       # blue-600   主調（發送按鈕）
+        "CHAT_ACCENT_D": "#3b82f6",     # blue-500   hover / active
+        "USER_BUBBLE_BG": "#1e293b",    # 舊氣泡相容 token
+        "USER_BUBBLE_ACCENT": "#2563eb",
+        "ASSISTANT_BUBBLE": "#1e293b",
+        "ERROR_BUBBLE": "#7f1d1d",
+        "AVATAR_USER": "#334155",
+        "AVATAR_AI": "#2563eb",
+        "BULLET": "#60a5fa",
+        "CODE_BG": "#0b1220",
+        "BODY_TEXT": "#e2e8f0",         # assistant 訊息本體文字
+        "ERROR_TEXT": "#fecaca",
+        "CODE_FG": "#e2e8f0",
+        "CONV_ACTIVE_BG": "#0f172a",    # 側邊欄選中項背景
+    },
+    "light": {
+        "CHAT_BG": "#f7f7f8",
+        "CHAT_PANEL": "#ececf1",
+        "CHAT_BORDER": "#d9d9e3",
+        "CHAT_TEXT": "#202123",
+        "CHAT_MUTED": "#5e5e6e",
+        "CHAT_DIM": "#8e8ea0",
+        "CHAT_ACCENT": "#2563eb",
+        "CHAT_ACCENT_D": "#3b82f6",
+        "USER_BUBBLE_BG": "#ececf1",
+        "USER_BUBBLE_ACCENT": "#2563eb",
+        "ASSISTANT_BUBBLE": "#ececf1",
+        "ERROR_BUBBLE": "#fee2e2",
+        "AVATAR_USER": "#c7c9d1",
+        "AVATAR_AI": "#2563eb",
+        "BULLET": "#2563eb",
+        "CODE_BG": "#efeff3",
+        "BODY_TEXT": "#202123",
+        "ERROR_TEXT": "#b91c1c",
+        "CODE_FG": "#202123",
+        "CONV_ACTIVE_BG": "#ffffff",
+    },
+}
 
-_USER_BUBBLE_BG = "#1e293b"   # slate-800  使用者氣泡
-_ASSISTANT_BUBBLE = "#1e293b" # slate-800  助手氣泡
-_ERROR_BUBBLE = "#7f1d1d"     # red-900    錯誤氣泡
-_THINKING_BG = "#1e293b"      # slate-800  思考中氣泡
-_AVATAR_USER = "#334155"      # slate-700  使用者頭像
-_AVATAR_AI = "#2563eb"        # blue-600   AI 頭像
-_BULLET = "#60a5fa"           # blue-400   列表項目符號
+
+def _set_chat_palette(palette):
+    for key, value in palette.items():
+        globals()[f"_{key}"] = value
+
+
+def _resolve_chat_theme():
+    """讀取主程式目前主題（light/dark），失敗時退回 dark。"""
+    try:
+        from services.config_service import ConfigService
+        from services.theme_service import resolve_theme
+        name, _palette = resolve_theme(ConfigService().get_ui_theme())
+        return name if name in _CHAT_PALETTES else "dark"
+    except Exception:
+        return "dark"
+
+
+_set_chat_palette(_CHAT_PALETTES["dark"])  # 模組載入預設深色
+current_chat_theme = "dark"
+_open_chat_windows = []
+
+
+def refresh_open_windows(theme_name=None):
+    """主題切換時由主程式呼叫：重繪所有開著的聊天視窗。"""
+    global current_chat_theme
+    new_theme = theme_name if theme_name in _CHAT_PALETTES else _resolve_chat_theme()
+    if new_theme == current_chat_theme:
+        return
+    old_palette = _CHAT_PALETTES[current_chat_theme]
+    new_palette = _CHAT_PALETTES[new_theme]
+    _set_chat_palette(new_palette)
+    current_chat_theme = new_theme
+    for win in list(_open_chat_windows):
+        try:
+            win._apply_chat_palette_swap(old_palette, new_palette)
+        except tk.TclError:
+            pass
 
 _FONT_MAIN = ("Segoe UI", 10)
 _FONT_BOLD = ("Segoe UI", 10, "bold")
@@ -41,8 +110,6 @@ _FONT_ITALIC = ("Segoe UI", 10, "italic")
 _FONT_H1 = ("Segoe UI", 13, "bold")
 _FONT_H2 = ("Segoe UI", 11, "bold")
 _FONT_H3 = ("Segoe UI", 10, "bold")
-_CODE_BG = "#0b1220"          # 程式碼區塊背景
-_USER_BUBBLE_ACCENT = "#2563eb"  # 使用者氣泡（藍色）
 
 
 # ============================================================
@@ -123,7 +190,7 @@ class MessageBubble(tk.Frame):
 
         is_user = role == "user"
         body_bg = _USER_BUBBLE_ACCENT if is_user else (_ERROR_BUBBLE if is_error else _CHAT_BG)
-        body_fg = "white" if is_user else ("#fecaca" if is_error else "#e2e8f0")
+        body_fg = "white" if is_user else (_ERROR_TEXT if is_error else _BODY_TEXT)
         avatar_bg = _AVATAR_USER if is_user else (_ERROR_BUBBLE if is_error else _AVATAR_AI)
         if is_user:
             avatar_text = "你" if str(window.language_getter()).startswith("zh") else "U"
@@ -183,7 +250,7 @@ class MessageBubble(tk.Frame):
         t.tag_configure("md_icode", font=_FONT_CODE, background=_CHAT_BORDER)
         t.tag_configure(
             "md_code", font=_FONT_CODE, background=_CODE_BG,
-            foreground="#e2e8f0", lmargin1=8, lmargin2=8,
+            foreground=_CODE_FG, lmargin1=8, lmargin2=8,
         )
         t.tag_configure("md_h1", font=_FONT_H1, spacing1=6, spacing3=4)
         t.tag_configure("md_h2", font=_FONT_H2, spacing1=5, spacing3=3)
@@ -228,6 +295,7 @@ class LLMChatWindow(tk.Toplevel):
         context_getter=None,
         history_dir=None,
     ):
+        global current_chat_theme
         super().__init__(parent)
         self.provider = provider
         # 由主程式注入：回傳「目前棋盤局面」文字（str）或 None（無棋局）
@@ -239,6 +307,11 @@ class LLMChatWindow(tk.Toplevel):
         self.model_display_name = model_display_name or getattr(provider, "model_name", "") or self._tr("chat.unknown_model", default="Unknown model")
         self.translator = translator or (lambda key, **kwargs: key)
         self.language_getter = language_getter or (lambda: "zh_TW")
+
+        # 跟隨主程式主題；註冊實例供運行時主題切換重繪
+        current_chat_theme = _resolve_chat_theme()
+        _set_chat_palette(_CHAT_PALETTES[current_chat_theme])
+        _open_chat_windows.append(self)
 
         self._busy = False
         self._stream_text = ""
@@ -337,7 +410,7 @@ class LLMChatWindow(tk.Toplevel):
 
         logo_label = tk.Label(
             top_frame,
-            text="LLM Chat",
+            text=self._tr("chat.app_name", default="LLM Chat"),
             bg=_CHAT_PANEL,
             fg=_CHAT_TEXT,
             font=_FONT_TITLE,
@@ -365,7 +438,7 @@ class LLMChatWindow(tk.Toplevel):
 
         recent_label = tk.Label(
             recent_header,
-            text="RECENT CONVERSATIONS",
+            text=self._tr("chat.recent_conversations", default="RECENT CONVERSATIONS"),
             bg=_CHAT_PANEL,
             fg=_CHAT_DIM,
             font=_FONT_SMALL,
@@ -408,7 +481,7 @@ class LLMChatWindow(tk.Toplevel):
 
     def _build_conversation_item(self, parent, index, title, time_str, is_active):
         """建立單一對話項目，點擊可切換。"""
-        bg = "#0f172a" if is_active else _CHAT_PANEL  # 選中項用深色
+        bg = _CONV_ACTIVE_BG if is_active else _CHAT_PANEL
         fg = _CHAT_TEXT if is_active else _CHAT_MUTED
 
         item = tk.Frame(parent, bg=bg, padx=12, pady=8, cursor="hand2")
@@ -714,7 +787,7 @@ class LLMChatWindow(tk.Toplevel):
             button_row,
             text="  +  ",
             bg=_CHAT_BG,
-            fg=_CHAT_MUTED,
+            fg=_CHAT_MUTED, 
             font=_FONT_SMALL,
             padx=12,
             pady=4,
@@ -877,7 +950,59 @@ class LLMChatWindow(tk.Toplevel):
         self._start_generation(full_text)
 
     def _on_close(self):
+        if self in _open_chat_windows:
+            _open_chat_windows.remove(self)
         self.destroy()
+
+    def _apply_chat_palette_swap(self, old_palette, new_palette):
+        """主題切換：依舊色碼映射到新色碼，重繪整個視窗（含 Text tag 顏色）。"""
+        color_map = {}
+        for token, old_value in old_palette.items():
+            new_value = new_palette.get(token)
+            if new_value and old_value not in color_map:
+                color_map[old_value] = new_value
+        options = ("background", "bg", "foreground", "fg",
+                   "activebackground", "activeforeground",
+                   "highlightbackground", "insertbackground", "troughcolor")
+
+        def recolor(widget):
+            for opt in options:
+                try:
+                    value = widget.cget(opt)
+                    if value in color_map:
+                        widget.configure(**{opt: color_map[value]})
+                except (tk.TclError, TypeError):
+                    pass
+            if isinstance(widget, tk.Text):
+                for tag in widget.tag_names():
+                    for opt in ("background", "foreground"):
+                        try:
+                            value = widget.tag_cget(tag, opt)
+                            if value in color_map:
+                                widget.tag_configure(tag, **{opt: color_map[value]})
+                        except tk.TclError:
+                            pass
+            try:
+                children = widget.winfo_children()
+            except tk.TclError:
+                return
+            for child in children:
+                recolor(child)
+
+        recolor(self)
+        self.configure(bg=_CHAT_BG)
+
+        # ttk 樣式（送件鈕 / 捲軸）跟隨新主題
+        self.style.configure("Send.TButton", background=_CHAT_ACCENT)
+        self.style.map(
+            "Send.TButton",
+            background=[("active", _CHAT_ACCENT_D), ("disabled", _CHAT_BORDER)],
+            foreground=[("disabled", _CHAT_MUTED)],
+        )
+        self.style.configure(
+            "Dark.Vertical.TScrollbar",
+            background=_CHAT_BORDER, troughcolor=_CHAT_PANEL, arrowcolor=_CHAT_MUTED,
+        )
 
     # ============================================================
     # 訊息操作（複製 / 編輯重送 / 重新生成 / 刪除）
@@ -1121,7 +1246,8 @@ class LLMChatWindow(tk.Toplevel):
         conv = self._conversations[index]
         if not messagebox.askyesno(
             self._tr("chat.delete_title", default="刪除對話"),
-            self._tr("chat.delete_confirm", default=f"確定要刪除「{conv['title']}」嗎？"),
+            self._tr("chat.delete_confirm_named", title=conv["title"],
+                     default=f"確定要刪除「{conv['title']}」嗎？"),
             parent=self,
         ):
             return
