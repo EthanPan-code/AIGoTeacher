@@ -128,6 +128,8 @@ class OllamaProvider(LLMProvider):
 
             full_content = ""
             for chunk in response:
+                if getattr(self, "_stop_requested", False):
+                    break
                 if "message" in chunk and "content" in chunk["message"]:
                     part = chunk["message"]["content"]
                     full_content += part

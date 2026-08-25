@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
 import re
+import sys
 import threading
 import time
 import traceback
+import uuid
 import tkinter as tk
-from tkinter import ttk, font as tkfont, filedialog, messagebox
+from tkinter import ttk, font as tkfont, filedialog, messagebox, simpledialog
 
 # --- 深色主題配色方案 (移植自 llm_chat_gui_tkinter.py) ---
 _CHAT_BG = "#0f172a"          # slate-950  主背景
@@ -109,11 +113,12 @@ def render_markdown(text_widget, content):
 # 訊息卡片（頭像 + 角色名 + 複製按鈕 + Markdown 訊息本體）
 # ============================================================
 class MessageBubble(tk.Frame):
-    def __init__(self, parent, window, role, is_error=False):
+    def __init__(self, parent, window, role, is_error=False, message=None):
         super().__init__(parent, bg=_CHAT_BG)
         self.window = window
         self.role = role
         self.is_error = is_error
+        self.message = message          # 對應 conversation["messages"] 裡的 dict
         self.raw_content = ""
 
         is_user = role == "user"
@@ -141,15 +146,24 @@ class MessageBubble(tk.Frame):
         )
         name.pack(side=tk.LEFT)
 
-        copy_btn = tk.Label(
-            header, text="\U0001F4CB", bg=_CHAT_BG, fg=_CHAT_DIM,
-            font=_FONT_SMALL, cursor="hand2",
-        )
-        copy_btn.pack(side=tk.RIGHT)
-        copy_btn.bind("<Button-1>", self._copy_content)
-        copy_btn.bind("<Enter>", lambda _e: copy_btn.config(fg=_CHAT_TEXT))
-        copy_btn.bind("<Leave>", lambda _e: copy_btn.config(fg=_CHAT_DIM))
-        self._copy_btn = copy_btn
+        def _action_btn(text, command):
+            btn = tk.Label(
+                header, text=text, bg=_CHAT_BG, fg=_CHAT_DIM,
+                font=_FONT_SMALL, cursor="hand2", padx=3,
+            )
+            btn.pack(side=tk.RIGHT)
+            btn.bind("<Button-1>", lambda _e: command())
+            btn.bind("<Enter>", lambda _e: btn.config(fg=_CHAT_TEXT))
+            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_DIM))
+            return btn
+
+        # 從右到左排列：刪除 / (重新生成｜編輯) / 複製
+        _action_btn("\U0001F5D1", lambda: window._on_delete_message(self))
+        if is_user:
+            _action_btn("✏", lambda: window._on_edit_message(self))
+        elif not is_error:
+            _action_btn("\U0001F504", lambda: window._on_regenerate(self))
+        self._copy_btn = _action_btn("\U0001F4CB", self._copy_content)
 
         self.body = tk.Text(
             self, wrap="word", height=1, font=_FONT_MAIN,
@@ -211,9 +225,15 @@ class LLMChatWindow(tk.Toplevel):
         model_display_name=None,
         translator=None,
         language_getter=None,
+        context_getter=None,
+        history_dir=None,
     ):
         super().__init__(parent)
         self.provider = provider
+        # 由主程式注入：回傳「目前棋盤局面」文字（str）或 None（無棋局）
+        self.context_getter = context_getter
+        # 由主程式注入：對話歷史資料夾（避免 import 主程式造成雙重執行）
+        self._history_dir_override = history_dir
         self.provider_name = provider_name or ""
         self.provider_display_name = provider_display_name or self._guess_provider_display_name()
         self.model_display_name = model_display_name or getattr(provider, "model_name", "") or self._tr("chat.unknown_model", default="Unknown model")
@@ -226,7 +246,10 @@ class LLMChatWindow(tk.Toplevel):
 
         self._max_messages = 40
         self._search_query = ""
-        self._conversations = [self._make_conversation()]
+        self._gen_provider = None
+        self._conversations = self._load_conversations()
+        if not self._conversations:
+            self._conversations = [self._make_conversation()]
         self._active_conv_index = 0
         self._conversation = self._conversations[0]["messages"]
 
@@ -306,6 +329,7 @@ class LLMChatWindow(tk.Toplevel):
         sidebar.grid(row=0, column=0, sticky="ns")
         sidebar.pack_propagate(False)
         sidebar.grid_propagate(False)
+        self._sidebar = sidebar
 
         # ---- Logo & New Chat ----
         top_frame = tk.Frame(sidebar, bg=_CHAT_PANEL)
@@ -409,12 +433,34 @@ class LLMChatWindow(tk.Toplevel):
         )
         time_label.pack(side=tk.RIGHT)
 
+        # 右側操作按鈕：刪除 / 重新命名（反向 pack 保持 時間 [✏] [🗑] 順序）
+        def _side_btn(text, command):
+            btn = tk.Label(
+                item, text=text, bg=bg, fg=_CHAT_DIM,
+                font=_FONT_TINY, cursor="hand2", padx=3,
+            )
+            btn.pack(side=tk.RIGHT)
+            btn.bind("<Button-1>", lambda _e: command())
+            btn.bind("<Enter>", lambda _e: btn.config(fg=_CHAT_TEXT))
+            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_DIM))
+            return btn
+
+        _side_btn("\U0001F5D1", lambda: self._delete_conversation(index))
+        _side_btn("✏", lambda: self._rename_conversation(index))
+
         def _select(_evt=None, i=index):
             self._select_conversation(i)
 
         item.bind("<Button-1>", _select)
         title_label.bind("<Button-1>", _select)
         time_label.bind("<Button-1>", _select)
+
+    def _toggle_sidebar(self):
+        """收合 / 展開左側對話列表。"""
+        if self._sidebar.winfo_ismapped():
+            self._sidebar.grid_remove()
+        else:
+            self._sidebar.grid()
 
     # ============================================================
     # Header
@@ -428,6 +474,18 @@ class LLMChatWindow(tk.Toplevel):
         # 左側：下拉箭頭 + 標題 + 模型/提供商資訊
         left = tk.Frame(header, bg=_CHAT_PANEL)
         left.grid(row=0, column=0, sticky="w", padx=24, pady=16)
+
+        toggle_btn = tk.Label(
+            left,
+            text="≡",
+            bg=_CHAT_PANEL,
+            fg=_CHAT_MUTED,
+            font=_FONT_BOLD,
+            cursor="hand2",
+            padx=4,
+        )
+        toggle_btn.pack(side=tk.LEFT, padx=(0, 10))
+        toggle_btn.bind("<Button-1>", lambda _e: self._toggle_sidebar())
 
         chevron = tk.Label(
             left,
@@ -604,9 +662,18 @@ class LLMChatWindow(tk.Toplevel):
         input_frame.pack(fill=tk.X)
         input_frame.columnconfigure(0, weight=1)
 
+        # 附件 chip 列（附加棋盤局面 / 檔案時顯示）
+        self._attachments = []  # [{"name": str, "content": str}]
+        self._chips_frame = tk.Frame(input_frame, bg=_CHAT_PANEL)
+        self._chips_frame.grid(row=0, column=0, sticky="ew")
+        self._chips_frame.grid_remove()  # 初始無附件時隱藏
+
+        # 送出模式：False = Enter 送出 / Shift+Enter 換行；True = Ctrl+Enter 送出
+        self._send_ctrl_var = tk.BooleanVar(value=False)
+
         self._input_text = tk.Text(
             input_frame,
-            height=4,
+            height=3,
             wrap="word",
             font=_FONT_MAIN,
             bg=_CHAT_PANEL,
@@ -618,9 +685,10 @@ class LLMChatWindow(tk.Toplevel):
             padx=12,
             pady=12,
         )
-        self._input_text.grid(row=0, column=0, sticky="ew")
-        self._input_text.bind("<Return>", self._on_enter)
-        self._input_text.bind("<Shift-Return>", self._on_shift_enter)
+        self._input_text.grid(row=1, column=0, sticky="ew")
+        self._input_text.bind("<KeyRelease>", self._auto_grow_input)
+        self._apply_send_mode()
+
 
         # Placeholder 行為
         self._placeholder_text = self._tr("chat.placeholder", default="Message LLM Chat...")
@@ -631,7 +699,7 @@ class LLMChatWindow(tk.Toplevel):
 
         # 底部按鈕列
         button_bar = tk.Frame(input_frame, bg=_CHAT_PANEL)
-        button_bar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+        button_bar.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
 
         # 分隔線
         sep = tk.Frame(button_bar, bg=_CHAT_BORDER, height=1)
@@ -679,6 +747,103 @@ class LLMChatWindow(tk.Toplevel):
             self._input_text.insert("1.0", self._placeholder_text)
             self._input_text.config(fg=_CHAT_DIM)
 
+    def _apply_send_mode(self, *_args):
+        """依 _send_ctrl_var 切換快捷鍵：Enter 送出 or Ctrl+Enter 送出。"""
+        for seq in ("<Return>", "<Shift-Return>", "<Control-Return>"):
+            self._input_text.unbind(seq)
+        if self._send_ctrl_var.get():
+            # Enter 換行（Text 預設行為），Ctrl+Enter 送出
+            self._input_text.bind("<Control-Return>", self._on_enter)
+        else:
+            self._input_text.bind("<Return>", self._on_enter)
+            self._input_text.bind("<Shift-Return>", self._on_shift_enter)
+
+    def _auto_grow_input(self, _event=None):
+        """輸入框隨內容自動增高（2 ~ 8 行）。"""
+        try:
+            self.update_idletasks()
+            result = self._input_text.count("1.0", "end-1c", "displaylines")
+            lines = int(result[0]) if result else 1
+            self._input_text.configure(height=max(2, min(8, lines)))
+        except tk.TclError:
+            pass
+
+    # ------------------------------------------------------------
+    # 附件（棋盤局面 / 檔案）
+    # ------------------------------------------------------------
+    def _refresh_attachment_chips(self):
+        for child in self._chips_frame.winfo_children():
+            child.destroy()
+        if not self._attachments:
+            self._chips_frame.grid_remove()
+            return
+        self._chips_frame.grid()
+        for idx, att in enumerate(self._attachments):
+            chip = tk.Label(
+                self._chips_frame,
+                text=f"  \U0001F4CE {att['name']}  ✕  ",
+                bg=_CHAT_BG, fg=_CHAT_MUTED, font=_FONT_SMALL,
+                padx=8, pady=3, cursor="hand2",
+            )
+            chip.pack(side=tk.LEFT, padx=(8, 0), pady=(8, 0))
+            chip.bind("<Button-1>", lambda _e, i=idx: self._remove_attachment(i))
+
+    def _add_attachment(self, name, content):
+        self._attachments.append({"name": name, "content": content})
+        self._refresh_attachment_chips()
+
+    def _remove_attachment(self, index):
+        if 0 <= index < len(self._attachments):
+            self._attachments.pop(index)
+            self._refresh_attachment_chips()
+
+    def _attach_board_context(self):
+        if self.context_getter is None:
+            self.bell()
+            return
+        try:
+            content = self.context_getter()
+        except Exception:
+            content = None
+        if not content:
+            self.bell()
+            return
+        name = self._tr("chat.attach_board_name", default="目前棋盤局面")
+        self._add_attachment(name, content)
+
+    def _attach_file(self):
+        path = filedialog.askopenfilename(
+            parent=self,
+            title=self._tr("chat.attach_file_title", default="附加檔案"),
+            filetypes=[
+                ("Text / SGF", "*.txt *.sgf *.md *.json *.py"),
+                ("All Files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(200 * 1024)  # 上限 200KB，超過截斷
+        except OSError as exc:
+            messagebox.showerror(
+                self._tr("chat.title", default="LLM Chat Sandbox"),
+                str(exc), parent=self,
+            )
+            return
+        self._add_attachment(os.path.basename(path), content)
+
+    def _compose_outgoing(self, raw):
+        """回傳 (顯示文字, 送給 LLM 的完整文字)。附件只附在完整文字中。"""
+        if not self._attachments:
+            return raw, raw
+        names = ", ".join(a["name"] for a in self._attachments)
+        display = f"{raw}\n\n\U0001F4CE {names}"
+        blocks = "\n\n".join(
+            f"[附件：{a['name']}]\n```\n{a['content']}\n```" for a in self._attachments
+        )
+        return display, f"{raw}\n\n{blocks}"
+
     def _on_enter(self, event):
         self._on_send()
         return "break"
@@ -696,8 +861,12 @@ class LLMChatWindow(tk.Toplevel):
             return
 
         self._input_text.delete("1.0", "end")
-        self._remember("user", raw)
-        self._add_message("user", raw)
+        self.after_idle(self._auto_grow_input)
+        display, full_text = self._compose_outgoing(raw)
+        self._attachments = []
+        self._refresh_attachment_chips()
+        msg = self._remember("user", full_text, display=display)
+        self._add_message("user", display, message=msg)
 
         # 首則訊息作為對話標題
         conv = self._active_conversation()
@@ -705,16 +874,81 @@ class LLMChatWindow(tk.Toplevel):
             conv["title"] = raw if len(raw) <= 20 else raw[:20] + "…"
             self._refresh_conversation_list()
 
-        self._start_generation(raw)
+        self._start_generation(full_text)
 
     def _on_close(self):
         self.destroy()
+
+    # ============================================================
+    # 訊息操作（複製 / 編輯重送 / 重新生成 / 刪除）
+    # ============================================================
+    def _prune_from_bubble(self, bubble):
+        """從指定卡片開始，把之後的訊息（含自己）從對話與 UI 一併移除。
+        回傳是否成功；若對話清空，標題重置以便下一則訊息重新命名。"""
+        conv = self._active_conversation()
+        msgs = conv["messages"]
+        if bubble.message is not None and bubble.message in msgs:
+            del msgs[msgs.index(bubble.message):]
+        if not msgs and conv["title"] != self._tr("chat.new_chat", default="新對話"):
+            conv["title"] = self._tr("chat.new_chat", default="新對話")
+            self._refresh_conversation_list()
+        if bubble in self._bubbles:
+            idx = self._bubbles.index(bubble)
+            for b in self._bubbles[idx:]:
+                b.destroy()
+            del self._bubbles[idx:]
+        self._save_conversation(conv)
+        return True
+
+    def _on_delete_message(self, bubble):
+        if self._busy:
+            self.bell()
+            return
+        self._delete_single_message(bubble)
+
+    def _delete_single_message(self, bubble):
+        """只刪除單則訊息，保留後續對話。"""
+        conv = self._active_conversation()
+        msgs = conv["messages"]
+        if bubble.message is not None and bubble.message in msgs:
+            msgs.remove(bubble.message)
+        if bubble in self._bubbles:
+            self._bubbles.remove(bubble)
+        bubble.destroy()
+        self._save_conversation(conv)
+
+    def _on_edit_message(self, bubble):
+        """把使用者訊息回填輸入框，並截斷該則之後的所有對話。"""
+        if self._busy or bubble.role != "user":
+            self.bell()
+            return
+        text = bubble.message.get("content", "") if bubble.message else bubble.raw_content
+        self._prune_from_bubble(bubble)
+        self._ensure_input_not_placeholder()
+        self._input_text.delete("1.0", "end")
+        self._input_text.insert("1.0", text)
+        self.after_idle(self._auto_grow_input)
+        self._input_text.focus_set()
+
+    def _on_regenerate(self, bubble):
+        """從指定 assistant 回覆開始重新生成（截斷其後所有訊息）。"""
+        if self._busy or bubble.role != "assistant":
+            self.bell()
+            return
+        self._prune_from_bubble(bubble)
+        msgs = self._conversation
+        if not msgs or msgs[-1].get("role") != "user":
+            self.bell()
+            return
+        self._save_conversation(self._active_conversation())
+        self._start_generation(msgs[-1]["content"])
 
     # ============================================================
     # 對話列表管理（New Chat / 切換 / 搜尋）
     # ============================================================
     def _make_conversation(self):
         return {
+            "id": uuid.uuid4().hex,
             "title": self._tr("chat.new_chat", default="新對話"),
             "created": time.time(),
             "messages": [],
@@ -722,6 +956,76 @@ class LLMChatWindow(tk.Toplevel):
 
     def _active_conversation(self):
         return self._conversations[self._active_conv_index]
+
+    # ------------------------------------------------------------
+    # 對話持久化（JSON 檔案，每對話一檔）
+    # ------------------------------------------------------------
+    def _get_history_dir(self):
+        """對話歷史資料夾。
+
+        注意：絕對不能在這裡 import main_v3——主程式以 __main__ 執行，
+        import ui.main_v3 會再跑一遍整支主程式建立第二個 root 視窗。
+        """
+        if self._history_dir_override:
+            path = self._history_dir_override
+        elif getattr(sys, "frozen", False):
+            base = os.path.join(
+                os.getenv("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+                "AIGoTeacher",
+            )
+            path = os.path.join(base, "chat_history")
+        else:
+            # 開發模式：專案根目錄下的 chat_history/
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chat_history")
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def _load_conversations(self):
+        convs = []
+        try:
+            folder = self._get_history_dir()
+            for name in os.listdir(folder):
+                if not name.endswith(".json"):
+                    continue
+                try:
+                    with open(os.path.join(folder, name), "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+                        continue
+                    data.setdefault("id", os.path.splitext(name)[0])
+                    data.setdefault("title", self._tr("chat.new_chat", default="新對話"))
+                    data.setdefault("created", time.time())
+                    convs.append(data)
+                except Exception:
+                    continue
+        except OSError:
+            pass
+        convs.sort(key=lambda c: c.get("created", 0), reverse=True)
+        return convs
+
+    def _save_conversation(self, conv):
+        try:
+            path = os.path.join(self._get_history_dir(), f"{conv['id']}.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "id": conv["id"],
+                        "title": conv["title"],
+                        "created": conv["created"],
+                        "messages": conv["messages"],
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+        except OSError:
+            pass
+
+    def _delete_conversation_file(self, conv_id):
+        try:
+            os.remove(os.path.join(self._get_history_dir(), f"{conv_id}.json"))
+        except OSError:
+            pass
 
     def _format_relative_time(self, ts):
         elapsed = max(0, int(time.time() - ts))
@@ -765,7 +1069,7 @@ class LLMChatWindow(tk.Toplevel):
             role = msg.get("role", "assistant")
             if role not in ("user", "assistant"):
                 role = "assistant"
-            self._add_message(role, msg.get("content", ""))
+            self._add_message(role, msg.get("display", msg.get("content", "")), message=msg)
         self._stick_bottom = True
         self.after_idle(self._scroll_to_bottom)
 
@@ -791,6 +1095,47 @@ class LLMChatWindow(tk.Toplevel):
         self._conversations.insert(0, self._make_conversation())
         self._active_conv_index = 0
         self._conversation = self._conversations[0]["messages"]
+        self._render_history()
+        self._refresh_conversation_list()
+
+    def _rename_conversation(self, index):
+        if self._busy:
+            self.bell()
+            return
+        conv = self._conversations[index]
+        new_title = simpledialog.askstring(
+            self._tr("chat.rename_title", default="重新命名對話"),
+            self._tr("chat.rename_prompt", default="新標題："),
+            initialvalue=conv["title"],
+            parent=self,
+        )
+        if new_title and new_title.strip():
+            conv["title"] = new_title.strip()
+            self._save_conversation(conv)
+            self._refresh_conversation_list()
+
+    def _delete_conversation(self, index):
+        if self._busy:
+            self.bell()
+            return
+        conv = self._conversations[index]
+        if not messagebox.askyesno(
+            self._tr("chat.delete_title", default="刪除對話"),
+            self._tr("chat.delete_confirm", default=f"確定要刪除「{conv['title']}」嗎？"),
+            parent=self,
+        ):
+            return
+        self._delete_conversation_file(conv["id"])
+        if len(self._conversations) == 1:
+            self._conversations = [self._make_conversation()]
+            self._active_conv_index = 0
+        else:
+            self._conversations.pop(index)
+            if index < self._active_conv_index:
+                self._active_conv_index -= 1
+            elif index == self._active_conv_index:
+                self._active_conv_index = min(index, len(self._conversations) - 1)
+        self._conversation = self._conversations[self._active_conv_index]["messages"]
         self._render_history()
         self._refresh_conversation_list()
 
@@ -882,6 +1227,17 @@ class LLMChatWindow(tk.Toplevel):
 
     def _on_settings_menu(self, event):
         menu = self._make_menu()
+        menu.add_radiobutton(
+            label=self._tr("chat.send_mode_enter", default="Enter 送出 / Shift+Enter 換行"),
+            variable=self._send_ctrl_var, value=False,
+            command=self._apply_send_mode,
+        )
+        menu.add_radiobutton(
+            label=self._tr("chat.send_mode_ctrl", default="Ctrl+Enter 送出 / Enter 換行"),
+            variable=self._send_ctrl_var, value=True,
+            command=self._apply_send_mode,
+        )
+        menu.add_separator()
         menu.add_command(
             label=self._tr("chat.export_all", default="匯出所有對話…"),
             command=self._export_all_conversations,
@@ -907,6 +1263,14 @@ class LLMChatWindow(tk.Toplevel):
 
     def _on_plus_menu(self, event):
         menu = self._make_menu()
+        board_label = self._tr("chat.attach_board", default="附加目前棋盤局面")
+        if self.context_getter is not None:
+            menu.add_command(label=board_label, command=self._attach_board_context)
+        menu.add_command(
+            label=self._tr("chat.attach_file", default="附加檔案…（txt / sgf / md）"),
+            command=self._attach_file,
+        )
+        menu.add_separator()
         menu.add_command(
             label=self._tr("chat.paste_clipboard", default="貼上剪貼簿內容"),
             command=self._paste_clipboard,
@@ -934,6 +1298,7 @@ class LLMChatWindow(tk.Toplevel):
 
     def _clear_input(self):
         self._input_text.delete("1.0", "end")
+        self.after_idle(self._auto_grow_input)
         self._input_text.focus_set()
 
     def _insert_sample_prompt(self):
@@ -962,6 +1327,7 @@ class LLMChatWindow(tk.Toplevel):
         conv["messages"].clear()
         conv["title"] = self._tr("chat.new_chat", default="新對話")
         conv["created"] = time.time()
+        self._save_conversation(conv)
         self._render_history()
         self._refresh_conversation_list()
 
@@ -969,6 +1335,8 @@ class LLMChatWindow(tk.Toplevel):
         if self._busy:
             self.bell()
             return
+        for conv in self._conversations:
+            self._delete_conversation_file(conv["id"])
         self._conversations = [self._make_conversation()]
         self._active_conv_index = 0
         self._conversation = self._conversations[0]["messages"]
@@ -1025,8 +1393,8 @@ class LLMChatWindow(tk.Toplevel):
         except tk.TclError:
             pass
 
-    def _add_message(self, role, content, is_error=False):
-        bubble = MessageBubble(self._msg_container, self, role, is_error=is_error)
+    def _add_message(self, role, content, is_error=False, message=None):
+        bubble = MessageBubble(self._msg_container, self, role, is_error=is_error, message=message)
         bubble.pack(fill=tk.X)
         self._bubbles.append(bubble)
         bubble.set_content(content)
@@ -1094,12 +1462,15 @@ class LLMChatWindow(tk.Toplevel):
         if self._stream_text.strip():
             if self._current_bubble is not None and self._current_bubble.winfo_exists():
                 self._current_bubble.set_content(self._stream_text)
-            self._remember("assistant", self._stream_text)
+            msg = self._remember("assistant", self._stream_text)
+            if self._current_bubble is not None and self._current_bubble.winfo_exists():
+                self._current_bubble.message = msg
 
         self._busy = False
         self._hide_thinking()
         self._current_bubble = None
         self._stream_text = ""
+        self._set_busy_ui(False)
 
     def _show_error(self, error, trace_text):
         error_message = [
@@ -1109,8 +1480,8 @@ class LLMChatWindow(tk.Toplevel):
             self._tr("chat.error_log", default="完整 Exception Log："),
             trace_text.strip(),
         ]
-        self._remember("assistant", "\n".join(error_message))
-        self._add_message("assistant", "\n".join(error_message), is_error=True)
+        msg = self._remember("assistant", "\n".join(error_message))
+        self._add_message("assistant", "\n".join(error_message), is_error=True, message=msg)
 
     def _create_sandbox_provider(self, ui_callback, on_complete, on_error):
         provider = copy.copy(self.provider)
@@ -1126,8 +1497,30 @@ class LLMChatWindow(tk.Toplevel):
         self._show_error(error, trace_text)
         self._finish_generation()
 
+    def _set_busy_ui(self, busy):
+        """切換送出鍵外觀：生成中變「停止」按鈕。"""
+        if busy:
+            self.send_btn.config(
+                text=f"  ⏹ {self._tr('chat.stop', default='Stop')}  ",
+                command=self._on_stop,
+            )
+        else:
+            self.send_btn.config(
+                text=f"  {self._tr('chat.send', default='Send')}  ➤  ",
+                command=self._on_send,
+            )
+
+    def _on_stop(self):
+        """使用者按下停止：要求 provider 中止串流，並立即收尾。"""
+        provider = self._gen_provider
+        if provider is not None:
+            provider._stop_requested = True
+            provider.ui_callback = lambda *_args, **_kwargs: None
+        self._finish_generation()
+
     def _start_generation(self, user_text):
         self._busy = True
+        self._set_busy_ui(True)
         self._show_thinking()
 
         provider = None
@@ -1142,6 +1535,8 @@ class LLMChatWindow(tk.Toplevel):
             on_complete=lambda: self._schedule(self._finish_generation),
             on_error=on_error,
         )
+        provider._stop_requested = False
+        self._gen_provider = provider
 
         def run():
             try:
@@ -1152,14 +1547,20 @@ class LLMChatWindow(tk.Toplevel):
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _remember(self, role, content):
-        """加入聊天記憶"""
+    def _remember(self, role, content, display=None):
+        """加入聊天記憶並立即持久化"""
 
-        self._conversation.append({
+        msg = {
             "role": role,
             "content": content,
-        })
+        }
+        if display is not None:
+            msg["display"] = display
+        self._conversation.append(msg)
 
-        # 超過限制時，只保留最新 N 則
+        # 超過限制時，只保留最新 N 則（in-place 刪除，保持與 conversation dict 的引用）
         if len(self._conversation) > self._max_messages:
-            self._conversation = self._conversation[-self._max_messages:]
+            del self._conversation[:-self._max_messages]
+
+        self._save_conversation(self._active_conversation())
+        return msg

@@ -6726,6 +6726,28 @@ def export_diagnostic_report():
         messagebox.showerror(t("dialog.error_title"), t("dialog.diagnostics_export_error"))
 
 
+def get_board_context_text():
+    """回傳目前棋盤局面的文字快照，供 LLM Chat Sandbox 附加為上下文。"""
+    try:
+        moves = list(board.stones)
+    except Exception:
+        return None
+    if not moves:
+        return None
+    lines = []
+    for i, move in enumerate(moves, start=1):
+        x, y, color = move
+        coord = board.to_gtp_coord(x, y)
+        label = "B" if color == "black" else "W"
+        lines.append(f"{i}. {label} {coord}")
+    header = t("chat.board_context_header", "目前棋盤局面（19x19，GTP 座標，共 {count} 手）：")
+    try:
+        header = header.format(count=len(moves))
+    except Exception:
+        pass
+    return header + "\n" + "\n".join(lines)
+
+
 def show_chat_sandbox():
     """Open the LLM Chat Sandbox window for provider connectivity testing."""
     from ui.chat_sandbox import LLMChatWindow
@@ -6740,6 +6762,8 @@ def show_chat_sandbox():
         ),
         translator=t,
         language_getter=lambda: i18n.language,
+        context_getter=get_board_context_text,
+        history_dir=ensure_runtime_dir("chat_history"),
     )
 
 
@@ -7679,6 +7703,15 @@ from providers import tone_templates
 def build_menu_bar():
     global menu_bar, current_tone_var, theme_var
     global show_teacher_var, show_branch_var, show_move_numbers_var, show_dev_var
+
+    # 關閉流程中 root 可能已銷毀，此時重建選單會丟出 RuntimeError
+    if is_shutting_down:
+        return
+    try:
+        if not root.winfo_exists():
+            return
+    except tk.TclError:
+        return
 
     def palette():
         return {

@@ -195,6 +195,8 @@ class NvidiaProvider(LLMProvider):
 
             full_content = ""
             for line in response.iter_lines():
+                if getattr(self, "_stop_requested", False):
+                    break
                 if line:
                     line_str = line.decode("utf-8") if isinstance(line, bytes) else line
                     if line_str.startswith("data: "):
