@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 import traceback
 import tkinter as tk
-from tkinter import ttk, font as tkfont
+from tkinter import ttk, font as tkfont, filedialog, messagebox
 
 # --- 深色主題配色方案 (移植自 llm_chat_gui_tkinter.py) ---
 _CHAT_BG = "#0f172a"          # slate-950  主背景
@@ -57,8 +58,11 @@ class LLMChatWindow(tk.Toplevel):
         self._thinking_start = None
         self._thinking_text = self._tr("chat.thinking", default="Assistant is thinking...")
 
-        self._conversation = []
-        self._max_messages = 40 
+        self._max_messages = 40
+        self._search_query = ""
+        self._conversations = [self._make_conversation()]
+        self._active_conv_index = 0
+        self._conversation = self._conversations[0]["messages"]
 
         self.title(f"{self._tr('chat.title', default='LLM Chat Sandbox')} - {self.model_display_name}")
         self.geometry("1100x720")  # 配合側邊欄加寬
@@ -129,7 +133,7 @@ class LLMChatWindow(tk.Toplevel):
         self._build_input_area(main)
 
     # ============================================================
-    # 側邊欄（靜態介面，暫不啟用功能）
+    # 側邊欄（對話列表 / New Chat / 搜尋 / 設定）
     # ============================================================
     def _build_sidebar(self):
         sidebar = tk.Frame(self, bg=_CHAT_PANEL, width=288)
@@ -151,10 +155,10 @@ class LLMChatWindow(tk.Toplevel):
         )
         logo_label.pack(anchor="w")
 
-        # New Chat 按鈕（靜態，暫不啟用）
+        # New Chat 按鈕
         new_chat_btn = tk.Label(
             top_frame,
-            text="  +  New Chat",
+            text=f"  +  {self._tr('chat.new_chat_btn', default='New Chat')}",
             bg=_CHAT_ACCENT,
             fg="white",
             font=_FONT_MAIN,
@@ -163,6 +167,7 @@ class LLMChatWindow(tk.Toplevel):
             cursor="hand2",
         )
         new_chat_btn.pack(fill=tk.X, pady=(16, 0))
+        new_chat_btn.bind("<Button-1>", self._on_new_chat)
 
         # ---- Recent Conversations ----
         recent_header = tk.Frame(sidebar, bg=_CHAT_PANEL)
@@ -186,27 +191,12 @@ class LLMChatWindow(tk.Toplevel):
             cursor="hand2",
         )
         search_icon.pack(side=tk.RIGHT)
+        search_icon.bind("<Button-1>", self._on_search_click)
 
-        # 對話列表容器（靜態，暫不啟用）
-        list_container = tk.Frame(sidebar, bg=_CHAT_PANEL)
-        list_container.pack(fill=tk.BOTH, expand=True, padx=12)
-        
-        conversations = [
-            ("新對話", "Now", True),
-            ("", "", False),
-            ("大部分功能尚未啟用，", "", False),
-            ("Many functions are unavailable.", "", False),
-            ("敬請等候開放。", "", False),
-            ("Please wait for the upcoming launch.", "", False),
-        ]
-        ''' 範例
-            ("Python Function Optimization", "1 hour ago", False),
-            ("Creative Story Ideas", "3 hours ago", False),
-            ("Marketing Strategy Brainstorm", "Yesterday", False),
-            ("Daily Task Automation", "2 days ago", False),
-        '''
-        for title, time_str, is_active in conversations:
-            self._build_conversation_item(list_container, title, time_str, is_active)
+        # 對話列表容器（動態重建）
+        self._conv_list_container = tk.Frame(sidebar, bg=_CHAT_PANEL)
+        self._conv_list_container.pack(fill=tk.BOTH, expand=True, padx=12)
+        self._refresh_conversation_list()
 
         # ---- Footer / Settings ----
         border_line = tk.Frame(sidebar, bg=_CHAT_BORDER, height=1)
@@ -224,9 +214,10 @@ class LLMChatWindow(tk.Toplevel):
             cursor="hand2",
         )
         settings_icon.pack(anchor="w")
+        settings_icon.bind("<Button-1>", self._on_settings_menu)
 
-    def _build_conversation_item(self, parent, title, time_str, is_active):
-        """建立單一對話項目（靜態，暫不啟用）。"""
+    def _build_conversation_item(self, parent, index, title, time_str, is_active):
+        """建立單一對話項目，點擊可切換。"""
         bg = "#0f172a" if is_active else _CHAT_PANEL  # 選中項用深色
         fg = _CHAT_TEXT if is_active else _CHAT_MUTED
 
@@ -252,6 +243,13 @@ class LLMChatWindow(tk.Toplevel):
         )
         time_label.pack(side=tk.RIGHT)
 
+        def _select(_evt=None, i=index):
+            self._select_conversation(i)
+
+        item.bind("<Button-1>", _select)
+        title_label.bind("<Button-1>", _select)
+        time_label.bind("<Button-1>", _select)
+
     # ============================================================
     # Header
     # ============================================================
@@ -273,6 +271,9 @@ class LLMChatWindow(tk.Toplevel):
             font=_FONT_SMALL,
         )
         chevron.pack(side=tk.LEFT, padx=(0, 8))
+        chevron.configure(cursor="hand2")
+        chevron.bind("<Button-1>", self._on_model_menu)
+        self._chevron_label = chevron
 
         title_text = tk.Label(
             left,
@@ -292,8 +293,9 @@ class LLMChatWindow(tk.Toplevel):
             font=_FONT_SMALL,
         )
         info_label.pack(side=tk.LEFT, padx=(8, 0))
+        self._header_info_label = info_label
 
-        # 右側：更多按鈕（靜態，暫不啟用）
+        # 右側：更多按鈕
         right = tk.Frame(header, bg=_CHAT_PANEL)
         right.grid(row=0, column=1, sticky="e", padx=24, pady=16)
 
@@ -307,6 +309,7 @@ class LLMChatWindow(tk.Toplevel):
             padx=8,
         )
         more_btn.pack()
+        more_btn.bind("<Button-1>", self._on_more_menu)
 
         # 底部邊框線
         border = tk.Frame(parent, bg=_CHAT_BORDER, height=1)
@@ -470,7 +473,7 @@ class LLMChatWindow(tk.Toplevel):
         button_row.pack(fill=tk.X)
         button_row.columnconfigure(0, weight=1)
 
-        # 左側 + 按鈕（靜態，暫不啟用）
+        # 左側 + 按鈕
         plus_btn = tk.Label(
             button_row,
             text="  +  ",
@@ -482,6 +485,7 @@ class LLMChatWindow(tk.Toplevel):
             cursor="hand2",
         )
         plus_btn.pack(side=tk.LEFT)
+        plus_btn.bind("<Button-1>", self._on_plus_menu)
 
         # 右側 Send 按鈕
         self.send_btn = ttk.Button(
@@ -526,10 +530,321 @@ class LLMChatWindow(tk.Toplevel):
         self._input_text.delete("1.0", "end")
         self._remember("user", raw)
         self._add_message("user", raw)
+
+        # 首則訊息作為對話標題
+        conv = self._active_conversation()
+        if len(conv["messages"]) == 1:
+            conv["title"] = raw if len(raw) <= 20 else raw[:20] + "…"
+            self._refresh_conversation_list()
+
         self._start_generation(raw)
 
     def _on_close(self):
         self.destroy()
+
+    # ============================================================
+    # 對話列表管理（New Chat / 切換 / 搜尋）
+    # ============================================================
+    def _make_conversation(self):
+        return {
+            "title": self._tr("chat.new_chat", default="新對話"),
+            "created": time.time(),
+            "messages": [],
+        }
+
+    def _active_conversation(self):
+        return self._conversations[self._active_conv_index]
+
+    def _format_relative_time(self, ts):
+        elapsed = max(0, int(time.time() - ts))
+        if elapsed < 60:
+            return self._tr("chat.time_now", default="Now")
+        if elapsed < 3600:
+            return f"{elapsed // 60}m"
+        if elapsed < 86400:
+            return f"{elapsed // 3600}h"
+        return f"{elapsed // 86400}d"
+
+    def _refresh_conversation_list(self):
+        container = getattr(self, "_conv_list_container", None)
+        if container is None:
+            return
+        for child in container.winfo_children():
+            child.destroy()
+        query = (self._search_query or "").strip().lower()
+        for idx, conv in enumerate(self._conversations):
+            if query:
+                haystack = (conv["title"] + " " + " ".join(
+                    m["content"] for m in conv["messages"]
+                )).lower()
+                if query not in haystack:
+                    continue
+            self._build_conversation_item(
+                container,
+                idx,
+                conv["title"],
+                self._format_relative_time(conv["created"]),
+                idx == self._active_conv_index,
+            )
+
+    def _render_history(self):
+        self._history_text.configure(state="normal")
+        self._history_text.delete("1.0", "end")
+        self._history_text.configure(state="disabled")
+        for msg in self._conversation:
+            role = msg.get("role", "assistant")
+            if role not in ("user", "assistant"):
+                role = "assistant"
+            self._add_message(role, msg.get("content", ""))
+
+    def _select_conversation(self, index):
+        if self._busy:
+            self.bell()
+            return
+        if index == self._active_conv_index:
+            return
+        self._active_conv_index = index
+        self._conversation = self._conversations[index]["messages"]
+        self._render_history()
+        self._refresh_conversation_list()
+
+    def _on_new_chat(self, event=None):
+        if self._busy:
+            self.bell()
+            return
+        current = self._active_conversation()
+        if not current["messages"]:
+            # 目前已是空白對話，不重複新增
+            return
+        self._conversations.insert(0, self._make_conversation())
+        self._active_conv_index = 0
+        self._conversation = self._conversations[0]["messages"]
+        self._render_history()
+        self._refresh_conversation_list()
+
+    def _on_search_click(self, event=None):
+        win = getattr(self, "_search_window", None)
+        if win is not None and win.winfo_exists():
+            win.lift()
+            return
+        win = tk.Toplevel(self)
+        self._search_window = win
+        win.title(self._tr("chat.search_title", default="搜尋對話"))
+        win.configure(bg=_CHAT_PANEL)
+        win.geometry("320x48")
+        win.transient(self)
+
+        entry = tk.Entry(
+            win, bg=_CHAT_BG, fg=_CHAT_TEXT,
+            insertbackground=_CHAT_TEXT, font=_FONT_MAIN, relief="flat",
+        )
+        entry.pack(fill=tk.X, padx=10, pady=10)
+        entry.insert(0, self._search_query)
+        entry.focus_set()
+
+        def on_change(_evt=None):
+            self._search_query = entry.get()
+            self._refresh_conversation_list()
+
+        def on_close():
+            self._search_query = ""
+            self._refresh_conversation_list()
+            win.destroy()
+
+        entry.bind("<KeyRelease>", on_change)
+        win.protocol("WM_DELETE_WINDOW", on_close)
+
+    # ============================================================
+    # Header 選單（模型切換 / 更多 / 設定）
+    # ============================================================
+    def _make_menu(self):
+        return tk.Menu(
+            self, tearoff=0,
+            bg=_CHAT_PANEL, fg=_CHAT_TEXT,
+            activebackground=_CHAT_ACCENT, activeforeground="white",
+            font=_FONT_MAIN,
+        )
+
+    def _popup_menu(self, menu, widget):
+        menu.tk_popup(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
+
+    def _on_model_menu(self, event=None):
+        menu = self._make_menu()
+        get_models = getattr(self.provider, "get_available_models", None)
+        models = []
+        if callable(get_models):
+            try:
+                models = list(get_models() or [])
+            except Exception:
+                models = []
+        current = getattr(self.provider, "model_name", None)
+        for name in models:
+            mark = "● " if name == current else "   "
+            menu.add_command(label=f"{mark}{name}",
+                             command=lambda n=name: self._switch_model(n))
+        if not models:
+            menu.add_command(
+                label=self._tr("chat.no_models", default="無可用模型"),
+                state="disabled",
+            )
+        widget = event.widget if event is not None else getattr(self, "_chevron_label", self)
+        self._popup_menu(menu, widget)
+
+    def _switch_model(self, model_name):
+        set_model = getattr(self.provider, "set_model", None)
+        if callable(set_model):
+            try:
+                set_model(model_name)
+            except Exception as exc:
+                messagebox.showerror(
+                    self._tr("chat.title", default="LLM Chat Sandbox"),
+                    str(exc), parent=self,
+                )
+                return
+        self.model_display_name = model_name
+        self.title(f"{self._tr('chat.title', default='LLM Chat Sandbox')} - {model_name}")
+        if getattr(self, "_header_info_label", None) is not None:
+            self._header_info_label.config(
+                text=f"  ·  {model_name}  ·  {self.provider_display_name}"
+            )
+
+    def _on_settings_menu(self, event):
+        menu = self._make_menu()
+        menu.add_command(
+            label=self._tr("chat.export_all", default="匯出所有對話…"),
+            command=self._export_all_conversations,
+        )
+        menu.add_separator()
+        menu.add_command(
+            label=self._tr("chat.clear_all", default="清除所有對話"),
+            command=self._clear_all_conversations,
+        )
+        self._popup_menu(menu, event.widget)
+
+    def _on_more_menu(self, event):
+        menu = self._make_menu()
+        menu.add_command(
+            label=self._tr("chat.export_current", default="匯出目前對話…"),
+            command=self._export_current_conversation,
+        )
+        menu.add_command(
+            label=self._tr("chat.clear_current", default="清空目前對話"),
+            command=self._clear_current_conversation,
+        )
+        self._popup_menu(menu, event.widget)
+
+    def _on_plus_menu(self, event):
+        menu = self._make_menu()
+        menu.add_command(
+            label=self._tr("chat.paste_clipboard", default="貼上剪貼簿內容"),
+            command=self._paste_clipboard,
+        )
+        menu.add_command(
+            label=self._tr("chat.clear_input", default="清除輸入框"),
+            command=self._clear_input,
+        )
+        menu.add_separator()
+        menu.add_command(
+            label=self._tr("chat.insert_sample", default="插入範例提示詞"),
+            command=self._insert_sample_prompt,
+        )
+        self._popup_menu(menu, event.widget)
+
+    def _paste_clipboard(self):
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            self.bell()
+            return
+        self._ensure_input_not_placeholder()
+        self._input_text.insert("insert", text)
+        self._input_text.focus_set()
+
+    def _clear_input(self):
+        self._input_text.delete("1.0", "end")
+        self._input_text.focus_set()
+
+    def _insert_sample_prompt(self):
+        sample = self._tr(
+            "chat.sample_prompt",
+            default="請用初學者聽得懂的方式，解釋圍棋中「厚勢」與「實地」的差別。",
+        )
+        self._ensure_input_not_placeholder()
+        self._input_text.insert("end", sample)
+        self._input_text.focus_set()
+
+    def _ensure_input_not_placeholder(self):
+        current = self._input_text.get("1.0", "end-1c")
+        if current == self._placeholder_text:
+            self._input_text.delete("1.0", "end")
+            self._input_text.config(fg=_CHAT_TEXT)
+
+    # ============================================================
+    # 對話清除 / 匯出
+    # ============================================================
+    def _clear_current_conversation(self):
+        if self._busy:
+            self.bell()
+            return
+        conv = self._active_conversation()
+        conv["messages"].clear()
+        conv["title"] = self._tr("chat.new_chat", default="新對話")
+        conv["created"] = time.time()
+        self._render_history()
+        self._refresh_conversation_list()
+
+    def _clear_all_conversations(self):
+        if self._busy:
+            self.bell()
+            return
+        self._conversations = [self._make_conversation()]
+        self._active_conv_index = 0
+        self._conversation = self._conversations[0]["messages"]
+        self._search_query = ""
+        self._render_history()
+        self._refresh_conversation_list()
+
+    def _export_conversations(self, targets, default_name):
+        if not any(conv["messages"] for conv in targets):
+            self.bell()
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("Text Files", "*.txt")],
+        )
+        if not path:
+            return
+        lines = []
+        for conv in targets:
+            stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(conv["created"]))
+            lines.append(f"# {conv['title']}  ({stamp})")
+            for msg in conv["messages"]:
+                role = (
+                    self._tr("chat.role_user", default="User")
+                    if msg.get("role") == "user"
+                    else self._tr("chat.role_assistant", default="Assistant")
+                )
+                lines.append(f"[{role}] {msg.get('content', '').strip()}")
+                lines.append("")
+            lines.append("=" * 60)
+            lines.append("")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except OSError as exc:
+            messagebox.showerror(
+                self._tr("chat.title", default="LLM Chat Sandbox"),
+                str(exc), parent=self,
+            )
+
+    def _export_current_conversation(self):
+        conv = self._active_conversation()
+        self._export_conversations([conv], f"{conv['title']}.txt")
+
+    def _export_all_conversations(self):
+        self._export_conversations(list(self._conversations), "llm_chat_history.txt")
 
     def _append_history(self, role_text, content, tag):
         self._history_text.configure(state="normal")

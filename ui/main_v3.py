@@ -6751,8 +6751,8 @@ def create_dev_menu():
         {"type": "separator"},
         {"type": "command", "label": t("menu.check_log_title"), "command": show_analysis_log_dialog},
 
-        # {"type": "separator"},
-        # {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
+        {"type": "separator"},
+        {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
     ]
 
 
