@@ -2093,7 +2093,7 @@ def show_winrate_chart():
     # ====== 1. 建立彈出進度視窗 ======
     progress_popup = tk.Toplevel(root)
     progress_popup.title(t("analysis.progress_title"))
-    progress_popup.geometry("300x150")
+    progress_popup.geometry("300x180")
     progress_popup.resizable(False, False)
     progress_popup.iconbitmap(resource_path("image/logo.ico"))
     progress_popup.transient(root) # 讓視窗保持在主視窗之上
@@ -2106,6 +2106,28 @@ def show_winrate_chart():
 
     lbl_status = tk.Label(progress_popup, text=t("analysis.start_engine"), font=("Microsoft JhengHei", 10))
     lbl_status.pack(pady=(20, 10))
+
+    # 計時器：顯示已用時間
+    start_time = time.time()
+    lbl_elapsed = tk.Label(progress_popup, fg=TEXT_MUTED, text=t("analysis.elapsed_time", time="00:00"), font=("Microsoft JhengHei", 9))
+    lbl_elapsed.pack(pady=(0, 5))
+
+    def update_elapsed():
+        if not progress_popup.winfo_exists():
+            return
+        elapsed = int(time.time() - start_time)
+        h, rem = divmod(elapsed, 3600)
+        m, s = divmod(rem, 60)
+        if h > 0:
+            time_str = f"{h:02d}:{m:02d}:{s:02d}"
+        else:
+            time_str = f"{m:02d}:{s:02d}"
+        lbl_elapsed.config(text=t("analysis.elapsed_time", time=time_str))
+        # 每 500ms 更新一次
+        root.after(500, update_elapsed)
+
+    # 啟動計時器
+    root.after(500, update_elapsed)
 
     progress_bar = ttk.Progressbar(progress_popup, length=250, mode='determinate')
     progress_bar.pack(pady=5)
@@ -6728,7 +6750,7 @@ def create_dev_menu():
         {"type": "command", "label": t("menu.export_diagnostics"), "command": export_diagnostic_report},
         {"type": "separator"},
         {"type": "command", "label": t("menu.check_log_title"), "command": show_analysis_log_dialog},
-        # llm chat box
+
         # {"type": "separator"},
         # {"type": "command", "label": t("menu.chat_sandbox"), "command": show_chat_sandbox},
     ]
@@ -7675,11 +7697,11 @@ def build_menu_bar():
 
     def toggle_teacher_panel():
         if show_teacher_var.get():
-            branch_ui.configure(height=90)
+            branch_ui.configure(height=160)
             teacher_section.grid()
         else:
             teacher_section.grid_remove()
-            branch_ui.configure(height=240)
+            branch_ui.configure(height=350)
 
     def toggle_branch_panel():
         if show_branch_var.get():
@@ -8307,24 +8329,26 @@ btn_analyze = ttk.Button(info_frame, text=t("button.analyze"), command=on_analyz
 btn_analyze.grid(row=2, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 
 btn_full_analysis = ttk.Button(info_frame, text=t("button.full_analysis"), command=show_winrate_chart, style="Tool.TButton")
-btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 12), sticky="ew")
+btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 
-btn_undo = ttk.Button(info_frame, text=t("button.undo"), command=board.undo, style="Tool.TButton")
-btn_undo.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-btn_redo = ttk.Button(info_frame, text=t("button.redo"), command=board.redo, style="Tool.TButton")
-btn_redo.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
+
+# btn_undo = ttk.Button(info_frame, text=t("button.undo"), command=board.undo, style="Tool.TButton")
+# btn_undo.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
+# btn_redo = ttk.Button(info_frame, text=t("button.redo"), command=board.redo, style="Tool.TButton")
+# btn_redo.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
 btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
-btn_load_sgf.grid(row=5, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-btn_save_sgf_as = ttk.Button(info_frame, text=t("button.save_sgf_as"), command=save_game_as_sgf_dialog, style="Tool.TButton")
-btn_save_sgf_as.grid(row=5, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
+btn_load_sgf.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
+# btn_save_sgf_as = ttk.Button(info_frame, text=t("button.save_sgf_as"), command=save_game_as_sgf_dialog, style="Tool.TButton")
+# btn_save_sgf_as.grid(row=5, column=0, padx=(4, 0), pady=(0, 8), sticky="ew")
+
 btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
-btn_score_estimate.grid(row=6, column=0, padx=(0, 4), pady=(0, 14), sticky="ew")
+btn_score_estimate.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
 def build_branch_section():
     global branch_section, branch_title_label, branch_view_frame, branch_ui
     branch_section = tk.Frame(info_frame, bg=PANEL_BG)
-    branch_section.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+    branch_section.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 14))
     branch_title_label = tk.Label(
         branch_section,
         text=t("branch.tree_title"),
@@ -8358,7 +8382,7 @@ def build_branch_section():
         branch_view_frame,
         board_ref=board,
         width=240,
-        height=90,
+        height=160,
         bg=PANEL_BG,
         highlightbackground=PANEL_BORDER,
         highlightthickness=1,
@@ -8373,7 +8397,7 @@ def build_branch_section():
 build_branch_section()
 
 teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
-teacher_section.grid(row=8, column=0, columnspan=2, sticky="nsew")
+teacher_section.grid(row=6, column=0, columnspan=2, sticky="nsew")
 teacher_header = tk.Frame(teacher_section, bg=PANEL_BG)
 teacher_header.pack(fill="x")
 teacher_title_label = tk.Label(
@@ -8886,10 +8910,10 @@ def refresh_language():
     ai_analysis_label.config(text=t("label.ai_analysis"))
     update_continuous_analysis_ui()
     btn_full_analysis.config(text=t("button.full_analysis"))
-    btn_undo.config(text=t("button.undo"))
-    btn_redo.config(text=t("button.redo"))
+    # btn_undo.config(text=t("button.undo"))
+    # btn_redo.config(text=t("button.redo"))
     btn_load_sgf.config(text=t("button.load_sgf"))
-    btn_save_sgf_as.config(text=t("button.save_sgf_as"))
+    # btn_save_sgf_as.config(text=t("button.save_sgf_as"))
     update_score_estimate_button_label()
     branch_title_label.config(text=t("branch.tree_title"))
     # branch_hint_label.config(text=t("branch.collapse_hint"))

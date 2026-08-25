@@ -148,6 +148,7 @@
   "analysis.start_engine": "啟動 KataGo 引擎...",
   "analysis.cancelling": "正在中止分析程序...",
   "analysis.progress": "分析進度: {percentage}%  ({current}/{total} 手)",
+  "analysis.elapsed_time": "{time}",
   "analysis.cancelled": "整盤分析已取消",
   "analysis.completed": "整盤分析完成",
   "analysis.chart_title_window": "勝率變化趨勢",

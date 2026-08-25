@@ -23,7 +23,7 @@
   "21": "safe_get_system_info",
   "22": "tone_templates.py",
   "23": "provider_factory.py",
-  "24": "stop_continuous_analysis",
+  "24": "GameNode",
   "25": "normalize_api_key",
   "26": "Security Policy",
   "27": "NvidiaProvider",

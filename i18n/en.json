@@ -145,6 +145,7 @@
   "analysis.start_engine": "Starting KataGo engine...",
   "analysis.cancelling": "Stopping analysis...",
   "analysis.progress": "Analysis progress: {percentage}%  ({current}/{total} moves)",
+  "analysis.elapsed_time": "{time}",
   "analysis.cancelled": "Full-game analysis cancelled",
   "analysis.completed": "Full-game analysis complete",
   "analysis.chart_title_window": "Winrate Trend",

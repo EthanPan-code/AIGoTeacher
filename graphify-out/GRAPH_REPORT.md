@@ -1,16 +1,16 @@
-# Graph Report - AIGoTeacher  (2026-08-19)
+# Graph Report - AIGoTeacher  (2026-08-23)
 
 ## Corpus Check
-- 26 files · ~53,563 words
+- 26 files · ~54,144 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 743 nodes · 1386 edges · 38 communities (30 shown, 8 thin omitted)
+- 745 nodes · 1393 edges · 38 communities (30 shown, 8 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 44 edges (avg confidence: 0.53)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `dc17074c`
+- Built from commit: `f6ae2379`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -39,7 +39,7 @@
 - safe_get_system_info
 - tone_templates.py
 - provider_factory.py
-- stop_continuous_analysis
+- GameNode
 - normalize_api_key
 - Security Policy
 - NvidiaProvider
@@ -62,8 +62,8 @@
 6. `ConfigService` - 24 edges
 7. `build_menu_bar()` - 24 edges
 8. `OllamaProvider` - 23 edges
-9. `resource_path()` - 20 edges
-10. `BranchTreeView` - 20 edges
+9. `BranchTreeView` - 21 edges
+10. `resource_path()` - 20 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `ProviderFactory` --uses--> `NvidiaProvider`  [INFERRED]
@@ -83,8 +83,8 @@
 ## Communities (38 total, 8 thin omitted)
 
 ### Community 0 - "GoBoard"
-Cohesion: 0.07
-Nodes (12): GameNode, GoBoard, load_tk_image(), Load an image as a Tk image, preferring Pillow for broad format support., 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。 由 board_shell 的 <Configure>…, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確, Return 1-based move index where the current branch starts, or None on main line., 切換同一手棋的不同變化圖 (direction: 1 或 -1) (+4 more)
+Cohesion: 0.06
+Nodes (15): auto_analyze(), GoBoard, is_analyzer_ready(), load_tk_image(), Load an image as a Tk image, preferring Pillow for broad format support., 分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報), 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。 由 board_shell 的 <Configure>…, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確 (+7 more)
 
 ### Community 1 - "AI 圍棋老師 / AI Go Teacher"
 Cohesion: 0.05
@@ -124,7 +124,7 @@ Nodes (28): _capture_board_snapshot(), _close_tab_silently(), _copy_game_tree(),
 
 ### Community 10 - "t"
 Cohesion: 0.12
-Nodes (30): build_branch_section(), build_menu_bar(), _confirm_and_download_ollama_model(), create_dev_menu(), _download_ollama_model(), export_diagnostic_report(), get_config_display_name(), get_model_display_name() (+22 more)
+Nodes (32): build_branch_section(), build_menu_bar(), _confirm_and_download_ollama_model(), create_dev_menu(), _download_ollama_model(), export_diagnostic_report(), get_config_display_name(), get_model_display_name() (+24 more)
 
 ### Community 11 - "main_v3.py"
 Cohesion: 0.09
@@ -135,15 +135,15 @@ Cohesion: 0.16
 Nodes (12): Path, I18n, resource_path(), main(), Application version helpers for AI Go Teacher. Run this file to update every…, Return the numeric tuple used by PyInstaller's VSVersionInfo., _replace_once(), sync_version() (+4 more)
 
 ### Community 13 - "refresh_language"
-Cohesion: 0.13
-Nodes (15): apply_theme(), new_game(), Expose semantic theme tokens to legacy drawing code in this module., 只更新老師解說區，不改動生成中的快取狀態。, LLM Provider 的串流回呼；累積全文但在回放時不覆蓋既有解說。, Apply a configured theme to existing widgets without restarting., Refresh a known static teacher prompt without touching LLM output., rebuild_menu_bar() (+7 more)
+Cohesion: 0.10
+Nodes (23): apply_theme(), on_analyze_button_click(), on_closing(), poll_ai(), 直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用, Stop the active continuous query and clear its routing state., Refresh controls that expose the continuous-analysis state., Expose semantic theme tokens to legacy drawing code in this module. (+15 more)
 
 ### Community 14 - "LLMProvider"
 Cohesion: 0.11
 Nodes (6): LLMProvider, Return a human-readable display name for the given model ID. Subclasses should…, Return (is_valid, error_message)., Send a raw prompt to the LLM for a plain chat conversation. This is used by the…, Base class for streaming LLM commentary providers., Build the final prompt sent to the model from plain user text plus data.
 
 ### Community 15 - "KataGoAnalyzer"
-Cohesion: 0.16
+Cohesion: 0.15
 Nodes (5): KataGoAnalyzer, 將當前棋譜轉換成唯一的字串，作為快取的 Key, 用一致的 KataGo moves 格式生成快取 key，避免 stones/list 格式不一致造成 miss。, Ask KataGo to stop an analysis query immediately, then detach it., Remove already-queued responses belonging to a cancelled query.
 
 ### Community 16 - "TabManager"
@@ -174,9 +174,9 @@ Nodes (15): find_preset_tone(), get_all_tones(), get_tone_description(), get_ton
 Cohesion: 0.32
 Nodes (6): get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。 無 '/' 的 model_id 歸類為 "unknown"，確保 UI…, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。 保持各 publisher 內…, get_publisher_from_model_id(), group_models_by_publisher()
 
-### Community 24 - "stop_continuous_analysis"
-Cohesion: 0.17
-Nodes (16): auto_analyze(), is_analyzer_ready(), on_analyze_button_click(), on_closing(), poll_ai(), 分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報), 直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用, Stop the active continuous query and clear its routing state. (+8 more)
+### Community 24 - "GameNode"
+Cohesion: 0.50
+Nodes (3): GameNode, new_game(), start_new_game_from_welcome()
 
 ### Community 25 - "normalize_api_key"
 Cohesion: 0.21
@@ -209,9 +209,9 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `GoBoard` connect `GoBoard` to `main_v3.py`?**
   _High betweenness centrality (0.109) - this node is a cross-community bridge._
 - **Why does `ProviderFactory` connect `ProviderFactory` to `OllamaProvider`, `t`, `main_v3.py`, `serialize_game_context`, `provider_factory.py`, `NvidiaProvider`, `OpenRouterProvider`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
+  _High betweenness centrality (0.073) - this node is a cross-community bridge._
 - **Why does `LLMChatWindow` connect `LLMChatWindow` to `ProviderFactory`, `main_v3.py`?**
-  _High betweenness centrality (0.071) - this node is a cross-community bridge._
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `t()` (e.g. with `set_llm_tone()` and `show_chat_sandbox()`) actually correct?**
   _`t()` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 10 inferred relationships involving `ProviderFactory` (e.g. with `NvidiaProvider` and `OllamaProvider`) actually correct?**
@@ -219,4 +219,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **What connects `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report` to the rest of the system?**
   _99 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `GoBoard` be split into smaller, more focused modules?**
-  _Cohesion score 0.06512890094979647 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06180733162830349 - nodes in this community are weakly interconnected._
