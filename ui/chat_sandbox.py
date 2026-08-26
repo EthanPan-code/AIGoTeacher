@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import ttk, font as tkfont, filedialog, messagebox, simpledialog
 
 # --- 聊天室配色方案（跟隨主程式淺色 / 深色主題） ---
-# dark 為原始設計值，light 仿 ChatGPT 淺色介面。
+# dark 為原始設計值，light 為淺色介面。
 # 模組全域變數由 _set_chat_palette() 注入，運行時可整組切換。
 _CHAT_PALETTES = {
     "dark": {
@@ -69,14 +69,43 @@ def _set_chat_palette(palette):
 
 
 def _resolve_chat_theme():
-    """讀取主程式目前主題（light/dark），失敗時退回 dark。"""
+    """讀取主程式目前主題（light/dark），失敗時退回 dark。
+
+    ConfigService 需要有狀態的 backend，無法獨立重新建立實例，
+    因此這裡直接讀取 ui_settings.json，再套用與主程式相同的
+    system -> 實際主題解析邏輯。
+    """
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
     try:
-        from services.config_service import ConfigService
-        from services.theme_service import resolve_theme
-        name, _palette = resolve_theme(ConfigService().get_ui_theme())
-        return name if name in _CHAT_PALETTES else "dark"
+        from services.theme_service import detect_system_theme
     except Exception:
         return "dark"
+
+    candidates = []
+    if getattr(sys, "frozen", False):
+        base = os.path.join(
+            os.getenv("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+            "AIGoTeacher",
+        )
+        candidates.append(os.path.join(base, "ui_settings.json"))
+    else:
+        # 開發模式：專案根目錄（ui/ 的上一層）
+        candidates.append(os.path.join(project_root, "ui_settings.json"))
+
+    configured = "system"
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            configured = str(data.get("ui_theme", "system"))
+            break
+        except (OSError, ValueError):
+            continue
+
+    effective = detect_system_theme() if configured == "system" else configured
+    return effective if effective in _CHAT_PALETTES else "dark"
 
 
 _set_chat_palette(_CHAT_PALETTES["dark"])  # 模組載入預設深色
@@ -100,16 +129,16 @@ def refresh_open_windows(theme_name=None):
         except tk.TclError:
             pass
 
-_FONT_MAIN = ("Segoe UI", 10)
-_FONT_BOLD = ("Segoe UI", 10, "bold")
-_FONT_SMALL = ("Segoe UI", 8)
-_FONT_TITLE = ("Segoe UI", 14, "bold")
-_FONT_TINY = ("Segoe UI", 7)
+_FONT_MAIN = ("Microsoft JhengHei", 10)
+_FONT_BOLD = ("Microsoft JhengHei", 10, "bold")
+_FONT_SMALL = ("Microsoft JhengHei", 8)
+_FONT_TITLE = ("Microsoft JhengHei", 14, "bold")
+_FONT_TINY = ("Microsoft JhengHei", 7)
 _FONT_CODE = ("Consolas", 9)
-_FONT_ITALIC = ("Segoe UI", 10, "italic")
-_FONT_H1 = ("Segoe UI", 13, "bold")
-_FONT_H2 = ("Segoe UI", 11, "bold")
-_FONT_H3 = ("Segoe UI", 10, "bold")
+_FONT_ITALIC = ("Microsoft JhengHei", 10, "italic")
+_FONT_H1 = ("Microsoft JhengHei", 13, "bold")
+_FONT_H2 = ("Microsoft JhengHei", 11, "bold")
+_FONT_H3 = ("Microsoft JhengHei", 10, "bold")
 
 
 # ============================================================
