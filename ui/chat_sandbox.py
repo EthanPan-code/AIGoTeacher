@@ -11,6 +11,7 @@ import traceback
 import uuid
 import tkinter as tk
 from tkinter import ttk, font as tkfont, filedialog, messagebox, simpledialog
+from PIL import Image, ImageTk
 
 # --- 聊天室配色方案（跟隨主程式淺色 / 深色主題） ---
 # dark 為原始設計值，light 為淺色介面。
@@ -244,22 +245,31 @@ class MessageBubble(tk.Frame):
 
         def _action_btn(text, command):
             btn = tk.Label(
-                header, text=text, bg=_CHAT_BG, fg=_CHAT_DIM,
+                header, text=text, bg=_CHAT_BG, fg=_CHAT_TEXT,
                 font=_FONT_SMALL, cursor="hand2", padx=3,
             )
             btn.pack(side=tk.RIGHT)
             btn.bind("<Button-1>", lambda _e: command())
             btn.bind("<Enter>", lambda _e: btn.config(fg=_CHAT_TEXT))
-            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_DIM))
+            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_TEXT))
+            return btn
+
+        def _action_icon(img, command):
+            if img is None:
+                return _action_btn(" ", command)
+            btn = tk.Label(header, image=img, bg=_CHAT_BG, cursor="hand2", padx=3)
+            btn.image = img
+            btn.pack(side=tk.RIGHT)
+            btn.bind("<Button-1>", lambda _e: command())
             return btn
 
         # 從右到左排列：刪除 / (重新生成｜編輯) / 複製
         _action_btn("\U0001F5D1", lambda: window._on_delete_message(self))
         if is_user:
-            _action_btn("✏", lambda: window._on_edit_message(self))
+            _action_icon(getattr(window, '_icons', {}).get('edit'), lambda: window._on_edit_message(self))
         elif not is_error:
-            _action_btn("\U0001F504", lambda: window._on_regenerate(self))
-        self._copy_btn = _action_btn("\U0001F4CB", self._copy_content)
+            _action_icon(getattr(window, '_icons', {}).get('refresh'), lambda: window._on_regenerate(self))
+        self._copy_btn = _action_icon(getattr(window, '_icons', {}).get('copy'), self._copy_content)
 
         self.body = tk.Text(
             self, wrap="word", height=1, font=_FONT_MAIN,
@@ -360,6 +370,10 @@ class LLMChatWindow(tk.Toplevel):
         self.minsize(900, 600)    # 限制最小尺寸
         self.configure(bg=_CHAT_BG)
 
+        # 載入圖示（依目前主題選擇 _light / _dark 版本）
+        self._icons = {}
+        self._load_icons()
+
         # 設定 ttk 按鈕樣式（深色主題）
         self.style = ttk.Style()
         self.style.theme_use("clam")
@@ -391,6 +405,30 @@ class LLMChatWindow(tk.Toplevel):
 
     def _tr(self, key, **kwargs):
         return self.translator(key, **kwargs)
+
+    def _load_icons(self, theme_name=None):
+        """依主題載入圖示：`_light.png` 用於淺色模式，`_dark.png` 用於深色模式。
+
+        若指定主題的圖示不存在，則退回另一主題版本；兩者皆無則設為 None。
+        """
+        theme = theme_name if theme_name in _CHAT_PALETTES else current_chat_theme
+        suffix = "light" if theme == "light" else "dark"
+        fallback_suffix = "dark" if suffix == "light" else "light"
+        try:
+            _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _img_dir = os.path.join(_proj_root, 'image')
+            for _name in ('attach', 'copy', 'edit', 'refresh'):
+                _p = os.path.join(_img_dir, f'{_name}_{suffix}.png')
+                if not os.path.exists(_p):
+                    _p = os.path.join(_img_dir, f'{_name}_{fallback_suffix}.png')
+                if os.path.exists(_p):
+                    _im = Image.open(_p).convert('RGBA')
+                    _im = _im.resize((16, 16), Image.LANCZOS)
+                    self._icons[_name] = ImageTk.PhotoImage(_im)
+                else:
+                    self._icons[_name] = None
+        except Exception:
+            self._icons = {k: None for k in ('attach', 'copy', 'edit', 'refresh')}
 
     def _guess_provider_display_name(self):
         class_name = self.provider.__class__.__name__.lower()
@@ -536,19 +574,20 @@ class LLMChatWindow(tk.Toplevel):
         time_label.pack(side=tk.RIGHT)
 
         # 右側操作按鈕：刪除 / 重新命名（反向 pack 保持 時間 [✏] [🗑] 順序）
-        def _side_btn(text, command):
+        def _side_btn(text, command, image=None):
             btn = tk.Label(
-                item, text=text, bg=bg, fg=_CHAT_DIM,
+                item, text=text, image=image, bg=bg, fg=_CHAT_TEXT,
                 font=_FONT_TINY, cursor="hand2", padx=3,
             )
             btn.pack(side=tk.RIGHT)
             btn.bind("<Button-1>", lambda _e: command())
             btn.bind("<Enter>", lambda _e: btn.config(fg=_CHAT_TEXT))
-            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_DIM))
+            btn.bind("<Leave>", lambda _e: btn.config(fg=_CHAT_TEXT))
             return btn
 
         _side_btn("\U0001F5D1", lambda: self._delete_conversation(index))
-        _side_btn("✏", lambda: self._rename_conversation(index))
+        _side_btn("", lambda: self._rename_conversation(index),
+                  image=self._icons.get('edit'))
 
         def _select(_evt=None, i=index):
             self._select_conversation(i)
@@ -881,14 +920,21 @@ class LLMChatWindow(tk.Toplevel):
             return
         self._chips_frame.grid()
         for idx, att in enumerate(self._attachments):
-            chip = tk.Label(
-                self._chips_frame,
-                text=f"  \U0001F4CE {att['name']}  ✕  ",
-                bg=_CHAT_BG, fg=_CHAT_MUTED, font=_FONT_SMALL,
-                padx=8, pady=3, cursor="hand2",
-            )
-            chip.pack(side=tk.LEFT, padx=(8, 0), pady=(8, 0))
-            chip.bind("<Button-1>", lambda _e, i=idx: self._remove_attachment(i))
+            chip_frame = tk.Frame(self._chips_frame, bg=_CHAT_BG, cursor="hand2")
+            chip_frame.pack(side=tk.LEFT, padx=(8, 0), pady=(8, 0))
+            icon = getattr(self, '_icons', {}).get('attach')
+            if icon:
+                img_lbl = tk.Label(chip_frame, image=icon, bg=_CHAT_BG)
+                img_lbl.image = icon
+                img_lbl.pack(side=tk.LEFT, padx=(0, 4))
+            name_lbl = tk.Label(chip_frame, text=att['name'], bg=_CHAT_BG, fg=_CHAT_MUTED, font=_FONT_SMALL)
+            name_lbl.pack(side=tk.LEFT)
+            close_lbl = tk.Label(chip_frame, text=" ✕ ", bg=_CHAT_BG, fg=_CHAT_MUTED, font=_FONT_SMALL)
+            close_lbl.pack(side=tk.LEFT)
+            def _remove(e, i=idx):
+                self._remove_attachment(i)
+            for w in (chip_frame, name_lbl, close_lbl):
+                w.bind("<Button-1>", _remove)
 
     def _add_attachment(self, name, content):
         self._attachments.append({"name": name, "content": content})
@@ -1032,6 +1078,11 @@ class LLMChatWindow(tk.Toplevel):
             "Dark.Vertical.TScrollbar",
             background=_CHAT_BORDER, troughcolor=_CHAT_PANEL, arrowcolor=_CHAT_MUTED,
         )
+
+        # 重新載入圖示（依新主題切換 _light / _dark 版本）
+        self._load_icons(current_chat_theme)
+        self._refresh_attachment_chips()
+        self._render_history()
 
     # ============================================================
     # 訊息操作（複製 / 編輯重送 / 重新生成 / 刪除）
@@ -1338,7 +1389,12 @@ class LLMChatWindow(tk.Toplevel):
         )
 
     def _popup_menu(self, menu, widget):
-        menu.tk_popup(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
+        menu.update_idletasks()
+
+        x = widget.winfo_rootx()
+        y = widget.winfo_rooty() - menu.winfo_reqheight() - 4
+
+        menu.tk_popup(x, y)
 
     def _on_model_menu(self, event=None):
         menu = self._make_menu()
