@@ -164,7 +164,7 @@ def ensure_runtime_dir(*parts):
 
 
 def hide_path_on_windows(path):
-    if os.name != "nt" or not os.path.exists(path):
+    if os.name != "nt" or not os.path.exists(path) or not hasattr(sys, '_MEIPASS'):
         return
     try:
         FILE_ATTRIBUTE_HIDDEN = 0x02
@@ -8512,7 +8512,7 @@ def show_analyzer_not_ready():
 def create_katago_startup_popup():
     popup = tk.Toplevel(root)
     popup.title(t("startup.title"))
-    popup.geometry("420x170")
+    popup.geometry("420x200")
     popup.iconbitmap(resource_path("image/logo.ico"))
     popup.resizable(False, False)
     popup.transient(root)
@@ -8520,7 +8520,7 @@ def create_katago_startup_popup():
 
 
     x = root.winfo_rootx() + max(40, (root.winfo_width() - 420) // 2)
-    y = root.winfo_rooty() + max(40, (root.winfo_height() - 170) // 2)
+    y = root.winfo_rooty() + max(40, (root.winfo_height() - 140) // 2)
     popup.geometry(f"+{x}+{y}")
 
     frame = ttk.Frame(popup, padding=(18, 16, 18, 14))
@@ -8532,14 +8532,33 @@ def create_katago_startup_popup():
 
     message_var = tk.StringVar(value=t("status.katago_initializing"))
     message_label = ttk.Label(frame, textvariable=message_var, wraplength=370, justify="left")
-    message_label.pack(anchor="w", pady=(10, 8))
-
-    detail_label = ttk.Label(frame, text=t("startup.first_run_hint"), foreground=TEXT_MUTED, wraplength=370, justify="left")
-    detail_label.pack(anchor="w")
+    message_label.pack(anchor="s", pady=(35, 2))
 
     progress_bar = ttk.Progressbar(frame, mode="indeterminate", length=360)
-    progress_bar.pack(fill="x", pady=(14, 0))
+    progress_bar.pack(fill="x", pady=(5, 2))
     progress_bar.start(12)
+
+    # 計時器：顯示已用時間
+    start_time = time.time()
+    lbl_elapsed = ttk.Label(frame, foreground=TEXT_MUTED, text=t("analysis.elapsed_time", time="00:00"), font=("Microsoft JhengHei", 9),  wraplength=370)
+    lbl_elapsed.pack(anchor="n", pady=(2, 2))
+
+    def update_elapsed():
+        if not frame.winfo_exists():
+            return
+        elapsed = int(time.time() - start_time)
+        h, rem = divmod(elapsed, 3600)
+        m, s = divmod(rem, 60)
+        if h > 0:
+            time_str = f"{h:02d}:{m:02d}:{s:02d}"
+        else:
+            time_str = f"{m:02d}:{s:02d}"
+        lbl_elapsed.config(text=t("analysis.elapsed_time", time=time_str))
+        # 每 500ms 更新一次
+        root.after(500, update_elapsed)
+
+    # 啟動計時器
+    root.after(500, update_elapsed)
 
     return {"window": popup, "message_var": message_var, "progress_bar": progress_bar}
 

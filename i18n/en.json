@@ -248,7 +248,6 @@
   "dialog.reinit_error": "Analyzer initialization failed:\n{error}",
   "startup.title": "KataGo Startup",
   "startup.heading": "Preparing KataGo analysis",
-  "startup.first_run_hint": "",
   "error.katago_process_exited": "KataGo exited before it became ready. Please check the model and config paths.",
   "dialog.settings_title": "Model and Config Settings",
   "dialog.llm_selection_title": "Select LLM Provider",

@@ -1,16 +1,16 @@
-# Graph Report - AIGoTeacher  (2026-08-29)
+# Graph Report - AIGoTeacher  (2026-08-30)
 
 ## Corpus Check
-- 26 files · ~57,244 words
+- 26 files · ~57,298 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 826 nodes · 1584 edges · 57 communities (47 shown, 10 thin omitted)
+- 826 nodes · 1584 edges · 56 communities (47 shown, 9 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 46 edges (avg confidence: 0.53)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `464aeab2`
+- Built from commit: `8c1476b9`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -59,7 +59,6 @@
 - create_dev_menu
 - ._apply_chat_palette_swap
 - show_custom_prompt_dialog
-- ._ensure_input_not_placeholder
 - Technical Architecture
 - 技術架構
 - Quick Start
@@ -97,7 +96,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (57 total, 10 thin omitted)
+## Communities (56 total, 9 thin omitted)
 
 ### Community 0 - "GoBoard"
 Cohesion: 0.07
@@ -192,8 +191,8 @@ Cohesion: 0.32
 Nodes (6): get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。 無 '/' 的 model_id 歸類為 "unknown"，確保 UI…, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。 保持各 publisher 內…, get_publisher_from_model_id(), group_models_by_publisher()
 
 ### Community 24 - "LLMChatWindow"
-Cohesion: 0.09
-Nodes (5): LLMChatWindow, 遞迴綁定滾輪事件，讓游標在卡片上也能捲動聊天區。, 輸入框獲得焦點時清除 placeholder。, 輸入框失去焦點時恢復 placeholder。, 依 _send_ctrl_var 切換快捷鍵：Enter 送出 or Ctrl+Enter 送出。
+Cohesion: 0.08
+Nodes (6): LLMChatWindow, 把使用者訊息回填輸入框，並截斷該則之後的所有對話。, 遞迴綁定滾輪事件，讓游標在卡片上也能捲動聊天區。, 輸入框獲得焦點時清除 placeholder。, 輸入框失去焦點時恢復 placeholder。, 依 _send_ctrl_var 切換快捷鍵：Enter 送出 or Ctrl+Enter 送出。
 
 ### Community 25 - "normalize_api_key"
 Cohesion: 0.21
@@ -278,12 +277,12 @@ Nodes (3): LLM 提供商支援, 功能特色, 核心功能
 ## Knowledge Gaps
 - **99 isolated node(s):** `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report`, `How Do I Submit a Good Bug Report?`, `Before Submitting an Enhancement` (+94 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **9 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LLMChatWindow` connect `LLMChatWindow` to `ProviderFactory`, `._on_send`, `._active_conversation`, `._refresh_conversation_list`, `._tr`, `main_v3.py`, `._apply_chat_palette_swap`, `._ensure_input_not_placeholder`, `.__init__`?**
+- **Why does `LLMChatWindow` connect `LLMChatWindow` to `ProviderFactory`, `._on_send`, `._active_conversation`, `._refresh_conversation_list`, `._tr`, `main_v3.py`, `._apply_chat_palette_swap`, `.__init__`?**
   _High betweenness centrality (0.204) - this node is a cross-community bridge._
 - **Why does `GoBoard` connect `GoBoard` to `main_v3.py`?**
   _High betweenness centrality (0.101) - this node is a cross-community bridge._

@@ -247,7 +247,6 @@
   "dialog.reinit_error": "分析器初始化失敗:\n{error}",
   "startup.title": "KataGo 啟動中",
   "startup.heading": "正在準備 KataGo 分析",
-  "startup.first_run_hint": "",
   "error.katago_process_exited": "KataGo 尚未準備完成就結束了。請檢查模型與設定檔路徑。",
   "dialog.settings_title": "模型與配置設定",
   "dialog.llm_selection_title": "選擇 LLM 提供商",
