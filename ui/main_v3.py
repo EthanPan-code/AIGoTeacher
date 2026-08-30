@@ -3032,6 +3032,9 @@ class GoBoard(tk.Canvas):
         self.preview_id = None
         self.blue_point_ids = []
         self.recommendation_points = {}
+        self.recommendations_hidden = False
+        self.last_move_infos = None
+        self.last_is_black_turn = None
         self.score_estimate_active = False
         self.score_estimate_data = None
         self.variation_timer = None
@@ -3250,7 +3253,11 @@ class GoBoard(tk.Canvas):
         return [ov, label]
 
     def draw_recommendation_points(self, move_infos, is_black_turn):
+        self.last_move_infos = move_infos
+        self.last_is_black_turn = is_black_turn
         self.clear_blue_point()
+        if self.recommendations_hidden:
+            return
         drawn_coords = set()
         drawn_count = 0
         self.recommendation_points = {}
@@ -3299,6 +3306,8 @@ class GoBoard(tk.Canvas):
             drawn_count += 1
 
     def draw_blue_point(self, x, y, winrate, is_black_turn):
+        if self.recommendations_hidden:
+            return
         self.clear_blue_point()
         self.blue_point_ids.extend(
             self._draw_recommendation_point(x, y, winrate, is_black_turn, BEST_MOVE_BLUE, "#ffffff")
@@ -3314,6 +3323,20 @@ class GoBoard(tk.Canvas):
         self.score_estimate_active = False
         self.score_estimate_data = None
         self.delete("score_estimate")
+        self.set_recommendations_hidden(False)
+
+    def set_recommendations_hidden(self, hidden):
+        """點目時暫時隱藏推薦手；結束後依據最後一次分析結果恢復顯示。"""
+        if self.recommendations_hidden == hidden:
+            return
+        self.recommendations_hidden = hidden
+        if hidden:
+            self._cancel_variation_timer()
+            self.clear_variation_preview()
+            self.delete("blue_point")
+            self.blue_point_ids = []
+        elif self.last_move_infos:
+            self.draw_recommendation_points(self.last_move_infos, self.last_is_black_turn)
 
     def _draw_score_estimate_overlay(self, ownership):
         self.delete("score_estimate")
@@ -3353,10 +3376,14 @@ class GoBoard(tk.Canvas):
 
     def clear_variation_preview(self):
         self.delete("variation_preview")
+        if not self.recommendations_hidden:
+            self.itemconfigure("blue_point", state="normal")
         if show_move_numbers_var.get():
             self._draw_move_numbers()
 
     def _handle_recommendation_hover(self, coord):
+        if self.recommendations_hidden:
+            return
         if coord not in self.recommendation_points:
             self._cancel_variation_timer()
             self.clear_variation_preview()
@@ -3454,6 +3481,8 @@ class GoBoard(tk.Canvas):
 
         self.clear_variation_preview()
         self.delete("move_number")
+        # 預覽變化圖期間暫時隱藏推薦手，鼠標離開後由 clear_variation_preview 恢復
+        self.itemconfigure("blue_point", state="hidden")
         board_state = copy.deepcopy(self.board)
         color = "black" if point_data["is_black_turn"] else "white"
         move_number = 1
@@ -4260,6 +4289,54 @@ def show_about():
     messagebox.showinfo(t("dialog.about_title"), t("dialog.about_message", version=APP_VERSION))
 
 
+def count_captured_prisoners(stones):
+    """依歷史落子順序重播棋局，計算雙方已提取的對方棋子數。
+
+    回傳 {"black": 黑方提掉的白子數, "white": 白方提掉的黑子數}。
+    """
+    board_state = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+    captured_by = {"black": 0, "white": 0}
+
+    def group_and_liberties(sx, sy):
+        color = board_state[sy][sx]
+        visited, to_visit = set(), [(sx, sy)]
+        group, liberties = [], set()
+        while to_visit:
+            cx, cy = to_visit.pop()
+            if (cx, cy) in visited:
+                continue
+            visited.add((cx, cy))
+            group.append((cx, cy))
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE:
+                    if board_state[ny][nx] is None:
+                        liberties.add((nx, ny))
+                    elif board_state[ny][nx] == color:
+                        to_visit.append((nx, ny))
+        return group, liberties
+
+    for x, y, color in stones:
+        if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or board_state[y][x] is not None:
+            continue
+        board_state[y][x] = color
+        opponent = "white" if color == "black" else "black"
+        captured_any = False
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE and board_state[ny][nx] == opponent:
+                group, libs = group_and_liberties(nx, ny)
+                if not libs:
+                    for gx, gy in group:
+                        board_state[gy][gx] = None
+                    captured_by[color] += len(group)
+                    captured_any = True
+        if not captured_any:
+            group, libs = group_and_liberties(x, y)
+            if not libs:
+                board_state[y][x] = None
+
+    return captured_by
+
+
 def summarize_score_estimate(ownership):
     black_territory = 0
     white_territory = 0
@@ -4382,8 +4459,12 @@ def _handle_score_estimate_result(result):
 
     score_lead = root_info.get("scoreLead", 0.0)
     summary = summarize_score_estimate(ownership)
-    black_total = summary["black_territory"] + summary["dead_white"]
-    white_total = summary["white_territory"] + summary["dead_black"]
+    captured = count_captured_prisoners(board.stones)
+    summary["captured_by_black"] = captured["black"]
+    summary["captured_by_white"] = captured["white"]
+    # 盤上死子每顆計 2 目（佔據的 1 目 + 提出後的 1 目）
+    black_total = summary["black_territory"] + summary["dead_white"] * 2 + captured["black"]
+    white_total = summary["white_territory"] + summary["dead_black"] * 2 + captured["white"]
     komi = 6.5
     net = black_total - white_total - komi
     if net >= 0:
@@ -4431,12 +4512,14 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
     ttk.Label(frame, text=t("dialog.score_estimate_black",
                             black_total=black_total,
                             black_territory=summary["black_territory"],
-                            dead_white=summary["dead_white"]),
+                            dead_white=summary["dead_white"],
+                            captured=summary.get("captured_by_black", 0)),
               font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
     ttk.Label(frame, text=t("dialog.score_estimate_white",
                             white_total=white_total,
                             white_territory=summary["white_territory"],
-                            dead_black=summary["dead_black"]),
+                            dead_black=summary["dead_black"],
+                            captured=summary.get("captured_by_white", 0)),
               font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
     ttk.Label(frame, text=t("dialog.score_estimate_komi", komi=komi),
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
@@ -4482,6 +4565,7 @@ def _start_score_estimate_query():
 
     score_query_in_flight = True
     board.score_estimate_active = True
+    board.set_recommendations_hidden(True)
     update_score_estimate_button_label()
     status_var.set(t("analysis.score_estimating"))
 
@@ -8698,6 +8782,11 @@ def start_analyzer_async(show_success=False, replacing=False):
             )
         if globals().get("board") is not None and board.stones:
             root.after(100, auto_analyze)
+        # 預熱點目分析引擎，避免第一次點目時需等待 KataGo 子程序啟動與模型載入
+        try:
+            root.after(1500, lambda: start_score_analyzer_async())
+        except tk.TclError:
+            pass
 
     def finish_failure(error, error_type=None):
         global analyzer_initializing
