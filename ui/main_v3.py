@@ -2,7 +2,7 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat, hashlib
 from collections import OrderedDict
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -97,6 +97,7 @@ MODEL_FAST_PATH = os.path.join("models", "kata-mini.txt.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
 RUNTIME_BUNDLE_DIR_NAME = "runtime"
+RUNTIME_MANIFEST_NAME = "version.json"
 
 
 def resource_path(relative_path):
@@ -222,12 +223,57 @@ def get_katago_runtime_overrides():
     ]
 
 
-def materialize_bundled_runtime_file(relative_path):
+def _sha256_of_file(path, chunk_size=1024 * 1024):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _runtime_manifest_path():
+    return os.path.join(get_runtime_data_root(), RUNTIME_BUNDLE_DIR_NAME, RUNTIME_MANIFEST_NAME)
+
+
+def _load_runtime_manifest():
+    try:
+        with open(_runtime_manifest_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("files"), dict):
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return {"app_version": None, "files": {}}
+
+
+def _save_runtime_manifest(manifest):
+    manifest_path = _runtime_manifest_path()
+    tmp_path = manifest_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, manifest_path)
+        hide_path_on_windows(manifest_path)
+    except OSError:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def materialize_bundled_runtime_file(relative_path, _manifest_cache={}):
     """Copy bundled KataGo runtime files out of PyInstaller's _MEI directory.
 
     The onefile bootloader removes _MEI on exit. Running katago.exe or loading a
     large model directly from _MEI can keep file handles open long enough for
     cleanup to fail, so packaged builds execute from hidden LocalAppData storage.
+
+    Freshness is decided by a version-stamped manifest (app version + SHA-256),
+    not by file size, so upgrading KataGo can never leave a stale binary behind.
     """
     if not is_frozen_app():
         return resource_path(relative_path)
@@ -236,16 +282,51 @@ def materialize_bundled_runtime_file(relative_path):
     dest = os.path.join(ensure_runtime_dir(RUNTIME_BUNDLE_DIR_NAME), relative_path)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
 
+    manifest = _manifest_cache.get("data")
+    if manifest is None:
+        manifest = _load_runtime_manifest()
+        _manifest_cache["data"] = manifest
+
+    app_version_changed = manifest.get("app_version") != APP_VERSION
+    entry = manifest["files"].get(relative_path) or {}
+
     needs_copy = True
-    if os.path.exists(dest):
-        try:
-            needs_copy = os.path.getsize(src) != os.path.getsize(dest)
-        except OSError:
-            needs_copy = True
+    try:
+        src_hash = _sha256_of_file(src)
+        src_size = os.path.getsize(src)
+        if not app_version_changed and os.path.exists(dest) and entry.get("sha256") == src_hash:
+            # Bundled file is unchanged; verify the extracted copy is intact.
+            needs_copy = _sha256_of_file(dest) != src_hash
+    except OSError:
+        needs_copy = True
 
     if needs_copy:
-        shutil.copy2(src, dest)
+        tmp_dest = dest + ".tmp"
+        last_error = None
+        for attempt in range(3):
+            try:
+                shutil.copy2(src, tmp_dest)
+                os.replace(tmp_dest, dest)
+                last_error = None
+                break
+            except PermissionError as exc:
+                # A leftover katago.exe process may still hold the old file.
+                last_error = exc
+                time.sleep(0.5)
+            except OSError:
+                try:
+                    if os.path.exists(tmp_dest):
+                        os.remove(tmp_dest)
+                except OSError:
+                    pass
+                raise
+        if last_error is not None:
+            raise last_error
+
         hide_path_on_windows(dest)
+        manifest["files"][relative_path] = {"size": src_size, "sha256": src_hash}
+        manifest["app_version"] = APP_VERSION
+        _save_runtime_manifest(manifest)
 
     return dest
 
