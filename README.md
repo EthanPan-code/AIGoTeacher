@@ -79,7 +79,7 @@ cd AIGoTeacher
 pip install -r requirements.txt
 # 3. Download KataGo model
 '''
-Go to [https://katagotraining.org/](https://katagotraining.org/) to download the neural network weight file.
+Go to https://katagotraining.org/ to download the neural network weight file.
 Place it inside the 'models/' directory.
 '''
 # 4. Run the application
@@ -183,7 +183,7 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 <a id="Chinese"></a>
 
-**AI 圍棋老師 v1.0.0** 是一個互動式圍棋教學系統，由 **KataGo v1.18.1** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+**AI 圍棋老師 v1.1.0** 是一個互動式圍棋教學系統，由 **KataGo v1.18.1** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
 
 ## 目錄
 - 功能特色
@@ -286,7 +286,7 @@ py ui/main_v3.py
 |------|------|
 | `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
 | `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/OpenRouter） |
-| services | 設定管理、API 金鑰安全儲存 |
+| `services/` | 設定管理、API 金鑰安全儲存 |
 | `i18n.py` | 國際化系統 |
 
 ### 通訊協定
