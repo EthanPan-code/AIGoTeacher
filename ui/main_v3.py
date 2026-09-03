@@ -345,6 +345,13 @@ LOADED_DOTENV_PATHS = load_runtime_dotenv()
 
 
 from services.config_service import ConfigService
+from services.rules import (
+    DEFAULT_KOMI,
+    DEFAULT_RULE_ID,
+    RULE_PRESETS,
+    get_rule_preset,
+    normalize_analysis_settings,
+)
 from services.keyring_service import (
     delete_nvidia_api_key,
     delete_openrouter_api_key,
@@ -874,12 +881,16 @@ class TabSession:
         # 【棋盤快照】每分頁獨立保存 stones / 樹狀結構 / 當前顏色
         "board_snapshot",
         "tab_type",
+        "analysis_rules",
+        "analysis_komi",
     )
 
     def __init__(self, session_id, title, tab_type="game"):
         self.session_id = session_id
         self.title = title
         self.tab_type = tab_type
+        self.analysis_rules = config_service.get_analysis_rules(DEFAULT_RULE_ID)
+        self.analysis_komi = config_service.get_analysis_komi(DEFAULT_KOMI)
         # --- 檔案狀態 ---
         self.sgf_path = None
         self.loaded_sgf_overwrite_confirmed = False
@@ -1001,6 +1012,13 @@ class TabManager:
 # 在 board / 全域 state 收斂完後，於 main() 流程初始化時使用。
 tab_manager = TabManager()
 tab_manager.initialize_default(initial_title=t("tab.welcome_title"))
+
+
+def get_active_analysis_settings():
+    session = tab_manager.active_session
+    if session is None:
+        return DEFAULT_RULE_ID, DEFAULT_KOMI
+    return normalize_analysis_settings(session.analysis_rules, session.analysis_komi)
 
 # 【Phase 1】解說快取 — 儲存 LLM 生成的解說
 # Key 格式: (turn, player_move_str) → Value: 解說文本
@@ -1191,6 +1209,15 @@ class KataGoAnalyzer:
         """用一致的 KataGo moves 格式生成快取 key，避免 stones/list 格式不一致造成 miss。"""
         return json.dumps(moves, ensure_ascii=False, separators=(",", ":"))
 
+    def get_analysis_cache_key(self, moves, rules=None, komi=None):
+        if rules is None or komi is None:
+            rules, komi = get_active_analysis_settings()
+        return json.dumps(
+            {"moves": moves, "rules": rules, "komi": float(komi)},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
     def _store_cache(self, board_hash, data):
         self.analysis_cache[board_hash] = data
         self.analysis_cache.move_to_end(board_hash)
@@ -1210,6 +1237,8 @@ class KataGoAnalyzer:
         include_ownership_stdev=False,
         session_id=None,
         report_during_search_every=None,
+        rules=None,
+        komi=None,
     ):
         if self.closed or self.process.poll() is not None:
             return None
@@ -1220,7 +1249,9 @@ class KataGoAnalyzer:
             analyze_turns = [turn_num]
         analyze_turns = list(analyze_turns)
         target_queue = response_queue or self.response_queue
-        board_hash = self.get_board_hash_from_moves(moves)
+        rules, komi = normalize_analysis_settings(rules, komi)
+        katago_rules = get_rule_preset(rules).katago_rules
+        board_hash = self.get_analysis_cache_key(moves, rules, komi)
         
         # 【關鍵檢查】如果這個局面以前算過，直接把舊結果塞回 Queue，不用發請求給 KataGo
         # 【Phase 1】使用鎖保護快取讀取和 queue 操作
@@ -1245,8 +1276,8 @@ class KataGoAnalyzer:
         query = {
             "id": query_id,
             "moves": moves,
-            "rules": "japanese",
-            "komi": 6.5,
+            "rules": katago_rules,
+            "komi": komi,
             "boardXSize": 19,
             "boardYSize": 19,
             "analyzeTurns": analyze_turns,
@@ -1270,6 +1301,8 @@ class KataGoAnalyzer:
                 "streaming": report_during_search_every is not None,
                 # 【Phase 3】多分頁路由：紀錄這個查詢是為哪個分頁發出的
                 "session_id": session_id,
+                "rules": rules,
+                "komi": komi,
             }
 
         try:
@@ -1329,13 +1362,17 @@ class KataGoAnalyzer:
                         # 【Phase 3】把分頁身份附在 data 上，供 poll_ai 做路由判斷
                         if pending.get("session_id") is not None:
                             data["session_id"] = pending["session_id"]
+                        data["analysis_rules"] = pending["rules"]
+                        data["analysis_komi"] = pending["komi"]
                         if pending.get("streaming"):
                             data["continuous_analysis"] = True
                         pending["response_queue"].put(data)
                         
                         # 只有完整的分析結果(含rootInfo)才存入快取
                         if "rootInfo" in data and not pending.get("streaming"):
-                            result_hash = self.get_board_hash_from_moves(pending["moves"][:result_turn])
+                            result_hash = self.get_analysis_cache_key(
+                                pending["moves"][:result_turn], pending["rules"], pending["komi"]
+                            )
                             self._store_cache(result_hash, data)
                 except json.JSONDecodeError as e:
                     # 【改進異常處理】詳細記錄 JSON 解析錯誤
@@ -1458,7 +1495,7 @@ class ScoreAnalyzer(KataGoAnalyzer):
             startup_callback=startup_callback,
         )
 
-    def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="score", use_cache=False):
+    def send_query(self, stones, analyze_turns=None, response_queue=None, query_kind="score", use_cache=False, rules=None, komi=None):
         return super().send_query(
             stones,
             analyze_turns=analyze_turns,
@@ -1468,6 +1505,8 @@ class ScoreAnalyzer(KataGoAnalyzer):
             max_visits=120,
             include_ownership=True,
             include_ownership_stdev=True,
+                rules=rules,
+                komi=komi,
         )
 
 class GoDataFilter:
@@ -1487,7 +1526,8 @@ class GoDataFilter:
     def _analysis_for_stones(self, stones, analyzer):
         moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in stones]
         with analyzer.lock:
-            return analyzer.analysis_cache.get(analyzer.get_board_hash_from_moves(moves))
+            rules, komi = get_active_analysis_settings()
+            return analyzer.analysis_cache.get(analyzer.get_analysis_cache_key(moves, rules, komi))
 
     def load_baseline_from_cache(self, turn, analyzer, stones=None):
         """【改進】從快取中查詢上一手 (turn-1) 的分析結果，取出勝率和目數作為基準
@@ -1506,7 +1546,8 @@ class GoDataFilter:
         # 取得棋局前 prev_turn 手的 hash（即上一手完成後的狀態）
         moves = (stones if stones is not None else board.stones)[:prev_turn]
         moves_gtp = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in moves]
-        board_hash = analyzer.get_board_hash_from_moves(moves_gtp)
+        rules, komi = get_active_analysis_settings()
+        board_hash = analyzer.get_analysis_cache_key(moves_gtp, rules, komi)
         
         # 從快取查詢
         cached_result = analyzer.analysis_cache.get(board_hash)
@@ -1652,6 +1693,7 @@ class GameNode:
         self.parent = parent
         self.children = []
         self.active_child_idx = 0  # 紀錄目前正在看哪一個變化圖分支
+        self.metadata = {}
 
 class BranchCanvas(tk.Canvas):
     def __init__(self, master, board_ref, **kwargs):
@@ -2525,7 +2567,8 @@ def plot_window(winrates, scoreLeads):
 
     def get_turn_analysis(turn):
         moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in chart_stones[:turn]]
-        board_hash = analyzer.get_board_hash_from_moves(moves)
+        rules, komi = get_active_analysis_settings()
+        board_hash = analyzer.get_analysis_cache_key(moves, rules, komi)
         with analyzer.lock:
             return analyzer.analysis_cache.get(board_hash)
 
@@ -2883,7 +2926,9 @@ def update_ui_with_data(result):
         # 這樣即使棋局推進，舊手數的分析結果仍可被查詢，用於判定失誤時的比較
         moves = result.get("moves", [])
         if moves and not result.get("continuous_analysis"):
-            board_hash = analyzer.get_board_hash_from_moves(moves[:result_turn])
+            board_hash = analyzer.get_analysis_cache_key(
+                moves[:result_turn], result.get("analysis_rules"), result.get("analysis_komi")
+            )
             analyzer._store_cache(board_hash, result)
             logger.debug("分析結果已快取: turn=%s cache_size=%s", result_turn, len(analyzer.analysis_cache))
         
@@ -3883,12 +3928,13 @@ class GoBoard(tk.Canvas):
         current_path = self.stones 
         moves = [["B" if c == "black" else "W", self.to_gtp_coord(x, y)] for x, y, c in current_path]
         
+        rules, komi = get_active_analysis_settings()
         data = {
             "id": f"game_{int(time.time())}",
             "initialStones": [],
             "moves": moves,
-            "rules": "japanese",
-            "komi": 6.5,
+            "rules": get_rule_preset(rules).katago_rules,
+            "komi": komi,
             "boardXSize": 19,
             "boardYSize": 19,
             "analyzeTurns": [len(moves)]
@@ -3898,8 +3944,19 @@ class GoBoard(tk.Canvas):
 
     def export_as_sgf(self, filename):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        # SGF 定義頭部
-        sgf_content = "(;GM[1]FF[4]CA[UTF-8]AP[GoAI]KM[6.5]SZ[19]\n"
+        rules, komi = get_active_analysis_settings()
+        root_metadata = dict(getattr(self.root_node, "metadata", {}))
+        root_metadata["KM"] = str(komi).rstrip("0").rstrip(".") if komi % 1 else str(int(komi))
+        root_metadata["RU"] = get_rule_preset(rules).sgf_rule_name
+
+        def escape_sgf(value):
+            return str(value).replace("\\", "\\\\").replace("]", "\\]")
+
+        standard_metadata = {"GM": "1", "FF": "4", "CA": "UTF-8", "AP": "GoAI", "SZ": "19"}
+        standard_metadata.update(root_metadata)
+        sgf_content = "(;" + "".join(
+            f"{key}[{escape_sgf(value)}]" for key, value in standard_metadata.items()
+        ) + "\n"
         
         # 【Phase 2】輔助函數：計算節點的轉換序號 (turn number)
         def get_node_turn_number(node):
@@ -3959,6 +4016,31 @@ class GoBoard(tk.Canvas):
         self.current_node = self.root_node
         self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
         self.current_color = "black"
+
+        # Preserve root game-info properties, including properties unknown to us.
+        root_start = content.find("(;" )
+        root_end = content.find(";", root_start + 2) if root_start >= 0 else -1
+        if root_start >= 0:
+            root_text = content[root_start + 2:root_end if root_end >= 0 else len(content)]
+            for prop_match in re.finditer(r"([A-Z]{1,3})\[((?:\\.|[^\]])*)\]", root_text):
+                value = prop_match.group(2).replace("\\]", "]").replace("\\\\", "\\")
+                self.root_node.metadata[prop_match.group(1)] = value
+
+            session = tab_manager.active_session
+            if session is not None:
+                loaded_komi = self.root_node.metadata.get("KM")
+                loaded_rules = self.root_node.metadata.get("RU")
+                rule_aliases = {
+                    "japanese": "japanese", "japan": "japanese",
+                    "ing": "ing", "chinese": "japanese",
+                }
+                rule_id = rule_aliases.get((loaded_rules or "").strip().lower(), session.analysis_rules)
+                try:
+                    session.analysis_rules, session.analysis_komi = normalize_analysis_settings(
+                        rule_id, loaded_komi if loaded_komi is not None else session.analysis_komi
+                    )
+                except ValueError:
+                    session.analysis_rules = rule_id
 
         # 【Phase 3】清空舊的快取，準備恢復註解
         global commentary_cache
@@ -4465,7 +4547,12 @@ def _handle_score_estimate_result(result):
     # 盤上死子每顆計 2 目（佔據的 1 目 + 提出後的 1 目）
     black_total = summary["black_territory"] + summary["dead_white"] * 2 + captured["black"]
     white_total = summary["white_territory"] + summary["dead_black"] * 2 + captured["white"]
-    komi = 6.5
+    rules, komi = get_active_analysis_settings()
+
+    # 應式規則貼目設為 8 目
+    if rules == "ing":
+        komi = 8
+    
     net = black_total - white_total - komi
     if net >= 0:
         leader = t("stone.black")
@@ -4523,8 +4610,15 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
               font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
     ttk.Label(frame, text=t("dialog.score_estimate_komi", komi=komi),
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
-    ttk.Label(frame, text=t("dialog.score_estimate_lead", leader=leader, lead=lead),
-              font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
+
+    if lead.is_integer() == 1:
+        ttk.Label(frame, text=t("dialog.int_score_estimate_lead", leader=leader, lead=lead),
+                              font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
+    else:
+        ttk.Label(frame, text=t("dialog.score_estimate_lead", leader=leader, lead=lead),
+                      font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
+
+    
     ttk.Label(frame, text=t("dialog.score_estimate_dead",
                             dead_black=summary["dead_black"], dead_white=summary["dead_white"]),
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 14))
@@ -4575,6 +4669,8 @@ def _start_score_estimate_query():
         response_queue=score_response_queue,
         query_kind="score",
         use_cache=False,
+        rules=get_active_analysis_settings()[0],
+        komi=get_active_analysis_settings()[1],
     )
     if query_id is None:
         score_query_in_flight = False
@@ -7358,6 +7454,76 @@ def show_custom_prompt_dialog():
 
 
 
+def show_rules_settings_dialog():
+    """Edit the active tab's rules and the default for newly created tabs."""
+    settings_win = tk.Toplevel(root)
+    settings_win.title(t("dialog.rules_settings_title"))
+    settings_win.geometry("430x260")
+    settings_win.transient(root)
+    settings_win.grab_set()
+    pywinstyles.change_header_color(settings_win, color=PANEL_BG)
+    pywinstyles.change_title_color(settings_win, color=TEXT_MAIN)
+
+    frame = ttk.Frame(settings_win, padding=16)
+    frame.pack(fill="both", expand=True)
+    active_rules, active_komi = get_active_analysis_settings()
+    rule_labels = {
+        "japanese": t("rules.japanese"),
+        "ing": t("rules.ing"),
+        "custom": t("rules.custom"),
+    }
+    label_to_rule = {label: rule_id for rule_id, label in rule_labels.items()}
+    rule_var = tk.StringVar(value=rule_labels[active_rules])
+    komi_var = tk.StringVar(value=str(active_komi))
+
+    ttk.Label(frame, text=t("label.analysis_rules")).grid(row=0, column=0, sticky="nw", pady=(0, 12))
+    ttk.Combobox(
+        frame, textvariable=rule_var, values=list(label_to_rule), state="readonly", width=20
+    ).grid(row=0, column=1, sticky="w", padx=(12, 0), pady=(0, 12))
+    komi_label = ttk.Label(frame, text=t("label.analysis_komi"))
+    komi_entry = ttk.Entry(frame, textvariable=komi_var, width=22)
+
+    def update_komi_state(*_args):
+        if label_to_rule.get(rule_var.get()) == "custom":
+            komi_label.grid(row=1, column=0, sticky="w", pady=(0, 12))
+            komi_entry.grid(row=1, column=1, sticky="w", padx=(12, 0), pady=(0, 12))
+        else:
+            komi_label.grid_remove()
+            komi_entry.grid_remove()
+
+    rule_var.trace_add("write", update_komi_state)
+    update_komi_state()
+
+    def apply_rules():
+        selected_rule = label_to_rule[rule_var.get()]
+        try:
+            selected_rules, selected_komi = normalize_analysis_settings(
+                selected_rule,
+                komi_var.get() if selected_rule == "custom" else None,
+            )
+        except ValueError:
+            messagebox.showerror(t("dialog.error_title"), t("error.invalid_komi"), parent=settings_win)
+            return
+        session = tab_manager.active_session
+        if session is not None:
+            session.analysis_rules = selected_rules
+            session.analysis_komi = selected_komi
+        config_service.set_analysis_rules(selected_rules)
+        config_service.set_analysis_komi(selected_komi)
+        config_service.save()
+        if analyzer is not None:
+            with analyzer.lock:
+                analyzer.analysis_cache.clear()
+        board.clear_blue_point()
+        board.clear_score_estimate()
+        settings_win.destroy()
+
+    button_frame = ttk.Frame(frame)
+    button_frame.grid(row=2, column=0, columnspan=2, sticky="e", pady=(18, 0))
+    ttk.Button(button_frame, text=t("button.apply"), command=apply_rules).pack(side="right", padx=(8, 0))
+    ttk.Button(button_frame, text=t("button.cancel"), command=settings_win.destroy).pack(side="right")
+
+
 def show_settings_dialog():
     """顯示設定對話框"""
     settings_win = tk.Toplevel(root)
@@ -7960,6 +8126,7 @@ def build_menu_bar():
             command(t("menu.full_analysis"), show_winrate_chart, "Ctrl+Shift+R"),
         ]},
         {"label": t("menu.settings"), "items": [
+            command(t("menu.rules_settings"), show_rules_settings_dialog),
             command(t("menu.model_settings"), show_settings_dialog),
             command(t("settings.appearance"), show_appearance_settings_dialog),
             {"type": "submenu", "label": t("menu.language"), "items": [
@@ -8203,7 +8370,12 @@ def on_copy_tab_click(idx):
             "root_node": _copy_game_tree(source_snapshot["root_node"]),
             "current_node_path": list(source_snapshot["current_node_path"]),
             "current_color": source_snapshot["current_color"],
+            "analysis_rules": source_snapshot.get("analysis_rules", source_session.analysis_rules),
+            "analysis_komi": source_snapshot.get("analysis_komi", source_session.analysis_komi),
         }
+    else:
+        new_session.analysis_rules = source_session.analysis_rules
+        new_session.analysis_komi = source_session.analysis_komi
     new_session.sgf_path = None
     new_session.loaded_sgf_overwrite_confirmed = False
     new_session.is_dirty = False
@@ -8325,6 +8497,7 @@ def _copy_game_tree(node, parent=None):
         return None
     new_node = GameNode(move=node.move, parent=parent)
     new_node.active_child_idx = node.active_child_idx
+    new_node.metadata = dict(getattr(node, "metadata", {}))
     for child in node.children:
         new_child = _copy_game_tree(child, parent=new_node)
         new_node.children.append(new_child)
@@ -8352,6 +8525,8 @@ def _capture_board_snapshot(target_session):
         "root_node": _copy_game_tree(board.root_node),  # 自訂複製，避免 deepcopy 循環
         "current_node_path": path,
         "current_color": board.current_color,
+            "analysis_rules": target_session.analysis_rules,
+            "analysis_komi": target_session.analysis_komi,
     }
 
 
@@ -8382,6 +8557,8 @@ def _restore_board_snapshot(source_session):
             break
     board.board = [list(row) for row in snap["stones"]]  # 淺複製 2D list
     board.current_color = snap["current_color"]
+    source_session.analysis_rules = snap.get("analysis_rules", source_session.analysis_rules)
+    source_session.analysis_komi = snap.get("analysis_komi", source_session.analysis_komi)
     board.clear_blue_point()
 
 

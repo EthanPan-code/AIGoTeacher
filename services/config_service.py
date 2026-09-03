@@ -21,6 +21,26 @@ class ConfigService:
         from services.theme_service import normalize_theme
         self.set_setting("ui_theme", normalize_theme(theme))
 
+    def get_analysis_rules(self, default="japanese"):
+        from services.rules import normalize_rule_id
+        return normalize_rule_id(self.get_setting("analysis_rules", default))
+
+    def set_analysis_rules(self, rules):
+        from services.rules import normalize_rule_id
+        self.set_setting("analysis_rules", normalize_rule_id(rules))
+
+    def get_analysis_komi(self, default=None):
+        from services.rules import DEFAULT_KOMI, validate_komi
+        value = self.get_setting("analysis_komi", DEFAULT_KOMI if default is None else default)
+        try:
+            return validate_komi(value)
+        except ValueError:
+            return DEFAULT_KOMI if default is None else validate_komi(default)
+
+    def set_analysis_komi(self, komi):
+        from services.rules import validate_komi
+        self.set_setting("analysis_komi", validate_komi(komi))
+
     def migrate_removed_github_provider(self, ollama_default_model):
         """Migrate settings from the removed GitHub Models provider."""
         provider = self.get_setting("llm_provider", "ollama")
