@@ -350,6 +350,8 @@ from services.rules import (
     DEFAULT_RULE_ID,
     RULE_PRESETS,
     get_rule_preset,
+    get_katago_komi,
+    calculate_area_score,
     normalize_analysis_settings,
 )
 from services.keyring_service import (
@@ -1251,6 +1253,7 @@ class KataGoAnalyzer:
         target_queue = response_queue or self.response_queue
         rules, komi = normalize_analysis_settings(rules, komi)
         katago_rules = get_rule_preset(rules).katago_rules
+        katago_komi = get_katago_komi(rules, komi)
         board_hash = self.get_analysis_cache_key(moves, rules, komi)
         
         # 【關鍵檢查】如果這個局面以前算過，直接把舊結果塞回 Queue，不用發請求給 KataGo
@@ -1277,7 +1280,7 @@ class KataGoAnalyzer:
             "id": query_id,
             "moves": moves,
             "rules": katago_rules,
-            "komi": komi,
+            "komi": katago_komi,
             "boardXSize": 19,
             "boardYSize": 19,
             "analyzeTurns": analyze_turns,
@@ -3934,7 +3937,7 @@ class GoBoard(tk.Canvas):
             "initialStones": [],
             "moves": moves,
             "rules": get_rule_preset(rules).katago_rules,
-            "komi": komi,
+            "komi": get_katago_komi(rules, komi),
             "boardXSize": 19,
             "boardYSize": 19,
             "analyzeTurns": [len(moves)]
@@ -3946,7 +3949,8 @@ class GoBoard(tk.Canvas):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         rules, komi = get_active_analysis_settings()
         root_metadata = dict(getattr(self.root_node, "metadata", {}))
-        root_metadata["KM"] = str(komi).rstrip("0").rstrip(".") if komi % 1 else str(int(komi))
+        sgf_komi = get_katago_komi(rules, komi)
+        root_metadata["KM"] = str(sgf_komi).rstrip("0").rstrip(".") if sgf_komi % 1 else str(int(sgf_komi))
         root_metadata["RU"] = get_rule_preset(rules).sgf_rule_name
 
         def escape_sgf(value):
@@ -4032,10 +4036,12 @@ class GoBoard(tk.Canvas):
                 loaded_rules = self.root_node.metadata.get("RU")
                 rule_aliases = {
                     "japanese": "japanese", "japan": "japanese",
-                    "ing": "ing", "chinese": "japanese",
+                    "ing": "ing", "chinese": "area",
                 }
                 rule_id = rule_aliases.get((loaded_rules or "").strip().lower(), session.analysis_rules)
                 try:
+                    if rule_id == "area" and loaded_komi is not None:
+                        loaded_komi = float(loaded_komi) / 2
                     session.analysis_rules, session.analysis_komi = normalize_analysis_settings(
                         rule_id, loaded_komi if loaded_komi is not None else session.analysis_komi
                     )
@@ -4544,22 +4550,43 @@ def _handle_score_estimate_result(result):
     captured = count_captured_prisoners(board.stones)
     summary["captured_by_black"] = captured["black"]
     summary["captured_by_white"] = captured["white"]
-    # 盤上死子每顆計 2 目（佔據的 1 目 + 提出後的 1 目）
-    black_total = summary["black_territory"] + summary["dead_white"] * 2 + captured["black"]
-    white_total = summary["white_territory"] + summary["dead_black"] * 2 + captured["white"]
     rules, komi = get_active_analysis_settings()
-
-    # 應式規則貼目設為 8 目
+    # 應式規則貼目設為 4 子
     if rules == "ing":
-        komi = 8
-    
-    net = black_total - white_total - komi
+        komi = 4
+
+
+    if (rules == "area") or (rules == "ing"):
+        black_stones = sum(row.count("black") for row in board.board)
+        white_stones = sum(row.count("white") for row in board.board)
+        black_total, white_total = calculate_area_score(
+            black_stones,
+            white_stones,
+            summary["black_territory"],
+            summary["white_territory"],
+            summary["dead_black"],
+            summary["dead_white"],
+        )
+    else:
+        # 盤上死子每顆計 2 目（佔據的 1 目 + 提出後的 1 目）
+        black_total = summary["black_territory"] + summary["dead_white"] * 2 + captured["black"]
+        white_total = summary["white_territory"] + summary["dead_black"] * 2 + captured["white"]
+
+    # 數子法算法
+    if rules == "area":
+        net = (black_total - white_total - komi * 2)/2
+    elif rules == "ing":
+        net = black_total - white_total - komi * 2
+    else:
+        net = black_total - white_total - komi
     if net >= 0:
         leader = t("stone.black")
         lead = net
     else:
         leader = t("stone.white")
         lead = -net
+
+
     board.score_estimate_data = {
         "ownership": ownership,
         "scoreLead": score_lead,
@@ -4596,31 +4623,38 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
     frame = ttk.Frame(popup, padding=(20, 18, 20, 14))
     frame.pack(fill="both", expand=True)
 
-    ttk.Label(frame, text=t("dialog.score_estimate_black",
+    is_area_scoring = get_active_analysis_settings()[0] == "area" or get_active_analysis_settings()[0] == "ing"
+    score_unit = get_rule_preset(get_active_analysis_settings()[0]).score_unit
+    black_score_key = "dialog.score_estimate_black_area" if is_area_scoring else "dialog.score_estimate_black"
+    white_score_key = "dialog.score_estimate_white_area" if is_area_scoring else "dialog.score_estimate_white"
+    lead_key = "dialog.score_estimate_area_lead" if is_area_scoring else "dialog.score_estimate_lead"
+
+    ttk.Label(frame, text=t(black_score_key,
                             black_total=black_total,
                             black_territory=summary["black_territory"],
                             dead_white=summary["dead_white"],
                             captured=summary.get("captured_by_black", 0)),
               font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
-    ttk.Label(frame, text=t("dialog.score_estimate_white",
+    ttk.Label(frame, text=t(white_score_key,
                             white_total=white_total,
                             white_territory=summary["white_territory"],
                             dead_black=summary["dead_black"],
                             captured=summary.get("captured_by_white", 0)),
               font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(0, 6))
-    ttk.Label(frame, text=t("dialog.score_estimate_komi", komi=komi),
+    ttk.Label(frame, text=t("dialog.score_estimate_komi", komi=komi, unit=score_unit),
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
 
     if lead.is_integer() == 1:
-        ttk.Label(frame, text=t("dialog.int_score_estimate_lead", leader=leader, lead=lead),
+        int_lead_key = "dialog.int_score_estimate_area_lead" if is_area_scoring else "dialog.int_score_estimate_lead"
+        ttk.Label(frame, text=t(int_lead_key, leader=leader, lead=lead),
                               font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
     else:
-        ttk.Label(frame, text=t("dialog.score_estimate_lead", leader=leader, lead=lead),
+        ttk.Label(frame, text=t(lead_key, leader=leader, lead=lead),
                       font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
 
     
     ttk.Label(frame, text=t("dialog.score_estimate_dead",
-                            dead_black=summary["dead_black"], dead_white=summary["dead_white"]),
+                            dead_black=summary["dead_black"], dead_white=summary["dead_white"], unit=score_unit),
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 14))
 
     ttk.Button(frame, text=t("dialog.score_estimate_ok"), command=close_popup).pack(anchor="center")
@@ -7470,6 +7504,7 @@ def show_rules_settings_dialog():
     rule_labels = {
         "japanese": t("rules.japanese"),
         "ing": t("rules.ing"),
+        "area": t("rules.area"),
         "custom": t("rules.custom"),
     }
     label_to_rule = {label: rule_id for rule_id, label in rule_labels.items()}
