@@ -4553,7 +4553,7 @@ def _handle_score_estimate_result(result):
     rules, komi = get_active_analysis_settings()
     # 應式規則貼目設為 4 子
     if rules == "ing":
-        komi = 4
+        komi = 8
 
 
     if (rules == "area") or (rules == "ing"):
@@ -4576,7 +4576,7 @@ def _handle_score_estimate_result(result):
     if rules == "area":
         net = (black_total - white_total - komi * 2)/2
     elif rules == "ing":
-        net = black_total - white_total - komi * 2
+        net = black_total - white_total - komi
     else:
         net = black_total - white_total - komi
     if net >= 0:
@@ -4623,11 +4623,22 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
     frame = ttk.Frame(popup, padding=(20, 18, 20, 14))
     frame.pack(fill="both", expand=True)
 
-    is_area_scoring = get_active_analysis_settings()[0] == "area" or get_active_analysis_settings()[0] == "ing"
+    is_area_scoring = get_active_analysis_settings()[0] == "area" 
+    is_ing_scoring = get_active_analysis_settings()[0] == "ing"
     score_unit = get_rule_preset(get_active_analysis_settings()[0]).score_unit
-    black_score_key = "dialog.score_estimate_black_area" if is_area_scoring else "dialog.score_estimate_black"
-    white_score_key = "dialog.score_estimate_white_area" if is_area_scoring else "dialog.score_estimate_white"
-    lead_key = "dialog.score_estimate_area_lead" if is_area_scoring else "dialog.score_estimate_lead"
+
+    if is_area_scoring:
+        black_score_key = "dialog.score_estimate_black_area" 
+        white_score_key = "dialog.score_estimate_white_area" 
+        lead_key = "dialog.score_estimate_area_lead" 
+    elif is_ing_scoring:
+        black_score_key = "dialog.score_estimate_black_point" 
+        white_score_key = "dialog.score_estimate_white_point" 
+        lead_key = "dialog.score_estimate_point_lead" 
+    else:
+        black_score_key = "dialog.score_estimate_black"
+        white_score_key = "dialog.score_estimate_white"
+        lead_key = "dialog.score_estimate_lead"        
 
     ttk.Label(frame, text=t(black_score_key,
                             black_total=black_total,
@@ -4645,7 +4656,12 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
               font=("Microsoft JhengHei", 10), foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
 
     if lead.is_integer() == 1:
-        int_lead_key = "dialog.int_score_estimate_area_lead" if is_area_scoring else "dialog.int_score_estimate_lead"
+        if is_area_scoring:
+            int_lead_key = "dialog.int_score_estimate_area_lead" 
+        elif is_ing_scoring:
+            int_lead_key = "dialog.score_estimate_point_lead"
+        else:
+            int_lead_key = "dialog.int_score_estimate_lead"   
         ttk.Label(frame, text=t(int_lead_key, leader=leader, lead=lead),
                               font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w", pady=(0, 6))
     else:
@@ -8153,7 +8169,7 @@ def build_menu_bar():
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
         ]},
         {"label": t("menu.analysis"), "items": [
-            {"type": "check",
+            {   #"type": "check",
              "label": t("menu.cancel_continuous" if continuous_analysis_enabled else "menu.analyze_current"),
              "get_state": lambda: continuous_analysis_enabled,
              "command": on_analyze_button_click,

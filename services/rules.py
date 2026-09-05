@@ -19,7 +19,7 @@ class RulePreset:
 
 RULE_PRESETS = {
     "japanese": RulePreset("japanese", "比目法", 6.5, "japanese", "Japanese", "目", 6.5),
-    "ing": RulePreset("ing", "應氏規則", 7.5, "japanese", "Ing", "點", 7.5),
+    "ing": RulePreset("ing", "應氏規則", 7.5, "chinese", "Ing", "點", 7.5),
     "area": RulePreset("area", "數子法", 3.75, "chinese", "Chinese", "子", 7.5),
     "custom": RulePreset("custom", "自訂貼目", 6.5, "japanese", "Japanese", "目", 6.5),
 }
