@@ -3791,7 +3791,8 @@ class GoBoard(tk.Canvas):
         # 1. 檢查是否已經有這個分支 (如果有，直接走進該變化圖)
         for idx, child in enumerate(self.current_node.children):
             if child.move == (x, y, color):
-                self.current_node.parent.active_child_idx = idx if self.current_node.parent else 0
+                if self.current_node.parent:
+                    self.current_node.parent.active_child_idx = idx
                 self.current_node = child
                 self.rebuild_board()
                 self.on_state_change()
@@ -3937,12 +3938,12 @@ class GoBoard(tk.Canvas):
                         outline = "#0f0f0f" if color == "black" else "#8e806f"
                         self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
 
-        # 2. 繪製最後一手標記 (紅色小方塊)
+        # 2. 繪製最後一手標記
         if self.current_node and self.current_node.move and not is_pass_move(self.current_node.move):
             lx, ly, lcolor = self.current_node.move
             px, py = margin + lx * CELL_SIZE, margin + ly * CELL_SIZE
             # 標記在最後一手的中心
-            self.create_rectangle(px-5, py-5, px+5, py+5, outline="red", width=2)
+            self.create_oval(px-12, py-12, px+12, py+12, outline="red", width=2)
 
         self._draw_move_numbers()
         if self.score_estimate_data:
