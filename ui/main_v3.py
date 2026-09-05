@@ -364,6 +364,7 @@ from services.keyring_service import (
     set_openrouter_api_key,
 )
 from services.provider_factory import ProviderFactory
+from services import find_service
 from services.theme_service import resolve_theme, PALETTES
 from ui.fake_menu import FakeMenuBar
 from services.ollama_manager import (
@@ -7504,6 +7505,165 @@ def show_custom_prompt_dialog():
 
 
 
+# ==================== 尋找功能（Ctrl+F） ====================
+# 模組級狀態：全域只允許一個尋找對話框，且綁定「開啟時的分頁」。
+# 切換分頁後結果作廢（_on_find_tab_changed），避免跨分頁跳轉造成盤面污染。
+_find_dialog_state = None
+
+
+def _on_find_tab_changed():
+    """分頁切換 / 關閉時呼叫：清空尋找結果並提示需重新搜尋（不分頁殘留結果）。"""
+    global _find_dialog_state
+    if _find_dialog_state is None:
+        return
+    try:
+        _find_dialog_state["results"] = []
+        _find_dialog_state["listbox"].delete(0, tk.END)
+        _find_dialog_state["status_label"].config(text=t("find.tab_changed"))
+    except tk.TclError:
+        _find_dialog_state = None
+
+
+def show_find_dialog():
+    """開啟尋找對話框；已存在則聚焦並清空舊結果。"""
+    global _find_dialog_state
+    if _find_dialog_state is not None:
+        try:
+            _on_find_tab_changed()
+            _find_dialog_state["window"].lift()
+            _find_dialog_state["window"].focus_force()
+            _find_dialog_state["entry"].focus_set()
+            return
+        except tk.TclError:
+            _find_dialog_state = None
+
+    win = tk.Toplevel(root)
+    win.title(t("find.title"))
+    win.iconbitmap(resource_path("image/logo.ico"))
+    win.resizable(False, True)
+    win.transient(root)
+    win.configure(bg=UI_BG)
+    pywinstyles.change_header_color(win, color=PANEL_BG)
+    pywinstyles.change_title_color(win, color=TEXT_MAIN)
+
+    outer = ttk.Frame(win, padding=(14, 12, 14, 10))
+    outer.pack(fill="both", expand=True)
+
+    entry_var = tk.StringVar()
+    entry = tk.Entry(entry_frame := ttk.Frame(outer), textvariable=entry_var,
+                     font=("Microsoft JhengHei", 11),
+                     bg=INPUT_BG, fg=TEXT_MAIN, insertbackground=TEXT_MAIN,
+                     relief="solid", bd=1)
+    entry.pack(side="left", fill="x", expand=True, ipady=3)
+    entry_frame.pack(fill="x")
+    # placeholder：Entry 無原生支援，用淡色提示字 + focus 事件切換
+    _placeholder = t("find.placeholder")
+    def _show_placeholder():
+        if not entry_var.get():
+            entry_var.set(_placeholder)
+            entry.config(fg=TEXT_MUTED)
+    def _hide_placeholder(_event=None):
+        if entry_var.get() == _placeholder:
+            entry_var.set("")
+            entry.config(fg=TEXT_MAIN)
+    def _maybe_show_placeholder(_event=None):
+        if not entry_var.get():
+            _show_placeholder()
+    entry.bind("<FocusIn>", _hide_placeholder)
+    entry.bind("<FocusOut>", _maybe_show_placeholder)
+    _show_placeholder()
+
+    list_frame = ttk.Frame(outer)
+    list_frame.pack(fill="both", expand=True, pady=(10, 6))
+    scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
+    listbox = tk.Listbox(list_frame, height=8, width=52,
+                         font=("Microsoft JhengHei", 10),
+                         bg=INPUT_BG, fg=TEXT_MAIN,
+                         selectbackground=SELECTION_BG,
+                         yscrollcommand=scrollbar.set, activestyle="none")
+    scrollbar.config(command=listbox.yview)
+    listbox.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    status_label = ttk.Label(outer, text="", style="Muted.TLabel")
+    status_label.pack(anchor="w", pady=(0, 8))
+
+    button_frame = ttk.Frame(outer)
+    button_frame.pack(fill="x")
+
+    state = {
+        "window": win, "entry": entry, "listbox": listbox,
+        "status_label": status_label, "results": [],
+        # 記錄開啟對話框時的分頁；跳轉前必檢查，防止跨分頁跳轉
+        "session_id": tab_manager.active_session.session_id,
+    }
+    _find_dialog_state = state
+
+    def _sync_query(entry_widget, var):
+        """根據查詢狀態更新按鈕可用性與結果跳轉。"""
+        query = var.get().strip()
+        if query == _placeholder:
+            query = ""
+        if state["session_id"] != tab_manager.active_session.session_id:
+            status_label.config(text=t("find.tab_changed"))
+            return
+        state["results"] = []
+        listbox.delete(0, tk.END)
+        if not query:
+            status_label.config(text="")
+            return
+        results, truncated, _kind = find_service.find(
+            board.root_node, query,
+            main_label=t("find.branch_main"),
+            variation_label=t("find.branch_variation"),
+        )
+        state["results"] = results
+        for r in results:
+            listbox.insert(tk.END, t("find.result_line", branch=r.branch_label,
+                                     number=r.move_number, color=r.color, coord=r.coord))
+        if not results:
+            status_label.config(text=t("find.no_result"))
+        elif truncated:
+            status_label.config(text=t("find.too_many", limit=find_service.FIND_RESULT_LIMIT))
+        else:
+            status_label.config(text=t("find.results_count", count=len(results)))
+            listbox.selection_set(0)
+
+    def on_jump(_event=None):
+        if state["session_id"] != tab_manager.active_session.session_id:
+            status_label.config(text=t("find.tab_changed"))
+            return
+        sel = listbox.curselection()
+        if not sel:
+            return
+        result = state["results"][sel[0]]
+        # 以路徑索引重新解析節點（樹可能已在搜尋後被編輯過）
+        node = find_service.resolve_path(board.root_node, result.path_index)
+        if node is None:
+            status_label.config(text=t("find.no_result"))
+            return
+        board.jump_to_node(node)
+
+    entry.bind("<Return>", lambda _e: _sync_query(entry, entry_var))
+    listbox.bind("<Double-Button-1>", on_jump)
+    listbox.bind("<Return>", on_jump)
+    ttk.Button(button_frame, text=t("find.search"),
+               command=lambda: _sync_query(entry, entry_var)).pack(side="left")
+    ttk.Button(button_frame, text=t("find.jump"),
+               command=on_jump).pack(side="left", padx=(8, 0))
+
+    def close_dialog():
+        global _find_dialog_state
+        _find_dialog_state = None
+        win.destroy()
+
+    ttk.Button(button_frame, text=t("find.close"),
+               command=close_dialog).pack(side="right")
+    win.protocol("WM_DELETE_WINDOW", close_dialog)
+    win.bind("<Escape>", lambda _e: close_dialog())
+    entry.focus_set()
+
+
 def show_rules_settings_dialog():
     """Edit the active tab's rules and the default for newly created tabs."""
     settings_win = tk.Toplevel(root)
@@ -8177,8 +8337,8 @@ def build_menu_bar():
             command(t("menu.full_analysis"), show_winrate_chart, "Ctrl+Shift+R"),
         ]},
         {"label": t("menu.settings"), "items": [
-            command(t("menu.rules_settings"), show_rules_settings_dialog),
             command(t("menu.model_settings"), show_settings_dialog),
+            command(t("menu.rules_settings"), show_rules_settings_dialog, "Ctrl+K"),
             command(t("settings.appearance"), show_appearance_settings_dialog),
             {"type": "submenu", "label": t("menu.language"), "items": [
                 radio(t(f"language.{lang}"), lang, language_var,
@@ -8203,6 +8363,8 @@ def build_menu_bar():
             command(t("menu.reinit_analyzer"), reinitialize_analyzer),
         ]},
         {"label": t("menu.view"), "items": [
+            command(t("menu.find"), show_find_dialog, "Ctrl+F"),
+            {"type": "separator"},
             {"type": "check", "label": t("menu.show_teacher"),
              "get_state": show_teacher_var.get, "variable": show_teacher_var,
              "command": toggle_teacher_panel},
@@ -8340,6 +8502,7 @@ def on_tab_click(idx):
     # 2) 切換 active index
     if not tab_manager.set_active(idx):
         return
+    _on_find_tab_changed()  # 尋找結果屬於原分頁，切換後作廢
     # 3) 從新 active session 還原棋盤
     entering = tab_manager.active_session
     _restore_board_snapshot(entering)
@@ -8374,6 +8537,7 @@ def on_new_tab_click():
     _restore_board_snapshot(new_session)
     # 必須呼叫 rebuild_board 以確保 board.board 結構正確且同步
     board.rebuild_board()
+    _on_find_tab_changed()  # 新空白分頁沒有棋譜，舊搜尋結果作廢
     # 重畫分支樹，清掉前一個分頁的分支殘留
     if hasattr(board, 'branch_ui') and board.branch_ui is not None:
         board.branch_ui.draw_tree()
@@ -8530,6 +8694,7 @@ def _close_tab_silently(idx):
         return
     # 2) 關閉後的 active 已是鄰近分頁，從它還原棋盤
     _restore_board_snapshot(tab_manager.active_session)
+    _on_find_tab_changed()  # 關閉分頁後棋盤已換，舊搜尋結果作廢
     board.rebuild_board()
     if hasattr(board, 'branch_ui') and board.branch_ui is not None:
         board.branch_ui.draw_tree()
@@ -8657,9 +8822,10 @@ root.bind("<Button-4>", on_mouse_wheel)
 root.bind("<Button-5>", on_mouse_wheel)
 
 # 綁定一般快捷鍵
+root.bind("<Control-f>", lambda e: show_find_dialog())
 root.bind("<Control-z>", lambda e: board.undo())
 root.bind("<Control-y>", lambda e: board.redo())
-
+root.bind("<Control-k>", lambda e: show_rules_settings_dialog())
 root.bind("<Control-n>", lambda e: new_game())
 root.bind("<Control-o>", lambda e: on_load_sgf_click())
 root.bind("<Control-s>", lambda e: save_game_as_sgf())
