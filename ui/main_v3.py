@@ -1206,7 +1206,7 @@ class KataGoAnalyzer:
 
     def get_board_hash(self, stones):
         """將當前棋譜轉換成唯一的字串，作為快取的 Key"""
-        moves = [["B" if c == "black" else "W", self.to_gtp(x, y)] for x, y, c in stones]
+        moves = [["B" if c == "black" else "W", "pass" if x is None else self.to_gtp(x, y)] for x, y, c in stones]
         return self.get_board_hash_from_moves(moves)
 
     def get_board_hash_from_moves(self, moves):
@@ -1247,7 +1247,7 @@ class KataGoAnalyzer:
         if self.closed or self.process.poll() is not None:
             return None
 
-        moves = [["B" if c == "black" else "W", self.to_gtp(x, y)] for x, y, c in stones]
+        moves = [["B" if c == "black" else "W", "pass" if x is None else self.to_gtp(x, y)] for x, y, c in stones]
         turn_num = len(stones)
         if analyze_turns is None:
             analyze_turns = [turn_num]
@@ -1529,7 +1529,7 @@ class GoDataFilter:
         self.has_triggered_this_turn = False
     
     def _analysis_for_stones(self, stones, analyzer):
-        moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in stones]
+        moves = [["B" if c == "black" else "W", "pass" if x is None else analyzer.to_gtp(x, y)] for x, y, c in stones]
         with analyzer.lock:
             rules, komi = get_active_analysis_settings()
             return analyzer.analysis_cache.get(analyzer.get_analysis_cache_key(moves, rules, komi))
@@ -1550,7 +1550,7 @@ class GoDataFilter:
         prev_turn = turn - 1
         # 取得棋局前 prev_turn 手的 hash（即上一手完成後的狀態）
         moves = (stones if stones is not None else board.stones)[:prev_turn]
-        moves_gtp = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in moves]
+        moves_gtp = [["B" if c == "black" else "W", "pass" if x is None else analyzer.to_gtp(x, y)] for x, y, c in moves]
         rules, komi = get_active_analysis_settings()
         board_hash = analyzer.get_analysis_cache_key(moves_gtp, rules, komi)
         
@@ -1700,6 +1700,18 @@ class GameNode:
         self.active_child_idx = 0  # 紀錄目前正在看哪一個變化圖分支
         self.metadata = {}
 
+
+def is_pass_move(move):
+    """Return whether a move tuple represents a pass (SGF B[]/W[])."""
+    return move is not None and move[0] is None and move[1] is None
+
+
+def move_to_gtp(move, converter):
+    """Convert an internal move tuple to KataGo/GTP notation."""
+    if is_pass_move(move):
+        return "pass"
+    return converter(move[0], move[1])
+
 class BranchCanvas(tk.Canvas):
     def __init__(self, master, board_ref, **kwargs):
         super().__init__(master, **kwargs)
@@ -1735,7 +1747,7 @@ class BranchCanvas(tk.Canvas):
             
             # 顯示座標縮寫 (如 R16)
             move = node.move
-            txt = f"{self.board_ref.to_gtp_coord(move[0], move[1])}" if move else "Pass"
+            txt = "Pass" if is_pass_move(move) else self.board_ref.to_gtp_coord(move[0], move[1])
             self.create_text(x, y, text=txt, font=("Arial", 7, "bold"), fill=TEXT_MAIN, tags=f"branch_{i}")
 
     def on_click(self, event):
@@ -2021,7 +2033,7 @@ class BranchTreeView(tk.Canvas):
                 while current.parent is not None:
                     move_no += 1
                     current = current.parent
-                coord = self.board_ref.to_gtp_coord(node_move[0], node_move[1]) if node_move else "Pass"
+                coord = "Pass" if is_pass_move(node_move) else self.board_ref.to_gtp_coord(node_move[0], node_move[1])
                 self.create_text(
                     x,
                     y - 4,
@@ -2571,7 +2583,7 @@ def plot_window(winrates, scoreLeads):
         summary_status.config(text=message)
 
     def get_turn_analysis(turn):
-        moves = [["B" if c == "black" else "W", analyzer.to_gtp(x, y)] for x, y, c in chart_stones[:turn]]
+        moves = [["B" if c == "black" else "W", "pass" if x is None else analyzer.to_gtp(x, y)] for x, y, c in chart_stones[:turn]]
         rules, komi = get_active_analysis_settings()
         board_hash = analyzer.get_analysis_cache_key(moves, rules, komi)
         with analyzer.lock:
@@ -2581,7 +2593,8 @@ def plot_window(winrates, scoreLeads):
         if move_idx <= 0 or move_idx - 1 >= len(chart_stones):
             return t("teacher.best_unknown")
         x, y, color = chart_stones[move_idx - 1]
-        return f"{move_idx}. {'B' if color == 'black' else 'W'} {board.to_gtp_coord(x, y)}"
+        coord = "Pass" if x is None else board.to_gtp_coord(x, y)
+        return f"{move_idx}. {'B' if color == 'black' else 'W'} {coord}"
 
     def collect_top_moves(turn):
         analysis = get_turn_analysis(turn)
@@ -2964,7 +2977,8 @@ def update_ui_with_data(result):
         last_move_gtp = "Pass"
         if board.stones:
             last_x, last_y, _ = board.stones[-1]
-            last_move_gtp = board.to_gtp_coord(last_x, last_y)
+            if last_x is not None and last_y is not None:
+                last_move_gtp = board.to_gtp_coord(last_x, last_y)
 
         # 檢查是否需要叫老師出來說話
         critical_event = data_filter.process_analysis(
@@ -3230,6 +3244,8 @@ class GoBoard(tk.Canvas):
         move_numbers = {}
 
         for move_idx, (x, y, color) in enumerate(history, start=1):
+            if x is None and y is None:
+                continue
             board_state[y][x] = color
             if branch_start is None:
                 move_numbers[(x, y)] = move_idx
@@ -3808,6 +3824,35 @@ class GoBoard(tk.Canvas):
         self.on_state_change(structure_changed=True)
         return True
 
+    def pass_move(self, forced_color=None):
+        """Append a pass as a real game-tree node without changing the board."""
+        if self.is_welcome_mode() or self.score_estimate_active:
+            return False
+        global is_playback_mode
+        is_playback_mode = False
+        color = forced_color if forced_color else self.current_color
+        pass_move = (None, None, color)
+
+        for idx, child in enumerate(self.current_node.children):
+            if child.move == pass_move:
+                self.current_node.active_child_idx = idx
+                self.current_node = child
+                self.rebuild_board()
+                self.on_state_change()
+                return True
+
+        new_node = GameNode(pass_move, self.current_node)
+        self.current_node.children.append(new_node)
+        self.current_node.active_child_idx = len(self.current_node.children) - 1
+        self.current_node = new_node
+        self.current_color = "white" if color == "black" else "black"
+        if tab_manager.active_session is not None:
+            tab_manager.active_session.is_dirty = True
+            refresh_tab_bar()
+        self.refresh_display()
+        self.on_state_change(structure_changed=True)
+        return True
+
     def on_click(self, event):
         if self.is_welcome_mode():
             self._welcome_action_click(event)
@@ -3846,6 +3891,8 @@ class GoBoard(tk.Canvas):
         history = self.stones  
         
         for x, y, color in history:
+            if x is None and y is None:
+                continue
             # 落子
             self.board[y][x] = color
             
@@ -3891,7 +3938,7 @@ class GoBoard(tk.Canvas):
                         self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
 
         # 2. 繪製最後一手標記 (紅色小方塊)
-        if self.current_node and self.current_node.move:
+        if self.current_node and self.current_node.move and not is_pass_move(self.current_node.move):
             lx, ly, lcolor = self.current_node.move
             px, py = margin + lx * CELL_SIZE, margin + ly * CELL_SIZE
             # 標記在最後一手的中心
@@ -3931,7 +3978,7 @@ class GoBoard(tk.Canvas):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         # 現在 stones 是一個 property，直接呼叫即可
         current_path = self.stones 
-        moves = [["B" if c == "black" else "W", self.to_gtp_coord(x, y)] for x, y, c in current_path]
+        moves = [["B" if c == "black" else "W", "pass" if x is None else self.to_gtp_coord(x, y)] for x, y, c in current_path]
         
         rules, komi = get_active_analysis_settings()
         data = {
@@ -3978,15 +4025,17 @@ class GoBoard(tk.Canvas):
         # 從根節點的子節點開始遞迴
         def write_node(node):
             content = ""
-            if node.move:
+            if node.move is not None:
                 x, y, color = node.move
                 bw = "B" if color == "black" else "W"
-                gtp_move = self.to_gtp_coord(x, y)
-                content += f";{bw}[{self.to_sgf_coord(x, y)}]"
+                gtp_move = move_to_gtp(node.move, self.to_gtp_coord)
+                commentary_move = "Pass" if is_pass_move(node.move) else gtp_move
+                sgf_move = "" if is_pass_move(node.move) else self.to_sgf_coord(x, y)
+                content += f";{bw}[{sgf_move}]"
                 
                 # 【Phase 2】新增註解：從快取中查詢該手數的解說
                 turn_num = get_node_turn_number(node)
-                cached_commentary = get_commentary_from_cache(turn_num, gtp_move)
+                cached_commentary = get_commentary_from_cache(turn_num, commentary_move)
                 if cached_commentary:
                     # 轉義特殊字符，避免破壞 SGF 格式
                     escaped_commentary = cached_commentary.replace("\\", "\\\\").replace("]", "\\]")
@@ -4078,7 +4127,17 @@ class GoBoard(tk.Canvas):
                         comment = match.group(3)
                         pos += match.end()
                         
-                        if sgf_pos and sgf_pos != "tt":
+                        is_pass = not sgf_pos or sgf_pos.lower() == "tt"
+                        if is_pass:
+                            color = "black" if color_code == "B" else "white"
+                            new_node = GameNode((None, None, color), current)
+                            current.children.append(new_node)
+                            current = new_node
+                            turn_num += 1
+                            if comment:
+                                unescaped_comment = comment.replace("\\]", "]").replace("\\\\", "\\")
+                                add_to_commentary_cache(turn_num, "Pass", unescaped_comment)
+                        else:
                             coords = self.from_sgf_coord(sgf_pos)
                             if coords:
                                 x, y = coords
@@ -4221,7 +4280,7 @@ class GoBoard(tk.Canvas):
         turn = len(self.stones)
         if turn > 0 and self.current_node.move:
             x, y, _ = self.current_node.move
-            last_move_gtp = self.to_gtp_coord(x, y)
+            last_move_gtp = "Pass" if x is None else self.to_gtp_coord(x, y)
             cached_commentary = get_commentary_from_cache(turn, last_move_gtp)
             if cached_commentary:
                 render_teacher_ui(cached_commentary)
@@ -4406,6 +4465,8 @@ def count_captured_prisoners(stones):
         return group, liberties
 
     for x, y, color in stones:
+        if x is None and y is None:
+            continue
         if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE) or board_state[y][x] is not None:
             continue
         board_state[y][x] = color
@@ -7052,7 +7113,7 @@ def get_board_context_text():
     lines = []
     for i, move in enumerate(moves, start=1):
         x, y, color = move
-        coord = board.to_gtp_coord(x, y)
+        coord = "Pass" if x is None else board.to_gtp_coord(x, y)
         label = "B" if color == "black" else "W"
         lines.append(f"{i}. {label} {coord}")
     header = t("chat.board_context_header", count=len(moves))
@@ -8342,6 +8403,7 @@ def build_menu_bar():
         {"label": t("menu.edit"), "items": [
             command(t("menu.undo"), lambda: board.undo(), "Ctrl+Z / ↑"),
             command(t("menu.redo"), lambda: board.redo(), "Ctrl+Y / ↓"),
+            command(t("menu.pass"), lambda: board.pass_move()),
             {"type": "separator"},
             command(t("menu.prev_branch"), lambda: board.switch_branch(-1), "←"),
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
@@ -8802,7 +8864,7 @@ def update_welcome_controls():
     disabled = session is not None and session.tab_type == "welcome"
     for name in (
         "btn_analyze", "btn_full_analysis", "btn_undo", "btn_redo",
-        "btn_load_sgf", "btn_save_sgf_as", "btn_score_estimate",
+        "btn_load_sgf", "btn_pass", "btn_score_estimate",
     ):
         widget = globals().get(name)
         if widget is not None:
@@ -8943,10 +9005,10 @@ btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 # btn_redo = ttk.Button(info_frame, text=t("button.redo"), command=board.redo, style="Tool.TButton")
 # btn_redo.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
-btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
-btn_load_sgf.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-# btn_save_sgf_as = ttk.Button(info_frame, text=t("button.save_sgf_as"), command=save_game_as_sgf_dialog, style="Tool.TButton")
-# btn_save_sgf_as.grid(row=5, column=0, padx=(4, 0), pady=(0, 8), sticky="ew")
+# btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
+# btn_load_sgf.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
+btn_pass = ttk.Button(info_frame, text=t("button.pass"), command=board.pass_move, style="Tool.TButton")
+btn_pass.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
 
 btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
 btn_score_estimate.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
@@ -9549,8 +9611,8 @@ def refresh_language():
     btn_full_analysis.config(text=t("button.full_analysis"))
     # btn_undo.config(text=t("button.undo"))
     # btn_redo.config(text=t("button.redo"))
-    btn_load_sgf.config(text=t("button.load_sgf"))
-    # btn_save_sgf_as.config(text=t("button.save_sgf_as"))
+    # btn_load_sgf.config(text=t("button.load_sgf"))
+    btn_pass.config(text=t("button.pass"))
     update_score_estimate_button_label()
     branch_title_label.config(text=t("branch.tree_title"))
     # branch_hint_label.config(text=t("branch.collapse_hint"))

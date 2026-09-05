@@ -56,6 +56,8 @@ def parse_coordinate(text: str, board_size: int = 19):
 
 def to_gtp_coord(x: int, y: int, board_size: int = 19) -> str:
     """(x, y) → GTP 座標字串（與 GoBoard.to_gtp_coord 相同慣例）。"""
+    if x is None or y is None:
+        return "Pass"
     col = _COORD_LETTERS[x] if x < len(_COORD_LETTERS) else "?"
     return f"{col}{board_size - y}"
 
@@ -95,9 +97,13 @@ def find(root, query: str, board_size: int = 19,
 
     move_target = None
     coord_target = None
+    pass_target = False
     if query.isdigit():
         move_target = int(query)
         query_kind = "move"
+    elif query.lower() in {"pass", "tt"}:
+        pass_target = True
+        query_kind = "coord"
     else:
         coord_target = parse_coordinate(query, board_size)
         if coord_target is None:
@@ -112,6 +118,9 @@ def find(root, query: str, board_size: int = 19,
             continue  # root 本身無 move
         if move_target is not None:
             if depth != move_target:
+                continue
+        elif pass_target:
+            if move[0] is not None or move[1] is not None:
                 continue
         else:
             if tuple(move[:2]) != coord_target:

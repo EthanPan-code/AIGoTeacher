@@ -18,6 +18,8 @@ def _move_text(index, move, size=19):
     if not move:
         return f"{index}. Pass"
     x, y, color = move
+    if x is None or y is None:
+        return f"{index}. {'B' if color == 'black' else 'W'} Pass"
     return f"{index}. {'B' if color == 'black' else 'W'} {_gtp(x, y, size)}"
 
 
@@ -28,6 +30,8 @@ def serialize_mainline(stones, size=19):
 def serialize_board(stones, size=19):
     board = [["." for _ in range(size)] for _ in range(size)]
     for x, y, color in stones:
+        if x is None or y is None:
+            continue
         if 0 <= x < size and 0 <= y < size:
             board[y][x] = "X" if color == "black" else "O"
     cols = " ".join(chr(ord("A") + i + (1 if i >= 8 else 0)) for i in range(size))

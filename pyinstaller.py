@@ -7,7 +7,7 @@ subprocess.run(
         "-m",
         "PyInstaller",
         "--clean",
-        "GoTeacher.spec"
+        "AIGoTeacher.spec"
     ],
     check=True
 )
