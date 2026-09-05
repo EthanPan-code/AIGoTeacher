@@ -351,6 +351,7 @@ from services.rules import (
     RULE_PRESETS,
     get_rule_preset,
     get_katago_komi,
+    get_display_komi_from_sgf,
     calculate_area_score,
     normalize_analysis_settings,
 )
@@ -4041,13 +4042,13 @@ class GoBoard(tk.Canvas):
                 }
                 rule_id = rule_aliases.get((loaded_rules or "").strip().lower(), session.analysis_rules)
                 try:
-                    if rule_id == "area" and loaded_komi is not None:
-                        loaded_komi = float(loaded_komi) / 2
+                    if loaded_komi is not None:
+                        loaded_komi = get_display_komi_from_sgf(rule_id, loaded_komi)
                     session.analysis_rules, session.analysis_komi = normalize_analysis_settings(
                         rule_id, loaded_komi if loaded_komi is not None else session.analysis_komi
                     )
                 except ValueError:
-                    session.analysis_rules = rule_id
+                    session.analysis_rules, session.analysis_komi = normalize_analysis_settings(rule_id)
 
         # 【Phase 3】清空舊的快取，準備恢復註解
         global commentary_cache
@@ -4576,6 +4577,8 @@ def _handle_score_estimate_result(result):
     # 數子法算法
     if rules == "area":
         net = (black_total - white_total - komi * 2)/2
+
+    # 應氏規則
     elif rules == "ing":
         net = black_total - white_total - komi
     else:
@@ -7667,6 +7670,7 @@ def show_find_dialog():
 def show_rules_settings_dialog():
     """Edit the active tab's rules and the default for newly created tabs."""
     settings_win = tk.Toplevel(root)
+    settings_win.iconbitmap(resource_path("image/logo.ico"))
     settings_win.title(t("dialog.rules_settings_title"))
     settings_win.geometry("430x260")
     settings_win.transient(root)
@@ -7695,9 +7699,23 @@ def show_rules_settings_dialog():
     komi_entry = ttk.Entry(frame, textvariable=komi_var, width=22)
 
     def update_komi_state(*_args):
+
+        frame.grid_rowconfigure(1, minsize=35)
+
         if label_to_rule.get(rule_var.get()) == "custom":
-            komi_label.grid(row=1, column=0, sticky="w", pady=(0, 12))
-            komi_entry.grid(row=1, column=1, sticky="w", padx=(12, 0), pady=(0, 12))
+            komi_label.grid(
+                row=1,
+                column=0,
+                sticky="w",
+                pady=(0, 12)
+            )
+            komi_entry.grid(
+                row=1,
+                column=1,
+                sticky="w",
+                padx=(12, 0),
+                pady=(0, 12)
+            )
         else:
             komi_label.grid_remove()
             komi_entry.grid_remove()

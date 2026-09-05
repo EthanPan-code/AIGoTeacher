@@ -56,6 +56,15 @@ def get_katago_komi(rule_id, komi):
     return value
 
 
+def get_display_komi_from_sgf(rule_id, sgf_komi):
+    """Convert an SGF KM value to the application's displayed komi unit."""
+    raw_value = float(sgf_komi)
+    value = validate_komi(raw_value / 100 if abs(raw_value) >= 100 else raw_value)
+    if normalize_rule_id(rule_id) == "area" and math.isclose(abs(value), 7.5, abs_tol=1e-9):
+        value /= 2
+    return validate_komi(value)
+
+
 def calculate_area_score(black_stones, white_stones, black_territory, white_territory, dead_black, dead_white):
     """Calculate area scores with dead stones awarded to the opponent."""
     black_total = black_stones - dead_black + black_territory + dead_white
