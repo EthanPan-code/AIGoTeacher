@@ -9020,7 +9020,7 @@ btn_pass.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
 btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
 btn_score_estimate.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
-def build_branch_section():
+def build_branch_section(height):
     global branch_section, branch_title_label, branch_view_frame, branch_ui
     branch_section = tk.Frame(info_frame, bg=PANEL_BG)
     branch_section.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 14))
@@ -9035,29 +9035,13 @@ def build_branch_section():
         pady=8
     )
     branch_title_label.pack(anchor="w")
-    '''
-    branch_hint_label = tk.Label(
-        branch_section,
-        text=t("branch.collapse_hint"),
-        bg=PANEL_BG,
-        fg=TEXT_MUTED,
-        font=("Microsoft JhengHei", 8),
-        bd=0,
-        padx=0,
-        pady=0,
-        wraplength=240,
-        justify="left"
-    )
-
-    branch_hint_label.pack(anchor="w", pady=(2, 6))
-    '''
     branch_view_frame = tk.Frame(branch_section, bg=PANEL_BG)
     branch_view_frame.pack(fill="both", expand=True)
     branch_ui = BranchTreeView(
         branch_view_frame,
         board_ref=board,
         width=240,
-        height=160,
+        height=height,
         bg=PANEL_BG,
         highlightbackground=PANEL_BORDER,
         highlightthickness=1,
@@ -9069,10 +9053,14 @@ def build_branch_section():
 
     board.branch_ui = branch_ui
 
-build_branch_section()
+if show_teacher_var.get():
+    build_branch_section(160)
+    teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
+    teacher_section.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+else:
+    build_branch_section(350)
+    teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
 
-teacher_section = tk.Frame(info_frame, bg=PANEL_BG)
-teacher_section.grid(row=6, column=0, columnspan=2, sticky="nsew")
 teacher_header = tk.Frame(teacher_section, bg=PANEL_BG)
 teacher_header.pack(fill="x")
 teacher_title_label = tk.Label(
