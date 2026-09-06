@@ -241,7 +241,7 @@
   "dialog.new_game_message": "目前棋局尚未另存，確定要清空棋盤嗎？",
   "dialog.confirm_overwrite_loaded_sgf": "此棋譜是從既有 SGF 載入的。要覆寫原檔嗎？\n\n{path}",
   "dialog.about_title": "關於",
-  "dialog.about_message": "版本: {version}\n基於 KataGo v1.17.1\n\n功能:\n• 實時棋局分析\n• AI 教學解說\n• 變化圖支援\n• SGF / JSON 匯出\n\n開發基礎:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
+  "dialog.about_message": "版本: {version}\n基於 KataGo v1.18.1 (OpenCL)\n權重檔：kata1-b28c512nbt-s13255194368-d5935380940\n\u3000\u3000\u3000\u3000kata1-b6c96-s175395328-d26788732\n\n功能:\n• 實時棋局分析\n• AI 教學解說\n• 變化圖支援\n• SGF / JSON 匯出\n\n開發基礎:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
   "dialog.close_tab_title": "關閉分頁",
   "dialog.close_tab_message": "分頁「{title}」有未儲存的變更，仍要關閉嗎？",
   "dialog.tab_limit_title": "已達分頁數量上限",
