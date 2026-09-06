@@ -41,6 +41,12 @@ class ConfigService:
         from services.rules import validate_komi
         self.set_setting("analysis_komi", validate_komi(komi))
 
+    def get_show_teacher(self, default=True):
+        return bool(self.get_setting("show_teacher", default))
+
+    def set_show_teacher(self, show):
+        self.set_setting("show_teacher", bool(show))
+
     def migrate_removed_github_provider(self, ollama_default_model):
         """Migrate settings from the removed GitHub Models provider."""
         provider = self.get_setting("llm_provider", "ollama")

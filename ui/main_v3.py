@@ -2974,6 +2974,10 @@ def update_ui_with_data(result):
         # 持續回報每秒更新棋盤資訊，但不能每秒重複觸發 LLM 解說。
         if result.get("continuous_analysis"):
             return
+
+        if not show_teacher_var.get():
+            return
+
         last_move_gtp = "Pass"
         if board.stones:
             last_x, last_y, _ = board.stones[-1]
@@ -8353,6 +8357,8 @@ def build_menu_bar():
         else:
             teacher_section.grid_remove()
             branch_ui.configure(height=350)
+        config_service.set_show_teacher(show_teacher_var.get())
+        config_service.save()
 
     def toggle_branch_panel():
         if show_branch_var.get():
@@ -8371,7 +8377,7 @@ def build_menu_bar():
 
     theme_var = tk.StringVar(value=config_service.get_ui_theme())
     current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
-    show_teacher_var = tk.BooleanVar(value=True)
+    show_teacher_var = tk.BooleanVar(value=config_service.get_show_teacher())
     show_branch_var = tk.BooleanVar(value=True)
     show_move_numbers_var = tk.BooleanVar(value=False)
     show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
