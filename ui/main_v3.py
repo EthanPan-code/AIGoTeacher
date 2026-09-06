@@ -887,6 +887,8 @@ class TabSession:
         "tab_type",
         "analysis_rules",
         "analysis_komi",
+        "edit_undo_stack",
+        "edit_redo_stack",
     )
 
     def __init__(self, session_id, title, tab_type="game"):
@@ -913,6 +915,8 @@ class TabSession:
         self.created_at = time.time()
         # --- 棋盤快照（None = 尚未初始化，切到此分頁時建空白棋盤） ---
         self.board_snapshot = None
+        self.edit_undo_stack = []
+        self.edit_redo_stack = []
 
     def display_title(self):
         marker = " *" if self.is_dirty else ""
@@ -2133,8 +2137,7 @@ class BranchTreeView(tk.Canvas):
         elif getattr(event, "num", None) == 5 or delta < 0:
             self.yview_scroll(3, "units")
         # 阻止事件繼續冒泡到 root，避免 root.on_mouse_wheel 同時觸發
-        # board.undo()/board.redo()。這是修正「在分支圖滾動時當前棋步
-        # 也會跳」的關鍵。回傳 "break" 會中斷 Tkinter 的事件傳遞鏈。
+        # board.navigate_node()。回傳 "break" 會中斷 Tkinter 的事件傳遞鏈。
         return "break"
 
     def on_double_click(self, event):
@@ -3574,32 +3577,72 @@ class GoBoard(tk.Canvas):
                 move_number += 1
             color = self._next_color(color)
 
-    def save_state(self):
-        """將當前狀態存入歷史堆疊"""
-        state = (copy.deepcopy(self.stones), copy.deepcopy(self.board), self.current_color)
-        self.history_stack.append(state)
-        # 注意：正常落子時會清空 redo_stack，但在載入 SGF 或 Redo 操作時不應清空，
-        # 這裡為了簡化，標準落子邏輯在 play_move 裡處理 redo_stack 的清空。
+    def _capture_edit_state(self):
+        """Capture an independent tree state for per-tab edit undo/redo."""
+        path = []
+        node = self.current_node
+        while node is not None and node.parent is not None:
+            path.insert(0, node.parent.children.index(node))
+            node = node.parent
+        return {
+            "root_node": _copy_game_tree(self.root_node),
+            "current_node_path": path,
+            "current_color": self.current_color,
+        }
+
+    def _restore_edit_state(self, state):
+        self.root_node = state["root_node"]
+        self.current_node = self.root_node
+        for idx in state["current_node_path"]:
+            self.current_node = self.current_node.children[idx]
+        self.current_color = state["current_color"]
+        self.rebuild_board()
+
+    def _record_edit(self):
+        session = tab_manager.active_session
+        if session is None:
+            return
+        session.edit_undo_stack.append(self._capture_edit_state())
+        session.edit_redo_stack.clear()
+
     def undo(self, event=None):
-        if self.current_node.parent is not None:
-            # 【修復】後退 → 回放模式，不觸發新的 LLM 解說
-            global is_playback_mode
-            is_playback_mode = True
-            self.current_node = self.current_node.parent
-            self.rebuild_board()
-            self.on_state_change()
-            self._show_playback_commentary()
+        session = tab_manager.active_session
+        if session is None or not session.edit_undo_stack:
+            return
+        session.edit_redo_stack.append(self._capture_edit_state())
+        self._restore_edit_state(session.edit_undo_stack.pop())
+        session.is_dirty = True
+        refresh_tab_bar()
+        self.on_state_change(structure_changed=True)
+        self._show_playback_commentary()
 
     def redo(self, event=None):
-        if self.current_node.children:
-            # 【修復】前進到已存在的分支 → 回放模式，不觸發新的 LLM 解說
-            global is_playback_mode
-            is_playback_mode = True
-            idx = self.current_node.active_child_idx
-            self.current_node = self.current_node.children[idx]
-            self.rebuild_board()
-            self.on_state_change()
-            self._show_playback_commentary()
+        session = tab_manager.active_session
+        if session is None or not session.edit_redo_stack:
+            return
+        session.edit_undo_stack.append(self._capture_edit_state())
+        self._restore_edit_state(session.edit_redo_stack.pop())
+        session.is_dirty = True
+        refresh_tab_bar()
+        self.on_state_change(structure_changed=True)
+        self._show_playback_commentary()
+
+    def navigate_node(self, direction):
+        """Move through the existing variation tree without editing it."""
+        target = None
+        if direction < 0 and self.current_node.parent is not None:
+            target = self.current_node.parent
+        elif direction > 0 and self.current_node.children:
+            target = self.current_node.children[self.current_node.active_child_idx]
+        if target is None:
+            return
+
+        global is_playback_mode
+        is_playback_mode = True
+        self.current_node = target
+        self.rebuild_board()
+        self.on_state_change()
+        self._show_playback_commentary()
 
     def switch_branch(self, direction):
         """切換同一手棋的不同變化圖 (direction: 1 或 -1)"""
@@ -3819,6 +3862,8 @@ class GoBoard(tk.Canvas):
             self.board[y][x] = None # 退回
             return False
 
+        self._record_edit()
+
         # 3. 合法，建立新節點並連接
         new_node = GameNode((x, y, color), self.current_node)
         self.current_node.children.append(new_node)
@@ -3846,6 +3891,7 @@ class GoBoard(tk.Canvas):
                 self.on_state_change()
                 return True
 
+        self._record_edit()
         new_node = GameNode(pass_move, self.current_node)
         self.current_node.children.append(new_node)
         self.current_node.active_child_idx = len(self.current_node.children) - 1
@@ -4070,6 +4116,8 @@ class GoBoard(tk.Canvas):
         """讀取 SGF 並正確建立分支樹狀結構，同時恢復註解到快取【Phase 3】修正版本"""
         with open(filename, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
+
+        self._record_edit()
 
         # 1. 重置整棵樹
         self.root_node = GameNode()
@@ -4386,6 +4434,8 @@ def on_load_sgf_click():
         if session.tab_type == "welcome":
             session.tab_type = "game"
         board.load_sgf(file_path)
+        if hasattr(board, "branch_ui") and board.branch_ui is not None:
+            board.branch_ui.draw_tree()
         session.sgf_path = file_path
         session.loaded_sgf_overwrite_confirmed = False
         # 分頁標題改為檔名（不含副檔名）
@@ -4430,6 +4480,8 @@ def new_game():
     is_playback_mode = False
     board.root_node = GameNode()
     board.current_node = board.root_node
+    session.edit_undo_stack.clear()
+    session.edit_redo_stack.clear()
     board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
     board.current_color = "black"
     board.clear_blue_point()
@@ -8167,10 +8219,10 @@ def on_mouse_wheel(event):
     except Exception:
         pass
     # Windows: event.delta, Linux/Mac: event.num
-    if event.delta > 0 or event.num == 4: # 滾輪向上 -> 上一步
-        board.undo()
-    elif event.delta < 0 or event.num == 5: # 滾輪向下 -> 下一步
-        board.redo()
+    if event.delta > 0 or event.num == 4: # 滾輪向上 -> 上一手
+        board.navigate_node(-1)
+    elif event.delta < 0 or event.num == 5: # 滾輪向下 -> 下一手
+        board.navigate_node(1)
 
 root = tk.Tk()
 root.title(t("app.title"))
@@ -8408,9 +8460,9 @@ def build_menu_bar():
             command(t("menu.exit"), on_closing, "Alt+F4"),
         ]},
         {"label": t("menu.edit"), "items": [
-            command(t("menu.undo"), lambda: board.undo(), "Ctrl+Z / ↑"),
-            command(t("menu.redo"), lambda: board.redo(), "Ctrl+Y / ↓"),
-            command(t("menu.pass"), lambda: board.pass_move()),
+            command(t("menu.undo"), lambda: board.undo(), "Ctrl+Z"),
+            command(t("menu.redo"), lambda: board.redo(), "Ctrl+Y"),
+            command(t("menu.pass"), lambda: board.pass_move(), "Alt+P"),
             {"type": "separator"},
             command(t("menu.prev_branch"), lambda: board.switch_branch(-1), "←"),
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
@@ -8895,9 +8947,9 @@ def hydrate_active_session():
     current_sgf_path = session.sgf_path
     loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
 
-# 綁定方向鍵
-root.bind("<Up>", lambda e: board.undo())
-root.bind("<Down>", lambda e: board.redo())
+# 綁定方向鍵：只瀏覽既有節點，不修改編輯歷史或分支結構
+root.bind("<Up>", lambda e: board.navigate_node(-1))
+root.bind("<Down>", lambda e: board.navigate_node(1))
 root.bind("<Left>", lambda e: board.switch_branch(-1))  # 上一個變化圖
 root.bind("<Right>", lambda e: board.switch_branch(1))  # 下一個變化圖
 
@@ -8912,6 +8964,7 @@ root.bind("<Button-5>", on_mouse_wheel)
 root.bind("<Control-f>", lambda e: show_find_dialog())
 root.bind("<Control-z>", lambda e: board.undo())
 root.bind("<Control-y>", lambda e: board.redo())
+root.bind("<Alt-p>", lambda e: board.pass_move())
 root.bind("<Control-k>", lambda e: show_rules_settings_dialog())
 root.bind("<Control-n>", lambda e: new_game())
 root.bind("<Control-o>", lambda e: on_load_sgf_click())

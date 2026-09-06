@@ -4,7 +4,7 @@
 [![KataGo](https://img.shields.io/badge/KataGo-v1.18.1-magenta)](https://katagotraining.org/)
 [![Windows](https://img.shields.io/badge/Platform-Windows-teal?logo=windows)](https://www.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-red)](https://mit-license.org/)
-[![Version](https://img.shields.io/badge/Version-1.1.0-yellow)](https://github.com/EthanPan-code/AIGoTeacher/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.0-yellow)](https://github.com/EthanPan-code/AIGoTeacher/releases)
 
 ---
 
@@ -18,7 +18,7 @@
 
 <a id="English"></a>
 
-**AI Go Teacher v1.1.0** is an interactive Go teaching system powered by the **KataGo v1.18.1** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
+**AI Go Teacher v1.2.0** is an interactive Go teaching system powered by the **KataGo v1.18.1** neural network engine, combined with the Python Tkinter GUI and multi-vendor LLM commenting functionality.
 
 ## Contents
 - Features
@@ -183,7 +183,7 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 <a id="Chinese"></a>
 
-**AI 圍棋老師 v1.1.0** 是一個互動式圍棋教學系統，由 **KataGo v1.18.1** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
+**AI 圍棋老師 v1.2.0** 是一個互動式圍棋教學系統，由 **KataGo v1.18.1** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
 
 ## 目錄
 - 功能特色

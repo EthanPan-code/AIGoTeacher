@@ -38,7 +38,7 @@
   "menu.cancel_continuous": "Cancel Continuous Analysis",
   "menu.full_analysis": "Full-Game Winrate Analysis",
   "menu.llm_model": "LLM Settings",
-  "menu.model_settings": "Model and Config Settings...",
+  "menu.model_settings": "KataGo Settings...",
   "menu.reinit_analyzer": "Reinitialize Analyzer",
   "menu.delete_data": "Delete Data",
   "menu.show_teacher": "Show AI Teacher Commentary",

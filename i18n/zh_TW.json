@@ -38,7 +38,7 @@
   "menu.cancel_continuous": "取消持續分析",
   "menu.full_analysis": "整盤勝率分析",
   "menu.llm_model": "LLM 設定",
-  "menu.model_settings": "模型與配置設定...",
+  "menu.model_settings": "KataGo 配置設定...",
   "menu.reinit_analyzer": "重新初始化分析器",
   "menu.delete_data": "刪除資料",
   "menu.show_teacher": "顯示 AI 老師解說",
