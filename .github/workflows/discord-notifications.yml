@@ -48,9 +48,6 @@ jobs:
       - name: Build and send Discord embed
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_PATH: ${{ github.event_path }}
-          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -60,22 +57,22 @@ jobs:
             exit 0
           fi
 
-          action="$(jq -r '.action // ""' "$EVENT_PATH")"
-          sender="$(jq -r '.sender.login // .release.author.login // "unknown"' "$EVENT_PATH")"
-          title="$(jq -r '.release.name // .release.tag_name // .issue.title // .pull_request.title // "GitHub event"' "$EVENT_PATH")"
-          number="$(jq -r '.issue.number // .pull_request.number // empty' "$EVENT_PATH")"
-          url="$(jq -r --arg repository "$REPOSITORY" \
+          action="$(jq -r '.action // ""' "$GITHUB_EVENT_PATH")"
+          sender="$(jq -r '.sender.login // .release.author.login // "unknown"' "$GITHUB_EVENT_PATH")"
+          title="$(jq -r '.release.name // .release.tag_name // .issue.title // .pull_request.title // "GitHub event"' "$GITHUB_EVENT_PATH")"
+          number="$(jq -r '.issue.number // .pull_request.number // empty' "$GITHUB_EVENT_PATH")"
+          url="$(jq -r --arg repository "$GITHUB_REPOSITORY" \
             '.release.html_url // .issue.html_url // .pull_request.html_url // .repository.html_url // ("https://github.com/" + $repository)' \
-            "$EVENT_PATH")"
-          body="$(jq -r '.comment.body // .review.body // .issue.body // .pull_request.body // .release.body // empty' "$EVENT_PATH")"
-          labels="$(jq -r '((.issue.labels // .pull_request.labels // []) | map(.name) | join(", "))' "$EVENT_PATH")"
-          head_branch="$(jq -r '.pull_request.head.ref // empty' "$EVENT_PATH")"
-          base_branch="$(jq -r '.pull_request.base.ref // empty' "$EVENT_PATH")"
-          tag_name="$(jq -r '.release.tag_name // empty' "$EVENT_PATH")"
-          merged="$(jq -r '.pull_request.merged // false' "$EVENT_PATH")"
-          release_prerelease="$(jq -r '.release.prerelease // false' "$EVENT_PATH")"
+            "$GITHUB_EVENT_PATH")"
+          body="$(jq -r '.comment.body // .review.body // .issue.body // .pull_request.body // .release.body // empty' "$GITHUB_EVENT_PATH")"
+          labels="$(jq -r '((.issue.labels // .pull_request.labels // []) | map(.name) | join(", "))' "$GITHUB_EVENT_PATH")"
+          head_branch="$(jq -r '.pull_request.head.ref // empty' "$GITHUB_EVENT_PATH")"
+          base_branch="$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH")"
+          tag_name="$(jq -r '.release.tag_name // empty' "$GITHUB_EVENT_PATH")"
+          merged="$(jq -r '.pull_request.merged // false' "$GITHUB_EVENT_PATH")"
+          release_prerelease="$(jq -r '.release.prerelease // false' "$GITHUB_EVENT_PATH")"
 
-          case "$EVENT_NAME:$action" in
+          case "$GITHUB_EVENT_NAME:$action" in
             issues:opened) event_zh="Issue 已建立"; event_en="Issue opened" ;;
             issues:edited) event_zh="Issue 已編輯"; event_en="Issue edited" ;;
             issues:closed) event_zh="Issue 已關閉"; event_en="Issue closed" ;;
@@ -122,7 +119,7 @@ jobs:
           labels="$(printf '%s' "$labels" | jq -R -s -r '.[0:1000]')"
 
           fields='[]'
-          fields="$(jq -c --arg repository "$REPOSITORY" --arg actor "$sender" \
+          fields="$(jq -c --arg repository "$GITHUB_REPOSITORY" --arg actor "$sender" \
             '. + [{name: "Repository / 專案", value: $repository, inline: true}, {name: "Actor / 操作者", value: $actor, inline: true}]' <<< "$fields")"
 
           if [[ -n "$number" ]]; then
