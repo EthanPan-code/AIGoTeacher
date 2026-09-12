@@ -1,0 +1,159 @@
+name: Discord notifications
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - closed
+      - reopened
+      - assigned
+      - unassigned
+      - labeled
+      - unlabeled
+      - milestoned
+      - demilestoned
+  issue_comment:
+    types: [created]
+  pull_request:
+    types:
+      - opened
+      - edited
+      - closed
+      - reopened
+      - assigned
+      - unassigned
+      - labeled
+      - unlabeled
+      - milestoned
+      - demilestoned
+      - ready_for_review
+      - converted_to_draft
+      - review_requested
+      - review_request_removed
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  release:
+    types: [published, prereleased]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Send Discord notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Build and send Discord embed
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
+            echo "::notice::DISCORD_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          action="$(jq -r '.action // ""' "$EVENT_PATH")"
+          sender="$(jq -r '.sender.login // .release.author.login // "unknown"' "$EVENT_PATH")"
+          title="$(jq -r '.release.name // .release.tag_name // .issue.title // .pull_request.title // "GitHub event"' "$EVENT_PATH")"
+          number="$(jq -r '.issue.number // .pull_request.number // empty' "$EVENT_PATH")"
+          url="$(jq -r --arg repository "$REPOSITORY" \
+            '.release.html_url // .issue.html_url // .pull_request.html_url // .repository.html_url // ("https://github.com/" + $repository)' \
+            "$EVENT_PATH")"
+          body="$(jq -r '.comment.body // .review.body // .issue.body // .pull_request.body // .release.body // empty' "$EVENT_PATH")"
+          labels="$(jq -r '((.issue.labels // .pull_request.labels // []) | map(.name) | join(", "))' "$EVENT_PATH")"
+          head_branch="$(jq -r '.pull_request.head.ref // empty' "$EVENT_PATH")"
+          base_branch="$(jq -r '.pull_request.base.ref // empty' "$EVENT_PATH")"
+          tag_name="$(jq -r '.release.tag_name // empty' "$EVENT_PATH")"
+          merged="$(jq -r '.pull_request.merged // false' "$EVENT_PATH")"
+          release_prerelease="$(jq -r '.release.prerelease // false' "$EVENT_PATH")"
+
+          case "$EVENT_NAME:$action" in
+            issues:opened) event_zh="Issue 已建立"; event_en="Issue opened" ;;
+            issues:edited) event_zh="Issue 已編輯"; event_en="Issue edited" ;;
+            issues:closed) event_zh="Issue 已關閉"; event_en="Issue closed" ;;
+            issues:reopened) event_zh="Issue 已重新開啟"; event_en="Issue reopened" ;;
+            issues:assigned) event_zh="Issue 已指派"; event_en="Issue assigned" ;;
+            issues:unassigned) event_zh="Issue 已取消指派"; event_en="Issue unassigned" ;;
+            issues:labeled) event_zh="Issue 已加入標籤"; event_en="Issue labeled" ;;
+            issues:unlabeled) event_zh="Issue 已移除標籤"; event_en="Issue unlabeled" ;;
+            issues:milestoned) event_zh="Issue 已加入里程碑"; event_en="Issue milestoned" ;;
+            issues:demilestoned) event_zh="Issue 已移除里程碑"; event_en="Issue demilestoned" ;;
+            issue_comment:created) event_zh="Issue / PR 新增留言"; event_en="Issue / PR comment added" ;;
+            pull_request:opened) event_zh="Pull Request 已建立"; event_en="Pull Request opened" ;;
+            pull_request:edited) event_zh="Pull Request 已編輯"; event_en="Pull Request edited" ;;
+            pull_request:closed)
+              if [[ "$merged" == "true" ]]; then
+                event_zh="Pull Request 已合併"; event_en="Pull Request merged"
+              else
+                event_zh="Pull Request 已關閉"; event_en="Pull Request closed"
+              fi
+              ;;
+            pull_request:reopened) event_zh="Pull Request 已重新開啟"; event_en="Pull Request reopened" ;;
+            pull_request:assigned) event_zh="Pull Request 已指派"; event_en="Pull Request assigned" ;;
+            pull_request:unassigned) event_zh="Pull Request 已取消指派"; event_en="Pull Request unassigned" ;;
+            pull_request:labeled) event_zh="Pull Request 已加入標籤"; event_en="Pull Request labeled" ;;
+            pull_request:unlabeled) event_zh="Pull Request 已移除標籤"; event_en="Pull Request unlabeled" ;;
+            pull_request:milestoned) event_zh="Pull Request 已加入里程碑"; event_en="Pull Request milestoned" ;;
+            pull_request:demilestoned) event_zh="Pull Request 已移除里程碑"; event_en="Pull Request demilestoned" ;;
+            pull_request:ready_for_review) event_zh="Pull Request 已準備審查"; event_en="Pull Request ready for review" ;;
+            pull_request:converted_to_draft) event_zh="Pull Request 已轉為草稿"; event_en="Pull Request converted to draft" ;;
+            pull_request:review_requested) event_zh="Pull Request 已要求審查"; event_en="Pull Request review requested" ;;
+            pull_request:review_request_removed) event_zh="Pull Request 已取消審查要求"; event_en="Pull Request review request removed" ;;
+            pull_request_review:submitted) event_zh="Pull Request Review 已提交"; event_en="Pull Request review submitted" ;;
+            pull_request_review:edited) event_zh="Pull Request Review 已編輯"; event_en="Pull Request review edited" ;;
+            pull_request_review:dismissed) event_zh="Pull Request Review 已撤銷"; event_en="Pull Request review dismissed" ;;
+            release:published) event_zh="Release 已發布"; event_en="Release published" ;;
+            release:prereleased) event_zh="預發布 Release 已發布"; event_en="Prerelease published" ;;
+            *) event_zh="GitHub 事件"; event_en="GitHub event" ;;
+          esac
+
+          # Discord embed descriptions and fields have size limits. jq slices by
+          # Unicode code point, so multilingual text is truncated safely.
+          body="$(printf '%s' "$body" | jq -R -s -r '.[0:1000]')"
+          title="$(printf '%s' "$title" | jq -R -s -r '.[0:256]')"
+          labels="$(printf '%s' "$labels" | jq -R -s -r '.[0:1000]')"
+
+          fields='[]'
+          fields="$(jq -c --arg repository "$REPOSITORY" --arg actor "$sender" \
+            '. + [{name: "Repository / 專案", value: $repository, inline: true}, {name: "Actor / 操作者", value: $actor, inline: true}]' <<< "$fields")"
+
+          if [[ -n "$number" ]]; then
+            fields="$(jq -c --arg number "#$number" '. + [{name: "Number / 編號", value: $number, inline: true}]' <<< "$fields")"
+          fi
+          if [[ -n "$head_branch" && -n "$base_branch" ]]; then
+            fields="$(jq -c --arg branches "$head_branch → $base_branch" '. + [{name: "Branches / 分支", value: $branches, inline: false}]' <<< "$fields")"
+          fi
+          if [[ -n "$tag_name" ]]; then
+            fields="$(jq -c --arg tag "$tag_name" --arg prerelease "$release_prerelease" \
+              '. + [{name: "Release / 版本", value: ($tag + (if $prerelease == "true" then " (prerelease)" else "" end)), inline: true}]' <<< "$fields")"
+          fi
+          if [[ -n "$labels" ]]; then
+            fields="$(jq -c --arg labels "$labels" '. + [{name: "Labels / 標籤", value: $labels, inline: false}]' <<< "$fields")"
+          fi
+          if [[ -n "$body" ]]; then
+            fields="$(jq -c --arg body "$body" '. + [{name: "Comment or description / 留言或描述", value: $body, inline: false}]' <<< "$fields")"
+          fi
+
+          payload="$(jq -n \
+            --arg title "$title" \
+            --arg event "$event_zh / $event_en" \
+            --arg url "$url" \
+            --argjson fields "$fields" \
+            '{embeds: [{title: $title, description: $event, url: $url, color: 5814783, fields: $fields, footer: {text: "AIGoTeacher GitHub notification"}, timestamp: now | todateiso8601}]}')"
+
+          curl --fail --silent --show-error \
+            --max-time 15 \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "$DISCORD_WEBHOOK_URL"
