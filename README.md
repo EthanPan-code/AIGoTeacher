@@ -157,6 +157,7 @@ The LLM commentary feature supports multiple tone templates, allowing the depth 
 |------|------|
 | Traditional Chinese | zh_TW.json |
 | English | en.json |
+
 **Switch Language**: Instantly switch languages via the UI menu `Settings` > `Language`.
 
 ---
