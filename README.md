@@ -1,10 +1,10 @@
 # AI 圍棋老師 / AI Go Teacher
 
+[![Version](https://img.shields.io/badge/Version-1.2.0-yellow)](https://github.com/EthanPan-code/AIGoTeacher/releases)
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![KataGo](https://img.shields.io/badge/KataGo-v1.18.1-magenta)](https://katagotraining.org/)
-[![Windows](https://img.shields.io/badge/Platform-Windows-teal?logo=windows)](https://www.microsoft.com/)
-[![License](https://img.shields.io/badge/License-MIT-red)](https://mit-license.org/)
-[![Version](https://img.shields.io/badge/Version-1.2.0-yellow)](https://github.com/EthanPan-code/AIGoTeacher/releases)
+[![Windows](https://img.shields.io/badge/Platform-Windows-teal?)](https://www.microsoft.com/windows/)
+[![License](https://img.shields.io/badge/License-MIT-red)](LICENSE)
 
 ---
 
