@@ -80,7 +80,7 @@ pip install -r requirements.txt
 # 3. Download KataGo model
 '''
 Go to https://katagotraining.org/ to download the neural network weight file.
-Place it inside the 'models/' directory.
+Rename it to "kata.bin.gz" and place it inside the 'models/' directory.
 '''
 # 4. Run the application
 python ui/main_v3.py
@@ -253,7 +253,7 @@ pip install -r requirements.txt
 # 3. 下載 KataGo 模型
 '''
 前往 https://katagotraining.org/ 下載神經網路權重檔案
-放置於 models/ 目錄下
+將其命名為「kata.bin.gz」並放置於 models/ 目錄下
 '''
 
 # 4. 執行
