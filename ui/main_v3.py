@@ -26,7 +26,6 @@ mpl.rcParams['axes.unicode_minus'] = False
 BOARD_SIZE = 19
 CELL_SIZE = 30
 MARGIN = 40
-COORD_MARGIN = 25  # 座標額外空間
 BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
 CANVAS_SIZE = BOARD_PIXEL 
 STONE_IMAGE_SIZE = 24
@@ -3778,9 +3777,9 @@ class GoBoard(tk.Canvas):
             x = margin + i * CELL_SIZE
 
             # 上
-            self.create_text(x, margin - 20, text=col, font=font, fill=TEXT_MUTED)
+            self.create_text(x, margin - 15, text=col, font=font, fill=TEXT_MUTED)
             # 下
-            self.create_text(x, margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, text=col, font=font, fill=TEXT_MUTED)
+            self.create_text(x, margin + (BOARD_SIZE - 1) * CELL_SIZE + 15, text=col, font=font, fill=TEXT_MUTED)
 
         # 列標 (1-19)
         for i in range(BOARD_SIZE):
@@ -3788,9 +3787,9 @@ class GoBoard(tk.Canvas):
             y = margin + i * CELL_SIZE
 
             # 左
-            self.create_text(margin - 20, y, text=row, font=font, fill=TEXT_MUTED)
+            self.create_text(margin - 15, y, text=row, font=font, fill=TEXT_MUTED)
             # 右
-            self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 20, y, text=row, font=font, fill=TEXT_MUTED)
+            self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 15, y, text=row, font=font, fill=TEXT_MUTED)
 
     def preview(self, event):
         if self.is_welcome_mode():
@@ -8227,7 +8226,8 @@ def on_mouse_wheel(event):
 root = tk.Tk()
 root.title(t("app.title"))
 root.configure(bg=UI_BG)
-root.minsize(930, 720)
+BOARD_LAYOUT_PADDING = 16 + 28 + 14
+root.minsize(CANVAS_SIZE + BOARD_LAYOUT_PADDING, 720)
 root.iconbitmap(resource_path("image/logo.ico"))  
 
 style = ttk.Style(root)
@@ -8975,7 +8975,7 @@ root.bind("<Control-Shift-R>", lambda e: show_winrate_chart())
 
 main_frame = ttk.Frame(root, padding=(16, 8, 16, 8))
 main_frame.pack(fill="both", expand=True)
-main_frame.columnconfigure(0, weight=1)
+main_frame.columnconfigure(0, weight=1, minsize=CANVAS_SIZE + 28)
 main_frame.columnconfigure(1, weight=0)
 main_frame.rowconfigure(0, weight=1)
 
@@ -8994,6 +8994,17 @@ board_frame_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 board = GoBoard(board_shell)
 board.pack(anchor="center")
 board.frame_bg_label = board_frame_bg_label
+
+# 手動顯示（不啟用）
+# show_ai_panel_button = ttk.Button(
+#     board_shell,
+#     text=t("label.ai_analysis"),
+#     command=lambda: _show_ai_panel(),
+#     style="Tool.TButton",
+# )
+# show_ai_panel_button.place(relx=1.0, rely=1.0, anchor="se", x=-4, y=-4)
+# show_ai_panel_button.place_forget()
+
 # board_frame_bg_label 在 board 之前建立，預設疊加順序已正確（Label在下、Canvas在上），
 # 無需額外 lift/tkraise。tk.Canvas 覆寫了 lift/tkraise（用於 canvas items），
 # 不接受無參數呼叫，故不可調用。
@@ -9010,8 +9021,12 @@ def _on_board_shell_configure(event):
 
 board_shell.bind("<Configure>", _on_board_shell_configure)
 
-info_frame = ttk.Frame(main_frame, style="Panel.TFrame", padding=(14, 14, 14, 14))
-info_frame.grid(row=0, column=1, sticky="ns")
+right_panel = ttk.Frame(main_frame)
+right_panel.grid(row=0, column=1, sticky="ns")
+right_panel.columnconfigure(0, weight=1)
+
+info_frame = ttk.Frame(right_panel, style="Panel.TFrame", padding=(14, 14, 14, 14))
+info_frame.grid(row=0, column=0, sticky="ns")
 info_frame.columnconfigure(0, weight=1)
 info_frame.columnconfigure(1, weight=1)
 info_frame.rowconfigure(8, weight=1)
@@ -9156,6 +9171,67 @@ teacher_text = tk.Text(
     state="disabled"
 )
 teacher_text.pack(fill="both", expand=True, pady=(6, 0))
+
+RESPONSIVE_HYSTERESIS = 36
+responsive_layout_state = "expanded"
+responsive_resize_after_id = None
+
+def _responsive_expanded_width():
+    root.update_idletasks()
+    board_width = max(CANVAS_SIZE + 28, board_shell.winfo_reqwidth())
+    right_width = max(240, right_panel.winfo_reqwidth())
+    return board_width + right_width + 16 + 32
+
+
+def _apply_responsive_layout(force_expanded=False):
+    global responsive_layout_state
+    if is_shutting_down:
+        return
+
+    required_width = _responsive_expanded_width()
+    current_width = root.winfo_width()
+    if force_expanded and current_width < required_width:
+        root.geometry(f"{required_width}x{max(root.winfo_height(), 720)}")
+        current_width = required_width
+
+    if responsive_layout_state == "expanded":
+        should_compact = current_width < required_width - RESPONSIVE_HYSTERESIS
+    else:
+        should_compact = current_width < required_width
+
+    if should_compact:
+        if responsive_layout_state != "compact":
+            right_panel.grid_remove()
+            # show_ai_panel_button.place(relx=1.0, rely=1.0, anchor="se", x=-4, y=-4)
+            responsive_layout_state = "compact"
+    elif responsive_layout_state != "expanded":
+        right_panel.grid(row=0, column=1, sticky="ns")
+        # show_ai_panel_button.place_forget()
+        responsive_layout_state = "expanded"
+
+
+def _show_ai_panel():
+    _apply_responsive_layout(force_expanded=True)
+
+
+def _run_responsive_layout():
+    global responsive_resize_after_id
+    responsive_resize_after_id = None
+    _apply_responsive_layout()
+
+
+def _on_root_configure(event=None):
+    global responsive_resize_after_id
+    if responsive_resize_after_id is not None:
+        try:
+            root.after_cancel(responsive_resize_after_id)
+        except tk.TclError:
+            pass
+    responsive_resize_after_id = root.after_idle(_run_responsive_layout)
+
+root.bind("<Configure>", _on_root_configure, add="+")
+root.after_idle(_run_responsive_layout)
+
 
 # status bar doesn't apppear ∵ no enough space
 status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 1), background="#e8dfd2", foreground=TEXT_MUTED)
