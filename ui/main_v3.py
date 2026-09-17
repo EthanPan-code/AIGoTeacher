@@ -28,6 +28,7 @@ CELL_SIZE = 30
 MARGIN = 40
 BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
 CANVAS_SIZE = BOARD_PIXEL 
+MIN_CANVAS_SIZE = 480
 STONE_IMAGE_SIZE = 24
 ANALYSIS_CACHE_LIMIT = 300
 UI_POLL_INTERVAL_MS = 200
@@ -3088,17 +3089,19 @@ def on_analyze_button_click():
 # --- 棋盤邏輯 ---
 class GoBoard(tk.Canvas):
     def __init__(self, master=None):
+        self.canvas_size = CANVAS_SIZE
+        self.cell_size = CELL_SIZE
+        self.margin = MARGIN
         super().__init__(
             master,
-            width=CANVAS_SIZE,
-            height=CANVAS_SIZE,
+            width=self.canvas_size,
+            height=self.canvas_size,
             bg=BOARD_BG,
             highlightthickness=1,
             highlightbackground=PANEL_BORDER
         )
         self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
         self.current_color = "black"
-        self.margin = MARGIN 
         self.preview_id = None
         self.blue_point_ids = []
         self.recommendation_points = {}
@@ -3120,6 +3123,7 @@ class GoBoard(tk.Canvas):
         self.board_frame_image = None
         self.board_frame_image_path = None  # 外框背景原始路徑（供 <Configure> 動態重縮放使用）
         self._frame_bg_resize_after_id = None  # <Configure> 節流用的 after id
+        self._board_resize_after_id = None  # 棋盤尺寸更新節流用的 after id
         self.black_stone_image = None
         self.white_stone_image = None
         self.frame_bg_label = None  # 外框背景 Label（由 board_shell 注入）
@@ -3149,8 +3153,8 @@ class GoBoard(tk.Canvas):
         if frame_path and os.path.exists(frame_path):
             self.board_frame_image_path = frame_path
             # 載入時 board_shell 尺寸可能尚未確定（winfo_width() 可能回傳 1），
-            # 先用 CANVAS_SIZE 作為預設尺寸載入；待 board_shell 首次 <Configure> 觸發時
-            # 再用實際尺寸重縮放（見 _resize_frame_background）。
+            # 先用標準棋盤尺寸載入；待 board_shell 首次 <Configure> 觸發時
+            # 再依外框尺寸處理背景。
             try:
                 self.board_frame_image = load_tk_image(frame_path, (CANVAS_SIZE, CANVAS_SIZE), fill_size=True)
             except Exception as e:
@@ -3200,7 +3204,7 @@ class GoBoard(tk.Canvas):
         """依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。
 
         由 board_shell 的 <Configure> 事件回呼觸發，確保視窗縮放時背景圖片動態更新。
-        棋盤 Canvas 本身保持固定 620×620，不會被縮放。
+        棋盤 Canvas 的外框背景會跟隨棋盤尺寸更新。
         """
         if not self.board_frame_image_path or not os.path.exists(self.board_frame_image_path):
             return
@@ -3217,6 +3221,24 @@ class GoBoard(tk.Canvas):
             self.frame_bg_label.image = new_img
         except Exception as e:
             logger.warning(f"無法重縮放棋盤外框圖片 {self.board_frame_image_path}: {e}")
+
+    def resize_board(self, size):
+        size = max(MIN_CANVAS_SIZE, int(size))
+        if size == self.canvas_size:
+            return
+        self.canvas_size = size
+        self.cell_size = size / (BOARD_SIZE - 1 + (MARGIN * 2 / CELL_SIZE))
+        self.margin = self.cell_size * MARGIN / CELL_SIZE
+        self.configure(width=size, height=size)
+        self.refresh_display()
+        if self.last_move_infos and not self.recommendations_hidden:
+            self.draw_recommendation_points(self.last_move_infos, self.last_is_black_turn)
+
+    def _point(self, x, y):
+        return self.margin + x * self.cell_size, self.margin + y * self.cell_size
+
+    def _scaled(self, value):
+        return value * self.cell_size / CELL_SIZE
 
     @property
     def stones(self):
@@ -3284,7 +3306,7 @@ class GoBoard(tk.Canvas):
         for (x, y), move_number in self._build_live_move_numbers().items():
             color = self.board[y][x]
             label_fill = "#ffffff" if color == "black" else "#111111"
-            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+            px, py = self._point(x, y)
             self.create_text(
                 px,
                 py,
@@ -3302,12 +3324,13 @@ class GoBoard(tk.Canvas):
 
     def _draw_recommendation_point(self, x, y, winrate, is_black_turn, fill, text_fill):
         margin = self.margin
-        px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+        px, py = self._point(x, y)
+        radius = self._scaled(RECOMMENDATION_RADIUS)
         ov = self.create_oval(
-            px - RECOMMENDATION_RADIUS,
-            py - RECOMMENDATION_RADIUS,
-            px + RECOMMENDATION_RADIUS,
-            py + RECOMMENDATION_RADIUS,
+            px - radius,
+            py - radius,
+            px + radius,
+            py + radius,
             fill=fill,
             outline="#ffffff" if fill == BEST_MOVE_BLUE else "#174b2a",
             width=1,
@@ -3425,20 +3448,21 @@ class GoBoard(tk.Canvas):
 
             x = index % BOARD_SIZE
             y = index // BOARD_SIZE
-            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+            px, py = self._point(x, y)
+            radius = self._scaled(9)
             stone = self.board[y][x]
 
             if stone is None:
                 if value > 0.5:
-                    self.create_rectangle(px - 9, py - 9, px + 9, py + 9, fill="#000000", outline="#000000", stipple="gray50", width=1, tags="score_estimate")
+                    self.create_rectangle(px - radius, py - radius, px + radius, py + radius, fill="#000000", outline="#000000", stipple="gray50", width=1, tags="score_estimate")
                 elif value < -0.5:
-                    self.create_rectangle(px - 9, py - 9, px + 9, py + 9, fill="#ffffff", outline="#ffffff", stipple="gray50", width=1, tags="score_estimate")
+                    self.create_rectangle(px - radius, py - radius, px + radius, py + radius, fill="#ffffff", outline="#ffffff", stipple="gray50", width=1, tags="score_estimate")
                 continue
 
             if (stone == "black" and value < -0.5) or (stone == "white" and value > 0.5):
                 marker_color = "#ffffff" if value < 0 else "#000000"
-                self.create_line(px - 9, py - 9, px + 9, py + 9, fill=marker_color, width=3, tags="score_estimate")
-                self.create_line(px - 9, py + 9, px + 9, py - 9, fill=marker_color, width=3, tags="score_estimate")
+                self.create_line(px - radius, py - radius, px + radius, py + radius, fill=marker_color, width=max(1, self._scaled(3)), tags="score_estimate")
+                self.create_line(px - radius, py + radius, px + radius, py - radius, fill=marker_color, width=max(1, self._scaled(3)), tags="score_estimate")
 
     def _cancel_variation_timer(self):
         if self.variation_timer:
@@ -3516,15 +3540,16 @@ class GoBoard(tk.Canvas):
 
     def _draw_variation_stone(self, x, y, color, move_number):
         margin = self.margin
-        px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+        px, py = self._point(x, y)
+        radius = self._scaled(12)
         fill = VARIATION_BLACK if color == "black" else VARIATION_WHITE
         outline = "#000000" if color == "black" else "#6f6252"
         label_fill = VARIATION_LABEL_WHITE if color == "black" else VARIATION_LABEL_BLACK
         self.create_oval(
-            px - 12,
-            py - 12,
-            px + 12,
-            py + 12,
+            px - radius,
+            py - radius,
+            px + radius,
+            py + radius,
             fill=fill,
             outline=outline,
             width=2,
@@ -3695,7 +3720,8 @@ class GoBoard(tk.Canvas):
             self.analyze_timer = root.after(500, auto_analyze)
 
     def draw_board(self):
-        margin = MARGIN
+        cell_size = self.cell_size
+        margin = self.margin
 
         # 如果有自訂背景圖片，繪製背景
         if self.board_bg_image and not self.is_welcome_mode():
@@ -3703,20 +3729,21 @@ class GoBoard(tk.Canvas):
         else:
             # 使用預設背景色
             board_fill = WELCOME_BOARD_BG if self.is_welcome_mode() else BOARD_BG
-            self.create_rectangle(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill=board_fill, outline="")
+            self.create_rectangle(0, 0, self.canvas_size, self.canvas_size, fill=board_fill, outline="")
 
         # 畫線
         for i in range(BOARD_SIZE):
-            x = margin + i * CELL_SIZE
-            self.create_line(x, margin, x, margin + (BOARD_SIZE - 1) * CELL_SIZE, fill=BOARD_LINE)
-            self.create_line(margin, x, margin + (BOARD_SIZE - 1) * CELL_SIZE, x, fill=BOARD_LINE)
+            x = margin + i * cell_size
+            self.create_line(x, margin, x, margin + (BOARD_SIZE - 1) * cell_size, fill=BOARD_LINE)
+            self.create_line(margin, x, margin + (BOARD_SIZE - 1) * cell_size, x, fill=BOARD_LINE)
 
         # 星位
         stars = [3, 9, 15]
         for r in stars:
             for c in stars:
-                px, py = margin + r * CELL_SIZE, margin + c * CELL_SIZE
-                self.create_oval(px-3, py-3, px+3, py+3, fill=BOARD_LINE, outline=BOARD_LINE)
+                px, py = self._point(r, c)
+                radius = self._scaled(3)
+                self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=BOARD_LINE, outline=BOARD_LINE)
 
 
         self.draw_coordinates(margin)
@@ -3729,8 +3756,8 @@ class GoBoard(tk.Canvas):
         """在淺色棋盤上繪製不可落子的歡迎操作面板。"""
         if not self.is_welcome_mode():
             return
-        cx, cy = CANVAS_SIZE // 2, CANVAS_SIZE // 2
-        panel_w, panel_h = 330, 220
+        cx, cy = self.canvas_size // 2, self.canvas_size // 2
+        panel_w, panel_h = self._scaled(330), self._scaled(220)
         self.create_rectangle(
             cx - panel_w // 2, cy - panel_h // 2,
             cx + panel_w // 2, cy + panel_h // 2,
@@ -3774,22 +3801,22 @@ class GoBoard(tk.Canvas):
             if col >= 'I':
                 col = chr(ord(col) + 1)
 
-            x = margin + i * CELL_SIZE
+            x = margin + i * self.cell_size
 
             # 上
-            self.create_text(x, margin - 15, text=col, font=font, fill=TEXT_MUTED)
+            self.create_text(x, margin - self._scaled(15), text=col, font=font, fill=TEXT_MUTED)
             # 下
-            self.create_text(x, margin + (BOARD_SIZE - 1) * CELL_SIZE + 15, text=col, font=font, fill=TEXT_MUTED)
+            self.create_text(x, margin + (BOARD_SIZE - 1) * self.cell_size + self._scaled(15), text=col, font=font, fill=TEXT_MUTED)
 
         # 列標 (1-19)
         for i in range(BOARD_SIZE):
             row = str(BOARD_SIZE - i)
-            y = margin + i * CELL_SIZE
+            y = margin + i * self.cell_size
 
             # 左
-            self.create_text(margin - 15, y, text=row, font=font, fill=TEXT_MUTED)
+            self.create_text(margin - self._scaled(15), y, text=row, font=font, fill=TEXT_MUTED)
             # 右
-            self.create_text(margin + (BOARD_SIZE - 1) * CELL_SIZE + 15, y, text=row, font=font, fill=TEXT_MUTED)
+            self.create_text(margin + (BOARD_SIZE - 1) * self.cell_size + self._scaled(15), y, text=row, font=font, fill=TEXT_MUTED)
 
     def preview(self, event):
         if self.is_welcome_mode():
@@ -3799,13 +3826,14 @@ class GoBoard(tk.Canvas):
             self._handle_recommendation_hover(None)
             return
         margin = self.margin
-        x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
+        x, y = round((event.x - margin) / self.cell_size), round((event.y - margin) / self.cell_size)
         if self.preview_id:
             self.delete(self.preview_id)
             self.preview_id = None
         if 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE and self.board[y][x] is None:
-            px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
-            self.preview_id = self.create_oval(px-12, py-12, px+12, py+12, fill=ACCENT, outline="", stipple="gray50")
+            px, py = self._point(x, y)
+            radius = self._scaled(12)
+            self.preview_id = self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=ACCENT, outline="", stipple="gray50")
             if self.find_withtag("blue_point"):
                 self.tag_lower(self.preview_id, "blue_point")
             self._handle_recommendation_hover((x, y))
@@ -3910,7 +3938,7 @@ class GoBoard(tk.Canvas):
         if self.score_estimate_active:
             return
         margin = self.margin
-        x, y = round((event.x - margin) / CELL_SIZE), round((event.y - margin) / CELL_SIZE)
+        x, y = round((event.x - margin) / self.cell_size), round((event.y - margin) / self.cell_size)
         self._handle_recommendation_hover(None)
         if self.play_move(x, y):
             self.refresh_display()
@@ -3975,7 +4003,7 @@ class GoBoard(tk.Canvas):
             for x in range(BOARD_SIZE):
                 color = self.board[y][x]
                 if color:
-                    px, py = margin + x * CELL_SIZE, margin + y * CELL_SIZE
+                    px, py = self._point(x, y)
                     # 使用自訂棋子圖片（如果有的話）
                     if color == "black" and self.black_stone_image:
                         self.create_image(px, py, image=self.black_stone_image, anchor="center")
@@ -3985,14 +4013,16 @@ class GoBoard(tk.Canvas):
                         # 預設圓形棋子
                         fill = STONE_BLACK if color == "black" else STONE_WHITE
                         outline = "#0f0f0f" if color == "black" else "#8e806f"
-                        self.create_oval(px-12, py-12, px+12, py+12, fill=fill, outline=outline, width=1)
+                        radius = self._scaled(12)
+                        self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=fill, outline=outline, width=1)
 
         # 2. 繪製最後一手標記
         if self.current_node and self.current_node.move and not is_pass_move(self.current_node.move):
             lx, ly, lcolor = self.current_node.move
-            px, py = margin + lx * CELL_SIZE, margin + ly * CELL_SIZE
+            px, py = self._point(lx, ly)
             # 標記在最後一手的中心
-            self.create_oval(px-12, py-12, px+12, py+12, outline="red", width=2)
+            radius = self._scaled(12)
+            self.create_oval(px-radius, py-radius, px+radius, py+radius, outline="red", width=max(1, self._scaled(2)))
 
         self._draw_move_numbers()
         if self.score_estimate_data:
@@ -8226,8 +8256,8 @@ def on_mouse_wheel(event):
 root = tk.Tk()
 root.title(t("app.title"))
 root.configure(bg=UI_BG)
-BOARD_LAYOUT_PADDING = 16 + 28 + 14
-root.minsize(CANVAS_SIZE + BOARD_LAYOUT_PADDING, 720)
+BOARD_LAYOUT_PADDING = 100
+root.minsize(MIN_CANVAS_SIZE + BOARD_LAYOUT_PADDING, 720)
 root.iconbitmap(resource_path("image/logo.ico"))  
 
 style = ttk.Style(root)
@@ -8975,7 +9005,7 @@ root.bind("<Control-Shift-R>", lambda e: show_winrate_chart())
 
 main_frame = ttk.Frame(root, padding=(16, 8, 16, 8))
 main_frame.pack(fill="both", expand=True)
-main_frame.columnconfigure(0, weight=1, minsize=CANVAS_SIZE + 28)
+main_frame.columnconfigure(0, weight=1, minsize=MIN_CANVAS_SIZE + 28)
 main_frame.columnconfigure(1, weight=0)
 main_frame.rowconfigure(0, weight=1)
 
@@ -9017,6 +9047,13 @@ def _on_board_shell_configure(event):
         board.after_cancel(board._frame_bg_resize_after_id)
     board._frame_bg_resize_after_id = board.after(
         100, lambda: board._resize_frame_background((event.width, event.height))
+    )
+    available_size = min(event.width - 28, event.height - 28)
+    target_size = min(CANVAS_SIZE, max(MIN_CANVAS_SIZE, available_size))
+    if board._board_resize_after_id is not None:
+        board.after_cancel(board._board_resize_after_id)
+    board._board_resize_after_id = board.after_idle(
+        lambda: board.resize_board(target_size)
     )
 
 board_shell.bind("<Configure>", _on_board_shell_configure)
@@ -9217,6 +9254,10 @@ def _show_ai_panel():
 def _run_responsive_layout():
     global responsive_resize_after_id
     responsive_resize_after_id = None
+    root.update_idletasks()
+    if not root.winfo_ismapped() or root.winfo_width() <= 1:
+        root.after(50, _run_responsive_layout)
+        return
     _apply_responsive_layout()
 
 
