@@ -355,6 +355,7 @@ from services.rules import (
     calculate_area_score,
     normalize_analysis_settings,
 )
+from services.sgf_metadata import get_game_info, update_game_info
 from services.keyring_service import (
     delete_nvidia_api_key,
     delete_openrouter_api_key,
@@ -7900,6 +7901,72 @@ def show_rules_settings_dialog():
     ttk.Button(button_frame, text=t("button.cancel"), command=settings_win.destroy).pack(side="right")
 
 
+def show_game_info_dialog():
+    """Edit SGF root game information for the active tab only."""
+    session = tab_manager.active_session
+    if session is None:
+        return
+
+    settings_win = tk.Toplevel(root)
+    settings_win.iconbitmap(resource_path("image/logo.ico"))
+    settings_win.title(t("dialog.game_info_title"))
+    settings_win.geometry("460x360")
+    settings_win.transient(root)
+    settings_win.grab_set()
+    pywinstyles.change_header_color(settings_win, color=PANEL_BG)
+    pywinstyles.change_title_color(settings_win, color=TEXT_MAIN)
+
+    frame = ttk.Frame(settings_win, padding=16)
+    frame.pack(fill="both", expand=True)
+    frame.columnconfigure(1, weight=1)
+
+    fields = (
+        ("PB", "label.game_info_black_player"),
+        ("PW", "label.game_info_white_player"),
+        ("BR", "label.game_info_black_rank"),
+        ("WR", "label.game_info_white_rank"),
+        ("RE", "label.game_info_result"),
+        ("DT", "label.game_info_date"),
+    )
+    values = get_game_info(getattr(board.root_node, "metadata", {}))
+    variables = {}
+    for row, (key, label_key) in enumerate(fields):
+        variables[key] = tk.StringVar(value=values[key])
+        ttk.Label(frame, text=t(label_key)).grid(
+            row=row, column=0, sticky="w", pady=(0, 10)
+        )
+        ttk.Entry(frame, textvariable=variables[key], width=34).grid(
+            row=row, column=1, sticky="ew", padx=(12, 0), pady=(0, 10)
+        )
+
+    def apply_game_info():
+        try:
+            update_game_info(
+                board.root_node.metadata,
+                {key: variables[key].get() for key, _ in fields},
+            )
+        except ValueError:
+            messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.invalid_game_date"),
+                parent=settings_win,
+            )
+            return
+        session.is_dirty = True
+        refresh_tab_bar()
+        status_var.set(t("status.game_info_saved"))
+        settings_win.destroy()
+
+    button_frame = ttk.Frame(frame)
+    button_frame.grid(row=len(fields), column=0, columnspan=2, sticky="e", pady=(12, 0))
+    ttk.Button(button_frame, text=t("button.save"), command=apply_game_info).pack(
+        side="right", padx=(8, 0)
+    )
+    ttk.Button(button_frame, text=t("button.cancel"), command=settings_win.destroy).pack(
+        side="right"
+    )
+
+
 def show_settings_dialog():
     """顯示設定對話框"""
     settings_win = tk.Toplevel(root)
@@ -8508,6 +8575,7 @@ def build_menu_bar():
         {"label": t("menu.settings"), "items": [
             command(t("menu.model_settings"), show_settings_dialog),
             command(t("menu.rules_settings"), show_rules_settings_dialog, "Ctrl+K"),
+            command(t("menu.game_info"), show_game_info_dialog),
             command(t("settings.appearance"), show_appearance_settings_dialog),
             {"type": "submenu", "label": t("menu.language"), "items": [
                 radio(t(f"language.{lang}"), lang, language_var,
