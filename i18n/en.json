@@ -242,7 +242,7 @@
   "dialog.new_game_message": "The current game has not been saved separately. Clear the board?",
   "dialog.confirm_overwrite_loaded_sgf": "This game was loaded from an existing SGF. Overwrite the original file?\n\n{path}",
   "dialog.about_title": "About",
-  "dialog.about_message": "Version: {version}\nBased on KataGo v1.18.1 (OpenCL)\nNetworks:\nkata1-b28c512nbt-s13255194368-d5935380940\nkata1-b6c96-s175395328-d26788732\n\nFeatures:\n• Real-time game analysis\n• AI teaching commentary\n• Variation support\n• SGF / JSON export\n\nBuilt on:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
+  "dialog.about_message": "Version: {version}\nBased on KataGo v1.18.1 (OpenCL)\nNetworks:\nkata1-b15c192-s1672170752-d466197061\nkata1-b6c96-s175395328-d26788732\n\nFeatures:\n• Real-time game analysis\n• AI teaching commentary\n• Variation support\n• SGF / JSON export\n\nBuilt on:\nKataGo: https://github.com/lightvector/KataGo\nOllama: Local LLM Integration",
   "dialog.close_tab_title": "Close Tab",
   "dialog.close_tab_message": "Tab \"{title}\" has unsaved changes. Close it anyway?",
   "dialog.tab_limit_title": "Tab Limit Reached",

@@ -91,9 +91,9 @@ WELCOME_LINK = "#1967d2"
 
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
-DEFAULT_MODEL_PATH = os.path.join("models", "kata.bin.gz")
-MODEL_STANDARD_PATH = os.path.join("models", "kata.bin.gz")
-MODEL_FAST_PATH = os.path.join("models", "kata-mini.txt.gz")
+DEFAULT_MODEL_PATH = os.path.join("models", "kata1-b15c192-s1672170752-d466197061.txt.gz")
+MODEL_STANDARD_PATH = os.path.join("models", "kata1-b15c192-s1672170752-d466197061.txt.gz")
+MODEL_FAST_PATH = os.path.join("models", "kata1-b6c96-s175395328-d26788732.txt.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
 RUNTIME_BUNDLE_DIR_NAME = "runtime"
