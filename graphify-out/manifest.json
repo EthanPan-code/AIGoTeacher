@@ -1,12 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1786719582.9217775,
-    "ast_hash": "",
+    "mtime": 1789780445.8409376,
+    "seen": 1789781247.7716918,
+    "ast_hash": "663e328cf6e99c8badcb533ea6a4f3af",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1786719582.4505396,
-    "ast_hash": "",
+    "mtime": 1789780432.0199974,
+    "seen": 1789781247.771698,
+    "ast_hash": "59172de65a91aa11eea489c2d915017e",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -77,7 +79,8 @@
   },
   "tools/ollama_detection.json": {
     "mtime": 1779367127.1693337,
-    "ast_hash": "",
+    "seen": 1789781247.7717311,
+    "ast_hash": "09c4c2ce0ba02abc6bf2a1fc89b5a7e2",
     "semantic_hash": ""
   },
   "ui/chat_sandbox.py": {
@@ -93,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1789779354.5184934,
-    "seen": 1789779835.6811638,
-    "ast_hash": "5f0c3accad400990952641150c4db795",
+    "mtime": 1789781214.508578,
+    "seen": 1789781247.7717366,
+    "ast_hash": "ae9b5a74dec38aa99ef164723e503957",
     "semantic_hash": ""
   },
   "version.py": {

@@ -112,6 +112,7 @@
   "placeholder.katago_path": "例如：C:/KataGo/katago.exe",
   "placeholder.model_path": "例如：C:/KataGo/models/kata.bin.gz",
   "placeholder.config_path": "例如：C:/KataGo/analysis_example.cfg",
+  "placeholder.date": "YYYY-MM-DD",
   "label.settings_tip": "變更設定後按『套用』將重新初始化分析器",
   "label.feedback": "意見回饋",
   "label.feedback_hint": "回報問題、提出想法，或告訴我們你需要的學習功能。",

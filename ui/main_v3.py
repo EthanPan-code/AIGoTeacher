@@ -7935,9 +7935,28 @@ def show_game_info_dialog():
         ttk.Label(frame, text=t(label_key)).grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
-        ttk.Entry(frame, textvariable=variables[key], width=34).grid(
+        entry = ttk.Entry(frame, textvariable=variables[key], width=34)
+        entry.grid(
             row=row, column=1, sticky="ew", padx=(12, 0), pady=(0, 10)
         )
+        if key == "DT":
+            placeholder = t("placeholder.date")
+            def create_placeholder_logic(e=entry, v=variables[key], p=placeholder):
+                def show_ph():
+                    if not v.get():
+                        e.config(foreground=TEXT_MUTED)
+                        e.insert(0, p)
+                def hide_ph(_event=None):
+                    if v.get() == p:
+                        v.set("")
+                        e.config(foreground=TEXT_MAIN)
+                def maybe_show_ph(_event=None):
+                    if not v.get():
+                        show_ph()
+                e.bind("<FocusIn>", hide_ph)
+                e.bind("<FocusOut>", maybe_show_ph)
+                show_ph()
+            create_placeholder_logic()
 
     def apply_game_info():
         try:

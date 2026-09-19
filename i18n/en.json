@@ -109,6 +109,7 @@
   "placeholder.katago_path": "Example: C:/KataGo/katago.exe",
   "placeholder.model_path": "Example: C:/KataGo/models/kata.bin.gz",
   "placeholder.config_path": "Example: C:/KataGo/analysis_example.cfg",
+  "placeholder.date": "YYYY-MM-DD",
   "label.settings_tip": "Press Apply after changing settings to reinitialize the analyzer",
   "label.feedback": "Feedback",
   "label.feedback_hint": "Share bugs, ideas, or learning needs so the teaching tool can improve.",
