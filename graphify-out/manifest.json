@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1789780445.8409376,
-    "seen": 1789781247.7716918,
-    "ast_hash": "663e328cf6e99c8badcb533ea6a4f3af",
+    "mtime": 1789817445.971773,
+    "seen": 1789865686.7709599,
+    "ast_hash": "15412bf4adf01ef68e9b0c4608e50e0c",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1789780432.0199974,
-    "seen": 1789781247.771698,
-    "ast_hash": "59172de65a91aa11eea489c2d915017e",
+    "mtime": 1789817446.4679797,
+    "seen": 1789865686.7709684,
+    "ast_hash": "81055d22544c03f492e1516ee4044301",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1789781214.508578,
-    "seen": 1789781247.7717366,
-    "ast_hash": "ae9b5a74dec38aa99ef164723e503957",
+    "mtime": 1789817445.5598526,
+    "seen": 1789865686.7710164,
+    "ast_hash": "e82463d15d20abf95775d5f1628377fe",
     "semantic_hash": ""
   },
   "version.py": {
@@ -108,9 +108,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1789645241.5737572,
-    "seen": 1789779835.6811686,
-    "ast_hash": "a6d8a78f4f884d746d9f907812338e8b",
+    "mtime": 1789865655.9925728,
+    "seen": 1789865686.7710235,
+    "ast_hash": "9277324d44dd78c6ff8abe13794d3e05",
     "semantic_hash": ""
   },
   "requirements.txt": {

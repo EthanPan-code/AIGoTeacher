@@ -100,6 +100,21 @@ RUNTIME_BUNDLE_DIR_NAME = "runtime"
 RUNTIME_MANIFEST_NAME = "version.json"
 
 
+def get_startup_sgf_request(argv=None):
+    """Return the first SGF path supplied by Windows or the command line."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    for argument in arguments:
+        if not argument or argument.startswith("-"):
+            continue
+        candidate = os.path.abspath(os.path.expanduser(argument.strip('"')))
+        if not candidate.lower().endswith(".sgf"):
+            continue
+        if os.path.isfile(candidate):
+            return candidate, None
+        return candidate, "missing"
+    return None, None
+
+
 def resource_path(relative_path):
     """取得打包後或開發環境的正確資源路徑"""
     if hasattr(sys, '_MEIPASS'):
@@ -4442,18 +4457,27 @@ def save_game_as_sgf_dialog():
         refresh_tab_bar()
         status_var.set(t("status.saved_sgf", path=filename))
 
-def on_load_sgf_click():
+def load_sgf_file(file_path=None):
+    """Load an SGF into the active tab and synchronize its document state."""
     # 【多分頁 v1】改為讀寫 active session 的檔案狀態
     session = tab_manager.active_session
     if session is None:
         return
     global current_sgf_path, loaded_sgf_overwrite_confirmed
 
-    file_path = filedialog.askopenfilename(
-        title=t("dialog.load_sgf_title"),
-        filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
-    )
+    if file_path is None:
+        file_path = filedialog.askopenfilename(
+            title=t("dialog.load_sgf_title"),
+            filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
+        )
     if file_path:
+        file_path = os.path.abspath(os.path.expanduser(str(file_path).strip('"')))
+        if not os.path.isfile(file_path):
+            messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.sgf_path_not_found", path=file_path),
+            )
+            return False
         # 若目前分頁已有落子，詢問是否覆蓋
         if board.stones:
             if not messagebox.askyesno(
@@ -4463,7 +4487,15 @@ def on_load_sgf_click():
                 return
         if session.tab_type == "welcome":
             session.tab_type = "game"
-        board.load_sgf(file_path)
+        try:
+            board.load_sgf(file_path)
+        except (OSError, UnicodeError, ValueError) as exc:
+            logger.exception("SGF 載入失敗: %s", file_path)
+            messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.sgf_load_failed", path=file_path, error=str(exc)),
+            )
+            return False
         if hasattr(board, "branch_ui") and board.branch_ui is not None:
             board.branch_ui.draw_tree()
         session.sgf_path = file_path
@@ -4478,6 +4510,12 @@ def on_load_sgf_click():
         loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
         status_var.set(t("status.loaded_sgf", path=file_path))
         update_welcome_controls()
+        return True
+    return False
+
+
+def on_load_sgf_click():
+    load_sgf_file()
 
 
 def start_new_game_from_welcome():
@@ -9941,5 +9979,21 @@ def poll_ai():
 
 
 poll_ai()
+
+# Handle a file supplied by Windows "Open with" after all widgets and the
+# first-run dialog are ready. Reuse the default welcome session so the user
+# lands directly in the opened game without seeing a welcome tab.
+startup_sgf_path, startup_sgf_error = get_startup_sgf_request()
+if startup_sgf_path is not None:
+    if startup_sgf_error == "missing":
+        root.after(
+            0,
+            lambda path=startup_sgf_path: messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.sgf_path_not_found", path=path),
+            ),
+        )
+    else:
+        root.after(0, load_sgf_file, startup_sgf_path)
 
 root.mainloop()

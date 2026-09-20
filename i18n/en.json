@@ -126,6 +126,8 @@
   "status.saved_json": "Saved JSON: {path}",
   "status.saved_sgf": "Saved SGF: {path}",
   "status.loaded_sgf": "Loaded SGF: {path}",
+  "error.sgf_path_not_found": "The SGF file could not be found:\n\n{path}",
+  "error.sgf_load_failed": "Failed to load the SGF file:\n\n{path}\n\n{error}",
   "status.new_game": "Created a new game",
   "status.score_estimate_ready": "Score estimate ready",
   "status.score_estimate_cancelled": "Score estimate cancelled",

@@ -129,6 +129,8 @@
   "status.saved_json": "已儲存 JSON：{path}",
   "status.saved_sgf": "已儲存 SGF：{path}",
   "status.loaded_sgf": "已載入 SGF：{path}",
+  "error.sgf_path_not_found": "找不到 SGF 檔案：\n\n{path}",
+  "error.sgf_load_failed": "載入 SGF 檔案失敗：\n\n{path}\n\n{error}",
   "status.new_game": "已建立新棋局",
   "status.score_estimate_ready": "點目完成",
   "status.score_estimate_cancelled": "點目已取消",

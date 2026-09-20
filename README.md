@@ -69,22 +69,28 @@ The first launch may take a little longer while the bundled components are initi
 ### Prerequisites
 - Windows Operating System
 - Python 3.14+
-- KataGo Model File (Requires download from [katagotraining.org](https://katagotraining.org/))
 ### Installation Steps
 ```bash
 # 1. Clone the repository
 git clone https://github.com/EthanPan-code/AIGoTeacher.git
 cd AIGoTeacher
+
 # 2. Install dependencies
 pip install -r requirements.txt
-# 3. Download KataGo model
-'''
-Go to https://katagotraining.org/ to download the neural network weight file.
-Rename it to "kata.bin.gz" and place it inside the 'models/' directory.
-'''
-# 4. Run the application
+
+# 3. Run the application
 python ui/main_v3.py
 ```
+
+You can also open an SGF directly by passing its path:
+
+```bash
+python ui/main_v3.py path/to/game.sgf
+```
+
+In the packaged Windows version, use File Explorer's **Open with** option on
+an `.sgf` file and select `AIGoTeacher.exe`. The application will load the
+game directly into its first tab.
 
 ---
 
@@ -239,7 +245,6 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 - Windows 作業系統
 - Python 3.14+
-- KataGo 模型檔案（需從 [katagotraining.org](https://katagotraining.org/) 下載）
 
 ### 安裝步驟
 
@@ -248,18 +253,22 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 git clone https://github.com/EthanPan-code/AIGoTeacher.git
 cd AIGoTeacher
 
-# 2. 安裝依賴
+# 2. 安裝套件
 pip install -r requirements.txt
 
-# 3. 下載 KataGo 模型
-'''
-前往 https://katagotraining.org/ 下載神經網路權重檔案
-將其命名為「kata.bin.gz」並放置於 models/ 目錄下
-'''
-
-# 4. 執行
+# 3. 執行
 py ui/main_v3.py
 ```
+
+---
+
+你也可以直接傳入 SGF 的路徑來開啟 SGF：
+
+```bash
+python ui/main_v3.py path/to/game.sgf
+```
+
+在封裝好的 Windows 版本中，可以在 `.sgf` 檔案上使用檔案總管的 **「開啟檔案方式」** 選項，然後選擇 `AIGoTeacher.exe`。應用程式會將該棋局直接載入第一個分頁中。
 
 ---
 
