@@ -91,8 +91,8 @@ WELCOME_LINK = "#1967d2"
 
 FEEDBACK_FORM_URL = "https://forms.gle/DkHPzEUCHx1NdKjE8"
 DEFAULT_KATAGO_PATH = "katago.exe"
-DEFAULT_MODEL_PATH = os.path.join("models", "kata1-b15c192-s1672170752-d466197061.txt.gz")
-MODEL_STANDARD_PATH = os.path.join("models", "kata1-b15c192-s1672170752-d466197061.txt.gz")
+DEFAULT_MODEL_PATH = os.path.join("models", "kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
+MODEL_STANDARD_PATH = os.path.join("models", "kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
 MODEL_FAST_PATH = os.path.join("models", "kata1-b6c96-s175395328-d26788732.txt.gz")
 DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
@@ -383,7 +383,7 @@ from services.keyring_service import (
 from services.provider_factory import ProviderFactory
 from services import find_service
 from services.theme_service import resolve_theme, PALETTES
-from ui.fake_menu import FakeMenuBar
+from ui.menu import MenuBar
 from services.ollama_manager import (
     OLLAMA_RECOMMENDED_CLOUD_MODELS,
     OLLAMA_RECOMMENDED_LOCAL_MODELS,
@@ -956,6 +956,7 @@ class TabManager:
         self._sessions = []
         self._active_index = -1
         self._next_id = 1
+        self.closed_tabs = []
 
     def initialize_default(self, initial_title=t("tab.default_title")):
         """建立第一個分頁並設為 active。供 main 流程開機時呼叫一次。"""
@@ -998,6 +999,34 @@ class TabManager:
         elif index < self._active_index:
             self._active_index -= 1
         return True, "ok"
+
+    def move_session(self, from_index, to_index):
+        """Move one session and preserve which session is active."""
+        if not (0 <= from_index < len(self._sessions)):
+            return False
+        if not (0 <= to_index < len(self._sessions)):
+            return False
+        if from_index == to_index:
+            return True
+
+        session = self._sessions.pop(from_index)
+        self._sessions.insert(to_index, session)
+        if self._active_index == from_index:
+            self._active_index = to_index
+        elif from_index < self._active_index <= to_index:
+            self._active_index -= 1
+        elif to_index <= self._active_index < from_index:
+            self._active_index += 1
+        return True
+
+    def reopen_closed_session(self):
+        """Restore the most recently closed session at the end of the list."""
+        if len(self._sessions) >= self.MAX_TABS or not self.closed_tabs:
+            return None
+        session = self.closed_tabs.pop()
+        self._sessions.append(session)
+        self._active_index = len(self._sessions) - 1
+        return session
 
     # ---------- 切換 / 查詢 ----------
     def set_active(self, index):
@@ -8620,6 +8649,8 @@ def build_menu_bar():
             {"type": "separator"},
             command(t("menu.prev_branch"), lambda: board.switch_branch(-1), "←"),
             command(t("menu.next_branch"), lambda: board.switch_branch(1), "→"),
+            {"type": "separator"},
+            command(t("menu.game_info"), show_game_info_dialog),
         ]},
         {"label": t("menu.analysis"), "items": [
             {   #"type": "check",
@@ -8632,7 +8663,6 @@ def build_menu_bar():
         {"label": t("menu.settings"), "items": [
             command(t("menu.model_settings"), show_settings_dialog),
             command(t("menu.rules_settings"), show_rules_settings_dialog, "Ctrl+K"),
-            command(t("menu.game_info"), show_game_info_dialog),
             command(t("settings.appearance"), show_appearance_settings_dialog),
             {"type": "submenu", "label": t("menu.language"), "items": [
                 radio(t(f"language.{lang}"), lang, language_var,
@@ -8682,8 +8712,8 @@ def build_menu_bar():
     if show_dev_var.get():
         menus.append({"label": t("menu.dev"), "items": create_dev_menu()})
 
-    if not isinstance(globals().get("menu_bar"), FakeMenuBar):
-        menu_bar = FakeMenuBar(root, palette)
+    if not isinstance(globals().get("menu_bar"), MenuBar):
+        menu_bar = MenuBar(root, palette)
     menu_bar.set_menus(menus)
     return menu_bar
 
@@ -8701,6 +8731,48 @@ tab_bar.pack(side="top", fill="x", padx=0, pady=0)
 tab_bar.pack_propagate(False)
 
 _tab_buttons = []  # 暫存按鈕參考以避免被 GC
+_tab_drag_state = {"index": None, "dragging": False, "start_x": 0}
+
+
+def _on_tab_press(event, idx):
+    _tab_drag_state["index"] = idx
+    _tab_drag_state["dragging"] = False
+    _tab_drag_state["start_x"] = event.x_root
+    root.bind("<B1-Motion>", _on_tab_drag_motion, add="+")
+    root.bind("<ButtonRelease-1>", _on_tab_release, add="+")
+
+
+def _on_tab_drag_motion(event):
+    if _tab_drag_state["index"] is None:
+        return
+    if abs(event.x_root - _tab_drag_state["start_x"]) >= 4:
+        _tab_drag_state["dragging"] = True
+
+
+def _on_tab_release(event):
+    source_idx = _tab_drag_state["index"]
+    dragging = _tab_drag_state["dragging"]
+    root.unbind("<B1-Motion>")
+    root.unbind("<ButtonRelease-1>")
+    _tab_drag_state["index"] = None
+    _tab_drag_state["dragging"] = False
+    if not dragging or source_idx is None:
+        return
+
+    target_idx = None
+    for idx, (tab_frame, _, _) in enumerate(_tab_buttons):
+        if tab_frame is None:
+            continue
+        midpoint = tab_frame.winfo_rootx() + tab_frame.winfo_width() / 2
+        if event.x_root < midpoint:
+            target_idx = idx
+            break
+    if target_idx is None:
+        target_idx = len(tab_manager) - 1
+    if target_idx != source_idx:
+        tab_manager.move_session(source_idx, target_idx)
+        refresh_tab_bar()
+    return "break"
 
 
 def _tab_options_button(parent, idx, bg):
@@ -8763,7 +8835,11 @@ def refresh_tab_bar():
             font=("Microsoft JhengHei", 10, "bold" if is_active else "normal"),
         )
         title_lbl.pack(side="left")
-        title_lbl.bind("<Button-1>", lambda e, i=idx: on_tab_click(i))
+        title_lbl.bind("<Button-1>", lambda e, i=idx: _on_tab_press(e, i))
+        title_lbl.bind("<ButtonRelease-1>", lambda e, i=idx: _on_tab_click_release(i))
+        title_lbl.bind("<Button-2>", lambda e, i=idx: on_close_tab_click(i) or "break")
+        tab_frame.bind("<Button-1>", lambda e, i=idx: _on_tab_press(e, i))
+        tab_frame.bind("<Button-2>", lambda e, i=idx: on_close_tab_click(i) or "break")
 
         options_btn = _tab_options_button(tab_frame, idx, bg)
         options_btn.pack(side="left", padx=(2, 6))
@@ -8783,6 +8859,12 @@ def refresh_tab_bar():
     new_btn.bind("<Enter>", lambda e, b=new_btn: b.config(fg=ACCENT))
     new_btn.bind("<Leave>", lambda e, b=new_btn: b.config(fg=TEXT_MUTED))
     _tab_buttons.append((None, None, new_btn))
+
+
+def _on_tab_click_release(idx):
+    if not _tab_drag_state["dragging"]:
+        on_tab_click(idx)
+    return "break"
 
 
 def on_tab_click(idx):
@@ -8936,8 +9018,10 @@ def _show_close_tab_dialog(session):
     dialog.title(t("dialog.close_tab_title"))
     dialog.transient(root)
     dialog.resizable(False, False)
+    dialog.iconbitmap(resource_path("image/logo.ico")) 
     dialog.configure(bg=PANEL_BG)
-
+    pywinstyles.change_header_color(dialog, color=PANEL_BG)
+    pywinstyles.change_title_color(dialog, color=TEXT_MAIN)
     result = {"choice": "cancel"}
 
     def _choose(value):
@@ -8983,9 +9067,11 @@ def _close_tab_silently(idx):
     # 1) 若關閉的是 active 分頁，先把棋盤 snapshot 存進它（保持一致性；之後會丟棄）
     if was_active:
         _capture_board_snapshot(tab_manager.active_session)
+    closed_session = tab_manager[idx]
     ok, reason = tab_manager.close_session(idx)
     if not ok:
         return
+    tab_manager.closed_tabs.append(closed_session)
     # 2) 關閉後的 active 已是鄰近分頁，從它還原棋盤
     _restore_board_snapshot(tab_manager.active_session)
     _on_find_tab_changed()  # 關閉分頁後棋盤已換，舊搜尋結果作廢
@@ -8996,6 +9082,31 @@ def _close_tab_silently(idx):
     hydrate_active_session()
     refresh_tab_bar()
     update_welcome_controls()
+
+
+def on_cycle_tab(direction):
+    if len(tab_manager) <= 1:
+        return "break"
+    target_idx = (tab_manager.active_index + direction) % len(tab_manager)
+    on_tab_click(target_idx)
+    return "break"
+
+
+def on_reopen_closed_tab():
+    stop_continuous_analysis("tab_reopened")
+    session = tab_manager.reopen_closed_session()
+    if session is None:
+        return "break"
+    _restore_board_snapshot(session)
+    _on_find_tab_changed()
+    board.rebuild_board()
+    if hasattr(board, 'branch_ui') and board.branch_ui is not None:
+        board.branch_ui.draw_tree()
+    board.on_state_change()
+    hydrate_active_session()
+    refresh_tab_bar()
+    update_welcome_controls()
+    return "break"
 
 
 def _copy_game_tree(node, parent=None):
@@ -9116,6 +9227,10 @@ root.bind("<Button-4>", on_mouse_wheel)
 root.bind("<Button-5>", on_mouse_wheel)
 
 # 綁定一般快捷鍵
+root.bind("<Control-Tab>", lambda e: on_cycle_tab(1))
+root.bind("<Control-Shift-Tab>", lambda e: on_cycle_tab(-1))
+root.bind("<Control-w>", lambda e: on_close_tab_click(tab_manager.active_index) or "break")
+root.bind("<Control-Shift-T>", lambda e: on_reopen_closed_tab())
 root.bind("<Control-f>", lambda e: show_find_dialog())
 root.bind("<Control-z>", lambda e: board.undo())
 root.bind("<Control-y>", lambda e: board.redo())
@@ -9401,7 +9516,7 @@ root.after_idle(_run_responsive_layout)
 
 # status bar doesn't apppear ∵ no enough space
 status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 1), background="#e8dfd2", foreground=TEXT_MUTED)
-status_bar.pack(side="bottom", fill="x")
+#status_bar.pack(side="bottom", fill="x")
 
 def update_status(message):
     if is_shutting_down:
