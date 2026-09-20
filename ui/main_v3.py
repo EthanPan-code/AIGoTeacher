@@ -3280,7 +3280,13 @@ class GoBoard(tk.Canvas):
             self.draw_recommendation_points(self.last_move_infos, self.last_is_black_turn)
 
     def _point(self, x, y):
-        return self.margin + x * self.cell_size, self.margin + y * self.cell_size
+        # Canvas 會將 line 與 oval 的浮點座標分別 rasterize，
+        # 在視窗縮放後 cell_size 通常不是整數，會讓星位看起來和網格
+        # 交點有約 1px 的偏移。所有棋盤上的可視元素共用同一個整數像素中心。
+        return (
+            round(self.margin + x * self.cell_size),
+            round(self.margin + y * self.cell_size),
+        )
 
     def _scaled(self, value):
         return value * self.cell_size / CELL_SIZE
@@ -3777,17 +3783,20 @@ class GoBoard(tk.Canvas):
             self.create_rectangle(0, 0, self.canvas_size, self.canvas_size, fill=board_fill, outline="")
 
         # 畫線
+        first_x, first_y = self._point(0, 0)
+        last_x, last_y = self._point(BOARD_SIZE - 1, BOARD_SIZE - 1)
         for i in range(BOARD_SIZE):
-            x = margin + i * cell_size
-            self.create_line(x, margin, x, margin + (BOARD_SIZE - 1) * cell_size, fill=BOARD_LINE)
-            self.create_line(margin, x, margin + (BOARD_SIZE - 1) * cell_size, x, fill=BOARD_LINE)
+            x, _ = self._point(i, 0)
+            self.create_line(x, first_y, x, last_y, fill=BOARD_LINE)
+            _, y = self._point(0, i)
+            self.create_line(first_x, y, last_x, y, fill=BOARD_LINE)
 
         # 星位
         stars = [3, 9, 15]
         for r in stars:
             for c in stars:
                 px, py = self._point(r, c)
-                radius = self._scaled(3)
+                radius = max(1, round(self._scaled(3)))
                 self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=BOARD_LINE, outline=BOARD_LINE)
 
 

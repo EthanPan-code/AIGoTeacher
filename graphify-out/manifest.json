@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1789817445.971773,
-    "seen": 1789865686.7709599,
-    "ast_hash": "15412bf4adf01ef68e9b0c4608e50e0c",
+    "mtime": 1789881932.8212132,
+    "seen": 1789901044.259143,
+    "ast_hash": "7d79fcf67efce65a51e5e8ccb7683c2e",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1789817446.4679797,
-    "seen": 1789865686.7709684,
-    "ast_hash": "81055d22544c03f492e1516ee4044301",
+    "mtime": 1789881887.7333083,
+    "seen": 1789901044.2591577,
+    "ast_hash": "d933c9fe554d4ec988678bda45388630",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1789817445.5598526,
-    "seen": 1789865686.7710164,
-    "ast_hash": "e82463d15d20abf95775d5f1628377fe",
+    "mtime": 1789900920.7387853,
+    "seen": 1789901044.2592387,
+    "ast_hash": "5301a9641e1a307bc0fd85468f38e973",
     "semantic_hash": ""
   },
   "version.py": {
@@ -178,12 +178,6 @@
     "seen": 1789779835.6811593,
     "ast_hash": "cf56d9306ac4dbc71d7d516f4d4fd10a",
     "semantic_hash": "cf56d9306ac4dbc71d7d516f4d4fd10a"
-  },
-  "ui/fake_menu.py": {
-    "mtime": 1786253320.6549516,
-    "seen": 1789779835.6811614,
-    "ast_hash": "1746caa160a384277557a973f4c9ecb3",
-    "semantic_hash": "1746caa160a384277557a973f4c9ecb3"
   },
   "services/llm_game_context.py": {
     "mtime": 1788600487.9221437,
@@ -267,6 +261,12 @@
     "mtime": 1789779354.4988708,
     "seen": 1789779835.6811576,
     "ast_hash": "6ba8087cc5a3128b270024e894f84582",
+    "semantic_hash": ""
+  },
+  "ui/menu.py": {
+    "mtime": 1789865930.3987842,
+    "seen": 1789901044.2592425,
+    "ast_hash": "7af3f0ff9823d901a242894897a3a81f",
     "semantic_hash": ""
   }
 }
