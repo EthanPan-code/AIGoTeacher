@@ -163,7 +163,7 @@ class ProviderFactory:
 
     @classmethod
     def discover_nim_models(cls, api_key=None):
-        """向 NIM 端點探索可用模型，失敗時降級至內建清單。
+        """向 NIM 端點探索可用模型；失敗時回傳空清單與錯誤。
 
         回傳 (model_ids, used_fallback, error_message)：
           - model_ids：最終使用的 model_id 清單
@@ -173,7 +173,7 @@ class ProviderFactory:
         ok, result = discover_nim_models(api_key, timeout=8)
         if ok:
             return (result, False, None)
-        return (NVIDIA_MODELS, True, result)
+        return ([], False, result)
 
     @classmethod
     def get_nim_publishers(cls, model_ids):
@@ -198,7 +198,7 @@ class ProviderFactory:
         ok, result = discover_openrouter_models(api_key, timeout=8)
         if ok:
             return (result, False, None)
-        return (OPENROUTER_MODELS, True, result)
+        return ([], False, result)
 
     @classmethod
     def get_openrouter_publishers(cls, model_ids):

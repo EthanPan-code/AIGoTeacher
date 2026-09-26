@@ -2,7 +2,8 @@
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
-import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat, hashlib
+import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat, hashlib, requests
+from urllib.parse import urlparse, unquote
 from collections import OrderedDict
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -4139,7 +4140,7 @@ class GoBoard(tk.Canvas):
         def escape_sgf(value):
             return str(value).replace("\\", "\\\\").replace("]", "\\]")
 
-        standard_metadata = {"GM": "1", "FF": "4", "CA": "UTF-8", "AP": "GoAI", "SZ": "19"}
+        standard_metadata = {"GM": "1", "FF": "4", "CA": "UTF-8", "AP": f"AIGoTeacher:{APP_VERSION}", "SZ": "19"}
         standard_metadata.update(root_metadata)
         sgf_content = "(;" + "".join(
             f"{key}[{escape_sgf(value)}]" for key, value in standard_metadata.items()
@@ -4195,10 +4196,13 @@ class GoBoard(tk.Canvas):
             f.write(sgf_content)
         print(f"分支 SGF 已儲存至: {filename}")
 
-    def load_sgf(self, filename):
+    def load_sgf(self, filename=None, content=None):
         """讀取 SGF 並正確建立分支樹狀結構，同時恢復註解到快取【Phase 3】修正版本"""
-        with open(filename, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        if content is None:
+            if not filename:
+                raise ValueError("SGF filename or content is required")
+            with open(filename, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
 
         self._record_edit()
 
@@ -4319,6 +4323,10 @@ class GoBoard(tk.Canvas):
         is_playback_mode = True
         logger.info(f"SGF 已載入並重建節點，恢復了 {len(commentary_cache)} 條註解")
         print("SGF 已載入並重建節點")
+
+    def load_sgf_content(self, content):
+        """Parse SGF text directly without creating a local SGF file."""
+        self.load_sgf(content=content)
 
     def jump_to_specific_move(self, target_idx):
         """跳轉到當前分支的指定手數"""
@@ -4495,7 +4503,7 @@ def save_game_as_sgf_dialog():
         refresh_tab_bar()
         status_var.set(t("status.saved_sgf", path=filename))
 
-def load_sgf_file(file_path=None):
+def load_sgf_file(file_path=None, *, sgf_content=None, source_name=None, source_url=None):
     """Load an SGF into the active tab and synchronize its document state."""
     # 【多分頁 v1】改為讀寫 active session 的檔案狀態
     session = tab_manager.active_session
@@ -4503,14 +4511,17 @@ def load_sgf_file(file_path=None):
         return
     global current_sgf_path, loaded_sgf_overwrite_confirmed
 
-    if file_path is None:
+    # Memory-backed URL loads must skip the local-file picker entirely.
+    if file_path is None and sgf_content is None:
         file_path = filedialog.askopenfilename(
             title=t("dialog.load_sgf_title"),
             filetypes=[(t("filetype.sgf"), "*.sgf"), (t("filetype.all"), "*.*")]
         )
-    if file_path:
-        file_path = os.path.abspath(os.path.expanduser(str(file_path).strip('"')))
-        if not os.path.isfile(file_path):
+    if file_path or sgf_content is not None:
+        is_memory_source = sgf_content is not None
+        if file_path:
+            file_path = os.path.abspath(os.path.expanduser(str(file_path).strip('"')))
+        if not is_memory_source and not os.path.isfile(file_path):
             messagebox.showerror(
                 t("dialog.error_title"),
                 t("error.sgf_path_not_found", path=file_path),
@@ -4526,7 +4537,10 @@ def load_sgf_file(file_path=None):
         if session.tab_type == "welcome":
             session.tab_type = "game"
         try:
-            board.load_sgf(file_path)
+            if is_memory_source:
+                board.load_sgf_content(sgf_content)
+            else:
+                board.load_sgf(file_path)
         except (OSError, UnicodeError, ValueError) as exc:
             logger.exception("SGF 載入失敗: %s", file_path)
             messagebox.showerror(
@@ -4536,17 +4550,21 @@ def load_sgf_file(file_path=None):
             return False
         if hasattr(board, "branch_ui") and board.branch_ui is not None:
             board.branch_ui.draw_tree()
-        session.sgf_path = file_path
+        # Remote SGF stays memory-only. Save will therefore use Save As.
+        session.sgf_path = None if is_memory_source else file_path
         session.loaded_sgf_overwrite_confirmed = False
-        # 分頁標題改為檔名（不含副檔名）
-        session.title = os.path.splitext(os.path.basename(file_path))[0]
+        # Prefer the SGF root GN property; remote filenames are often opaque.
+        fallback_name = source_name or file_path or source_url or t("tab.default_title")
+        fallback_name = os.path.basename(urlparse(str(fallback_name).split("?", 1)[0]).path) or str(fallback_name)
+        fallback_name = os.path.splitext(unquote(fallback_name))[0]
+        session.title = (board.root_node.metadata.get("GN") or "").strip() or fallback_name
         # 【Phase 2】載入 SGF → dirty（已載入但尚未做任何編輯也視為未儲存變更的開端）
         session.is_dirty = True
         refresh_tab_bar()
         # 同步回模組全域變數（向後相容）
         current_sgf_path = session.sgf_path
         loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
-        status_var.set(t("status.loaded_sgf", path=file_path))
+        status_var.set(t("status.loaded_sgf", path=source_url or file_path))
         update_welcome_controls()
         return True
     return False
@@ -4555,6 +4573,118 @@ def load_sgf_file(file_path=None):
 def on_load_sgf_click():
     load_sgf_file()
 
+def on_load_sgf_click_through_link(path=None):
+    """Load an SGF from a URL, or ask the user for one from the File menu."""
+    if path is None:
+        path = _ask_sgf_link()
+    path = str(path or "").strip()
+    if not path:
+        return False
+
+    def download_task():
+        try:
+            sgf_content = _fetch_sgf_content_from_url(path)
+        except (OSError, ValueError, requests.RequestException) as exc:
+            logger.exception("SGF 連結下載失敗: %s", path)
+            root.after(0, lambda error=str(exc): messagebox.showerror(
+                t("dialog.error_title"),
+                t("error.sgf_link_download_failed", error=error),
+            ))
+            return
+        parsed_path = urlparse(path).path
+        source_name = unquote(os.path.basename(parsed_path)) or t("tab.default_title")
+        root.after(
+            0,
+            lambda: load_sgf_file(
+                sgf_content=sgf_content,
+                source_name=source_name,
+                source_url=path,
+            ),
+        )
+
+    threading.Thread(target=download_task, daemon=True).start()
+    status_var.set(t("status.downloading_sgf"))
+    return True
+
+
+def _fetch_sgf_content_from_url(url):
+    """Fetch SGF bytes into memory and return decoded SGF text."""
+    url = str(url or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        raise ValueError("URL 必須使用 http:// 或 https://")
+
+    response = requests.get(
+        url,
+        headers={"User-Agent": "AIGoTeacher/0.3"},
+        stream=True,
+        timeout=(10, 30),
+    )
+    response.raise_for_status()
+    max_size = 10 * 1024 * 1024
+    content_length = response.headers.get("Content-Length")
+    if content_length and int(content_length) > max_size:
+        raise ValueError("SGF 檔案大小超過 10 MB 限制")
+
+    content = bytearray()
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        content.extend(chunk)
+        if len(content) > max_size:
+            raise ValueError("SGF 檔案大小超過 10 MB 限制")
+    if not content:
+        raise ValueError("下載到的 SGF 檔案是空的")
+    return bytes(content).decode("utf-8-sig", errors="ignore")
+
+
+def _ask_sgf_link():
+    """Show a URL input dialog with a real placeholder entry."""
+    dialog = tk.Toplevel(root)
+    dialog.title(t("dialog.load_sgf_link_title"))
+    dialog.transient(root)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    result = {"value": None}
+    frame = ttk.Frame(dialog, padding=16)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=t("dialog.load_sgf_link_prompt")).pack(anchor="w", pady=(0, 8))
+
+    entry = tk.Entry(frame, width=62, bg=INPUT_BG, fg=TEXT_MUTED,
+                     insertbackground=TEXT_MAIN, relief="solid", bd=1)
+    entry.pack(fill="x")
+    placeholder = "https://example.com/example.sgf"
+    entry.insert(0, placeholder)
+    placeholder_active = {"value": True}
+
+    def clear_placeholder(_event=None):
+        if placeholder_active["value"]:
+            entry.delete(0, tk.END)
+            entry.config(fg=TEXT_MAIN)
+            placeholder_active["value"] = False
+
+    def restore_placeholder(_event=None):
+        if not entry.get().strip():
+            entry.delete(0, tk.END)
+            entry.insert(0, placeholder)
+            entry.config(fg=TEXT_MUTED)
+            placeholder_active["value"] = True
+
+    def confirm():
+        if not placeholder_active["value"]:
+            result["value"] = entry.get().strip() or None
+        dialog.destroy()
+
+    entry.bind("<FocusIn>", clear_placeholder)
+    entry.bind("<FocusOut>", restore_placeholder)
+    entry.bind("<Return>", lambda _event: confirm())
+    button_frame = ttk.Frame(frame)
+    button_frame.pack(anchor="e", pady=(12, 0))
+    ttk.Button(button_frame, text=t("button.cancel"), command=dialog.destroy).pack(side="right")
+    ttk.Button(button_frame, text=t("button.load_sgf"), command=confirm).pack(side="right", padx=(0, 8))
+    root.wait_window(dialog)
+    return result["value"]
 
 def start_new_game_from_welcome():
     session = tab_manager.active_session
@@ -5544,14 +5674,15 @@ def _show_llm_selection_dialog(parent):
     nvidia_publisher_var = tk.StringVar(
         value=ProviderFactory.get_nim_publisher_for_model(current_nvidia_model)
     )
-    nvidia_model_var_local = tk.StringVar(value=current_nvidia_model)
+    # Cloud provider 模型必須以端點探索結果為準；開窗初始不要顯示未驗證的預設模型。
+    nvidia_model_var_local = tk.StringVar(value="")
     # 動態探索的 NIM 模型清單（開窗時自動刷新）
-    nvidia_discovered_models = {"models": list(ProviderFactory.get_available_models("nvidia"))}
+    nvidia_discovered_models = {"models": []}
     openrouter_publisher_var = tk.StringVar(
         value=ProviderFactory.get_openrouter_publisher_for_model(current_openrouter_model)
     )
-    openrouter_model_var_local = tk.StringVar(value=current_openrouter_model)
-    openrouter_discovered_models = {"models": list(ProviderFactory.get_available_models("openrouter"))}
+    openrouter_model_var_local = tk.StringVar(value="")
+    openrouter_discovered_models = {"models": []}
     nvidia_api_key_var = tk.StringVar(value=current_nvidia_api_key)
     openrouter_api_key_var = tk.StringVar(value=current_openrouter_api_key)
     api_key_visible = tk.BooleanVar(value=False)
@@ -6088,7 +6219,7 @@ def _show_llm_selection_dialog(parent):
     def refresh_nim_models_async():
         """背景執行緒：開窗時自動向 NIM 端點探索可用模型。
 
-        成功就更新 publisher/model 下拉；失敗則降級至內建清單並顯示提示。
+        成功才更新 publisher/model 下拉；失敗則清空選項並顯示錯誤。
         採短逾時，避免阻塞 UI。
         """
         def task():
@@ -6112,12 +6243,13 @@ def _show_llm_selection_dialog(parent):
                     nvidia_publisher_var.get(),
                     keep_model_id=current_model if current_model in model_ids else None,
                 )
-                if used_fallback:
+                if error_message:
                     nim_status_label.config(
-                        text=t("status.nim_models_fallback", error=error_message or "")
+                        text=t("status.nim_models_fallback", error=error_message or ""),
+                        fg=ERROR,
                     )
                 else:
-                    nim_status_label.config(text="")
+                    nim_status_label.config(text="", fg=TEXT_MUTED)
 
             try:
                 dialog_win.after(0, update_ui)
@@ -6269,8 +6401,9 @@ def _show_llm_selection_dialog(parent):
                 )
                 openrouter_status_label.config(
                     text=t("status.openrouter_models_fallback", error=error_message or "")
-                    if used_fallback else ""
+                    if error_message else ""
                 )
+                openrouter_status_label.config(fg=ERROR if error_message else TEXT_MUTED)
 
             try:
                 dialog_win.after(0, update_ui)
@@ -8644,6 +8777,7 @@ def build_menu_bar():
             command(t("menu.new_game"), new_game, "Ctrl+N"),
             {"type": "separator"},
             command(t("menu.load_sgf"), on_load_sgf_click, "Ctrl+O"),
+            command(t("dialog.load_sgf_link_title"), on_load_sgf_click_through_link),
             command(t("menu.save_json"), save_game_as_json),
             command(t("menu.save_json_as"), save_game_as_json_dialog),
             command(t("menu.save_sgf"), save_game_as_sgf, "Ctrl+S"),

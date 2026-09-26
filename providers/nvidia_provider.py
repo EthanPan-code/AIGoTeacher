@@ -79,7 +79,10 @@ def discover_nim_models(api_key=None, timeout=8):
             timeout=timeout,
         )
         if response.status_code != 200:
-            return (False, f"HTTP {response.status_code}")
+            detail = (response.text or "").strip().replace("\n", " ")
+            if len(detail) > 240:
+                detail = detail[:237] + "..."
+            return (False, f"HTTP {response.status_code}" + (f": {detail}" if detail else ""))
 
         data = response.json()
         # OpenAI 相容格式：{"data": [{"id": "..."}, ...]}
@@ -95,7 +98,7 @@ def discover_nim_models(api_key=None, timeout=8):
             return (False, "empty model list")
         return (True, model_ids)
     except Exception as e:
-        return (False, str(e))
+        return (False, f"{type(e).__name__}: {e}")
 
 
 class NvidiaProvider(LLMProvider):
@@ -125,18 +128,18 @@ class NvidiaProvider(LLMProvider):
         return model_id
 
     def discover_available_models(self):
-        """動態探索 NIM 可用模型，失敗時降級至內建清單。
+        """動態探索 NIM 可用模型。
 
         回傳 (model_ids, used_fallback, error_message)：
-          - model_ids：最終使用的 model_id 清單
-          - used_fallback：是否使用了內建 fallback
+          - model_ids：成功時為偵測到的 model_id，失敗時為空清單
+          - used_fallback：保留相容性，現在永遠為 False
           - error_message：探索失敗時的錯誤訊息（成功時為 None）
         """
         ok, result = discover_nim_models(self.api_key, timeout=8)
         if ok:
             return (result, False, None)
-        # 降級至內建清單
-        return (NVIDIA_MODELS, True, result)
+        # 偵測失敗時不可假裝內建清單就是服務端可用模型。
+        return ([], False, result)
 
     def validate_config(self):
         if not self.api_key:

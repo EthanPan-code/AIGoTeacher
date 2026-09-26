@@ -47,7 +47,10 @@ def discover_openrouter_models(api_key=None, timeout=8):
             headers["Authorization"] = f"Bearer {normalized}"
         response = requests.get(OPENROUTER_MODELS_ENDPOINT, headers=headers, timeout=timeout)
         if response.status_code != 200:
-            return (False, f"HTTP {response.status_code}")
+            detail = (response.text or "").strip().replace("\n", " ")
+            if len(detail) > 240:
+                detail = detail[:237] + "..."
+            return (False, f"HTTP {response.status_code}" + (f": {detail}" if detail else ""))
 
         data = response.json()
         items = data.get("data", []) if isinstance(data, dict) else []
@@ -61,7 +64,7 @@ def discover_openrouter_models(api_key=None, timeout=8):
             return (False, "empty model list")
         return (True, model_ids)
     except Exception as error:
-        return (False, str(error))
+        return (False, f"{type(error).__name__}: {error}")
 
 
 class OpenRouterProvider(LLMProvider):
@@ -101,7 +104,8 @@ class OpenRouterProvider(LLMProvider):
         ok, result = discover_openrouter_models(self.api_key, timeout=8)
         if ok:
             return (result, False, None)
-        return (OPENROUTER_MODELS, True, result)
+        # 偵測失敗時不可假裝內建清單就是服務端可用模型。
+        return ([], False, result)
 
     def validate_config(self):
         if not self.api_key:
