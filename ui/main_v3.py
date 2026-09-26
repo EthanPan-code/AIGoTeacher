@@ -4612,7 +4612,7 @@ def _fetch_sgf_content_from_url(url):
     url = str(url or "").strip()
     parsed = urlparse(url)
     if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
-        raise ValueError("URL 必須使用 http:// 或 https://")
+        raise ValueError(t("error.sgf_link_failed_hint"))
 
     response = requests.get(
         url,
@@ -4644,7 +4644,10 @@ def _ask_sgf_link():
     dialog.title(t("dialog.load_sgf_link_title"))
     dialog.transient(root)
     dialog.resizable(False, False)
+    dialog.iconbitmap(resource_path("image/logo.ico"))
     dialog.grab_set()
+    pywinstyles.change_header_color(dialog, color=PANEL_BG)
+    pywinstyles.change_title_color(dialog, color=TEXT_MAIN)
 
     result = {"value": None}
     frame = ttk.Frame(dialog, padding=16)
@@ -8130,6 +8133,7 @@ def show_game_info_dialog():
     frame.columnconfigure(1, weight=1)
 
     fields = (
+        ("GN", "label.game_info_game_name"),
         ("PB", "label.game_info_black_player"),
         ("PW", "label.game_info_white_player"),
         ("BR", "label.game_info_black_rank"),
@@ -8777,11 +8781,12 @@ def build_menu_bar():
             command(t("menu.new_game"), new_game, "Ctrl+N"),
             {"type": "separator"},
             command(t("menu.load_sgf"), on_load_sgf_click, "Ctrl+O"),
-            command(t("dialog.load_sgf_link_title"), on_load_sgf_click_through_link),
             command(t("menu.save_json"), save_game_as_json),
             command(t("menu.save_json_as"), save_game_as_json_dialog),
             command(t("menu.save_sgf"), save_game_as_sgf, "Ctrl+S"),
             command(t("menu.save_sgf_as"), save_game_as_sgf_dialog, "Ctrl+Shift+S"),
+            {"type": "separator"},
+            command(t("dialog.load_sgf_link_title"), on_load_sgf_click_through_link),
             {"type": "separator"},
             command(t("menu.exit"), on_closing, "Alt+F4"),
         ]},
