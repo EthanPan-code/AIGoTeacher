@@ -63,7 +63,6 @@ BOARD_FRAME_BG = None
 PANEL_BG = None
 INPUT_BG = None
 INPUT_FG = None
-STATUS_BG = None
 MENU_BG = None
 MENU_ACTIVE = None
 ERROR = None
@@ -2192,7 +2191,6 @@ class BranchTreeView(tk.Canvas):
 def auto_analyze():
     if not is_analyzer_ready():
         set_winrate_text("analysis.engine_not_ready")
-        status_var.set(t("status.katago_initializing"))
         return
 
     # 如果正在整盤分析，直接跳過自動分析
@@ -3745,7 +3743,6 @@ class GoBoard(tk.Canvas):
         
         if not is_analyzer_ready():
             set_winrate_text("analysis.engine_not_ready")
-            status_var.set(t("status.katago_initializing"))
             if hasattr(self, 'branch_ui'):
                 if structure_changed:
                     self.branch_ui.draw_tree()
@@ -4438,7 +4435,6 @@ class GoBoard(tk.Canvas):
 def save_game_as_json():
     filename = "gameinfo/game.json"
     board.export_as_json(filename)
-    status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf():
     # 【多分頁 v1】改為讀寫 active session 的檔案狀態
@@ -4467,7 +4463,6 @@ def save_game_as_sgf():
     # 【Phase 2】儲存成功 → 清掉 dirty 標記
     session.is_dirty = False
     refresh_tab_bar()
-    status_var.set(t("status.saved_sgf", path=session.sgf_path))
 
 def save_game_as_json_dialog():
     filename = filedialog.asksaveasfilename(
@@ -4477,7 +4472,6 @@ def save_game_as_json_dialog():
     )
     if filename:
         board.export_as_json(filename)
-        status_var.set(t("status.saved_json", path=filename))
 
 def save_game_as_sgf_dialog():
     # 【多分頁 v1】改為讀寫 active session 的檔案狀態
@@ -4501,7 +4495,6 @@ def save_game_as_sgf_dialog():
         # 【Phase 2】另存新檔成功 → 清掉 dirty
         session.is_dirty = False
         refresh_tab_bar()
-        status_var.set(t("status.saved_sgf", path=filename))
 
 def load_sgf_file(file_path=None, *, sgf_content=None, source_name=None, source_url=None):
     """Load an SGF into the active tab and synchronize its document state."""
@@ -4564,7 +4557,6 @@ def load_sgf_file(file_path=None, *, sgf_content=None, source_name=None, source_
         # 同步回模組全域變數（向後相容）
         current_sgf_path = session.sgf_path
         loaded_sgf_overwrite_confirmed = session.loaded_sgf_overwrite_confirmed
-        status_var.set(t("status.loaded_sgf", path=source_url or file_path))
         update_welcome_controls()
         return True
     return False
@@ -4603,7 +4595,6 @@ def on_load_sgf_click_through_link(path=None):
         )
 
     threading.Thread(target=download_task, daemon=True).start()
-    status_var.set(t("status.downloading_sgf"))
     return True
 
 
@@ -4727,7 +4718,6 @@ def new_game():
     board.refresh_display()
     board.on_state_change()
     render_teacher_ui(t("teacher.default_message"))
-    status_var.set(t("status.new_game"))
     update_welcome_controls()
 
 def show_about():
@@ -4857,7 +4847,6 @@ def start_score_analyzer_async(on_ready=None):
         score_query_in_flight = False
         score_estimate_pending_start = False
         if not is_shutting_down:
-            status_var.set(t("status.reinit_failed"))
             messagebox.showerror(t("dialog.error_title"), t("dialog.reinit_error", error=str(error)))
 
     def task():
@@ -4901,7 +4890,6 @@ def _handle_score_estimate_result(result):
     if not ownership:
         board.clear_score_estimate()
         update_score_estimate_button_label()
-        status_var.set(t("status.reinit_failed"))
         return
 
     score_lead = root_info.get("scoreLead", 0.0)
@@ -4959,7 +4947,6 @@ def _handle_score_estimate_result(result):
         "lead": lead,
     }
     board.refresh_display()
-    status_var.set(t("status.score_estimate_ready"))
     update_score_estimate_button_label()
     show_score_estimate_popup(summary, black_total, white_total, komi, leader, lead)
 
@@ -4977,7 +4964,6 @@ def show_score_estimate_popup(summary, black_total, white_total, komi, leader, l
         popup.destroy()
         board.clear_score_estimate()
         update_score_estimate_button_label()
-        status_var.set(t("status.score_estimate_cancelled"))
 
     popup.protocol("WM_DELETE_WINDOW", close_popup)
 
@@ -5072,7 +5058,6 @@ def _start_score_estimate_query():
     board.score_estimate_active = True
     board.set_recommendations_hidden(True)
     update_score_estimate_button_label()
-    status_var.set(t("analysis.score_estimating"))
 
     query_id = score_analyzer.send_query(
         board.stones,
@@ -5088,7 +5073,6 @@ def _start_score_estimate_query():
         score_estimate_pending_start = False
         board.clear_score_estimate()
         update_score_estimate_button_label()
-        status_var.set(t("status.reinit_failed"))
         return
 
     threading.Thread(target=_wait_for_score_estimate_response, daemon=True).start()
@@ -5102,23 +5086,19 @@ def on_score_estimate_click():
         return
 
     if score_query_in_flight:
-        status_var.set(t("analysis.score_estimating"))
         return
 
     score_estimate_pending_start = True
-    status_var.set(t("analysis.score_estimating"))
     start_score_analyzer_async(on_ready=_start_score_estimate_query)
 
 
 def on_close_score_estimate_click():
     board.clear_score_estimate()
     update_score_estimate_button_label()
-    status_var.set(t("status.score_estimate_cancelled"))
 
 def open_feedback_form():
     try:
         webbrowser.open(FEEDBACK_FORM_URL, new=2)
-        status_var.set(t("status.feedback_opened"))
     except Exception as e:
         logger.warning("無法開啟回饋表單: %s", e)
         messagebox.showerror(t("dialog.error_title"), t("dialog.feedback_open_error"))
@@ -6479,7 +6459,6 @@ def _show_llm_selection_dialog(parent):
         )
         provider_name = ProviderFactory.get_display_name(provider)
         model_display = ProviderFactory.get_model_display_name(provider, selected_model)
-        status_var.set(t("status.llm_provider_switched", provider=provider_name, model=model_display))
         update_llm_model_label(provider, selected_model)
         ollama_worker = current_llm_worker
         render_teacher_ui(t("teacher.default_message"))
@@ -6597,7 +6576,6 @@ def set_llm_tone(tone: str):
     config_service.save()
 
     tone_name = tone_templates.get_tone_display_name(tone, translator=t)
-    status_var.set(t("status.tone_changed", tone=tone_name))
     
     # 更新全局 provider 實例的語氣（如果存在）
     try:
@@ -7846,7 +7824,6 @@ def show_custom_prompt_dialog():
         except Exception as e:
             print(f"更新提供商提示詞失敗: {e}")
         
-        status_var.set(t("status.custom_prompts_saved"))
         prompt_win.destroy()
     
     def reset_prompts():
@@ -8186,7 +8163,6 @@ def show_game_info_dialog():
             return
         session.is_dirty = True
         refresh_tab_bar()
-        status_var.set(t("status.game_info_saved"))
         settings_win.destroy()
 
     button_frame = ttk.Frame(frame)
@@ -8629,7 +8605,6 @@ except (tk.TclError, AttributeError):
 style.configure("TCheckbutton", background=PANEL_BG, foreground=TEXT_MAIN)
 style.configure("TRadiobutton", background=PANEL_BG, foreground=TEXT_MAIN)
 
-status_var = tk.StringVar(value=t("status.starting"))
 llm_model_var = tk.StringVar(value="")
 language_var = tk.StringVar(value=i18n.language)
 analyzer = None
@@ -8729,7 +8704,6 @@ def build_menu_bar():
         switch_app_language(language)
         language_var.set(language)
         refresh_language()
-        status_var.set(t("status.language_changed", language=t(f"language.{language}")))
 
     def toggle_teacher_panel():
         if show_teacher_var.get():
@@ -9075,7 +9049,6 @@ def on_new_tab_click():
     loaded_sgf_overwrite_confirmed = False
     board.on_state_change()
     render_teacher_ui(t("teacher.default_message"))
-    status_var.set(t("status.new_game"))
     refresh_tab_bar()
     update_welcome_controls()
 
@@ -9662,20 +9635,9 @@ root.bind("<Configure>", _on_root_configure, add="+")
 root.after_idle(_run_responsive_layout)
 
 
-# status bar doesn't apppear ∵ no enough space
-status_bar = ttk.Label(root, textvariable=status_var, anchor="w", padding=(12, 1), background="#e8dfd2", foreground=TEXT_MUTED)
-#status_bar.pack(side="bottom", fill="x")
-
 def update_status(message):
-    if is_shutting_down:
-        return
-    if threading.current_thread() is threading.main_thread():
-        status_var.set(message)
-    else:
-        try:
-            root.after(0, status_var.set, message)
-        except tk.TclError:
-            pass
+    """Compatibility callback for components that report transient status."""
+    return
 
 
 def is_analyzer_ready():
@@ -9697,7 +9659,6 @@ def set_analysis_controls_state(enabled):
 
 
 def show_analyzer_not_ready():
-    status_var.set(t("status.katago_initializing"))
     set_winrate_text("analysis.engine_not_ready")
 
 
@@ -9761,7 +9722,6 @@ def start_analyzer_async(show_success=False, replacing=False):
     stop_continuous_analysis("analyzer_reinitializing")
 
     if analyzer_initializing:
-        status_var.set(t("status.katago_initializing"))
         return
 
     old_analyzer = analyzer
@@ -9769,7 +9729,6 @@ def start_analyzer_async(show_success=False, replacing=False):
     analyzer_initializing = True
     set_analysis_controls_state(False)
     set_winrate_text("analysis.engine_not_ready")
-    status_var.set(t("status.katago_initializing"))
     popup = create_katago_startup_popup()
 
     def update_startup_message(key, **kwargs):
@@ -9782,7 +9741,6 @@ def start_analyzer_async(show_success=False, replacing=False):
                 return
             if popup["window"].winfo_exists():
                 popup["message_var"].set(message)
-            status_var.set(message)
 
         try:
             root.after(0, apply_message)
@@ -9797,7 +9755,6 @@ def start_analyzer_async(show_success=False, replacing=False):
         analyzer = new_analyzer
         analyzer_initializing = False
         set_analysis_controls_state(True)
-        status_var.set(t("status.ready"))
         set_winrate_text("analysis.not_analyzed")
         if popup["window"].winfo_exists():
             popup["progress_bar"].stop()
@@ -9821,7 +9778,6 @@ def start_analyzer_async(show_success=False, replacing=False):
             return
         analyzer_initializing = False
         set_analysis_controls_state(False)
-        status_var.set(t("status.reinit_failed"))
         if popup["window"].winfo_exists():
             popup["progress_bar"].stop()
             popup["window"].destroy()
@@ -9837,7 +9793,6 @@ def start_analyzer_async(show_success=False, replacing=False):
         if analyzer_initializing and popup["window"].winfo_exists():
             message = t("status.katago_autotuning_slow")
             popup["message_var"].set(message)
-            status_var.set(message)
 
     try:
         root.after(30000, warn_if_slow)
@@ -9983,7 +9938,6 @@ def apply_theme(theme_name, persist=True):
         if old and name in palette
     }
     color_map.update({
-        "#e8dfd2": STATUS_BG, 
         "#f8f8f8": INPUT_BG,
         "#666": TEXT_MUTED, "#666666": TEXT_MUTED, "#C62828": ERROR,
         "#d8d0c5": PANEL_BORDER, "#9d8f7f": TEXT_MUTED,
@@ -10112,7 +10066,6 @@ def apply_theme(theme_name, persist=True):
             selectbackground=SELECTION_BG,
             selectforeground=SELECTION_FG,
         )
-        status_bar.configure(background=STATUS_BG, foreground=TEXT_MUTED)
         board.refresh_display()
         update_welcome_controls()
         branch_ui.draw_tree()

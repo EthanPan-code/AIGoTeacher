@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1789881932.8212132,
-    "seen": 1789901044.259143,
-    "ast_hash": "7d79fcf67efce65a51e5e8ccb7683c2e",
+    "mtime": 1790570804.3044052,
+    "seen": 1790570953.8328028,
+    "ast_hash": "2fb92267c4a7695878d852a24890cf74",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1789881887.7333083,
-    "seen": 1789901044.2591577,
-    "ast_hash": "d933c9fe554d4ec988678bda45388630",
+    "mtime": 1790570804.7407985,
+    "seen": 1790570953.8328116,
+    "ast_hash": "9dc78c0bcb2c679b3b06e9b9d1ccda5a",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -24,15 +24,15 @@
     "semantic_hash": "0ee9df23412f4cb846019f2f9860b6c0"
   },
   "providers/nvidia_provider.py": {
-    "mtime": 1787637361.9787838,
-    "seen": 1789779835.6811402,
-    "ast_hash": "ac03963841c9964e7f2e1d82b68bec14",
+    "mtime": 1790570794.202434,
+    "seen": 1790570953.8328242,
+    "ast_hash": "042be62f01c171060caca12b9af45702",
     "semantic_hash": ""
   },
   "providers/ollama_provider.py": {
-    "mtime": 1787637361.9787838,
-    "seen": 1789779835.681142,
-    "ast_hash": "65d77a1c2683226b1fe17e29cb3457aa",
+    "mtime": 1790570794.644346,
+    "seen": 1790570953.8328261,
+    "ast_hash": "065702924a32af9a98cd9788f4564daf",
     "semantic_hash": ""
   },
   "providers/tone_templates.py": {
@@ -72,10 +72,10 @@
     "semantic_hash": "0aac0739a852b197ea996bb4de1906ef"
   },
   "services/provider_factory.py": {
-    "mtime": 1785925686.2741265,
-    "seen": 1789779835.681155,
-    "ast_hash": "ce15f20a8bd618cf21effabd34663e1d",
-    "semantic_hash": "ce15f20a8bd618cf21effabd34663e1d"
+    "mtime": 1790337818.0785584,
+    "seen": 1790430268.5792432,
+    "ast_hash": "ff06cfef9f0399a9929f4c840b1a4d5b",
+    "semantic_hash": ""
   },
   "tools/ollama_detection.json": {
     "mtime": 1779367127.1693337,
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1789900920.7387853,
-    "seen": 1789901044.2592387,
-    "ast_hash": "5301a9641e1a307bc0fd85468f38e973",
+    "mtime": 1790430695.05205,
+    "seen": 1790570953.8328607,
+    "ast_hash": "f749779129469389fc87481cea07cf9d",
     "semantic_hash": ""
   },
   "version.py": {
@@ -156,9 +156,9 @@
     "semantic_hash": ""
   },
   "providers/openrouter_provider.py": {
-    "mtime": 1787637361.9787838,
-    "seen": 1789779835.6811438,
-    "ast_hash": "56842af9f30b69518fa9c93c5d9dce14",
+    "mtime": 1790570795.1694524,
+    "seen": 1790570953.832828,
+    "ast_hash": "6543df8d70785766fa87fbc2ac6bcb2e",
     "semantic_hash": ""
   },
   "SECURITY.md": {
@@ -258,9 +258,9 @@
     "semantic_hash": ""
   },
   "services/sgf_metadata.py": {
-    "mtime": 1789779354.4988708,
-    "seen": 1789779835.6811576,
-    "ast_hash": "6ba8087cc5a3128b270024e894f84582",
+    "mtime": 1790429320.5566556,
+    "seen": 1790430268.5792484,
+    "ast_hash": "19109730a4e39ce8e2e900b2669e521f",
     "semantic_hash": ""
   },
   "ui/menu.py": {

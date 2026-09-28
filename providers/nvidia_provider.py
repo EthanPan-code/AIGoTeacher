@@ -150,8 +150,6 @@ class NvidiaProvider(LLMProvider):
 
     def set_model(self, model_name):
         self.model_name = model_name
-        if self.status_callback:
-            self.status_callback(self.tr("status.llm_provider_switched", provider="NVIDIA", model=self.get_model_display_name(model_name)))
 
     def start_commentary(self, critical_data):
         if self.is_generating:
@@ -225,8 +223,6 @@ class NvidiaProvider(LLMProvider):
                 except Exception as callback_error:
                     print(f"NVIDIA error callback failed: {callback_error}")
             self.ui_callback(self._fallback_commentary(data, e))
-            if self.status_callback:
-                self.status_callback(self.tr("status.nvidia_fallback"))
         finally:
             self.is_generating = False
             if self.on_complete_callback:
