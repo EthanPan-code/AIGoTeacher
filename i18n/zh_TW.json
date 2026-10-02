@@ -250,6 +250,8 @@
   "label.game_info_white_rank": "白方段位：",
   "label.game_info_result": "結果：",
   "label.game_info_date": "日期：",
+  "label.game_info_komi": "貼目：",
+  "button.open_rules_settings": "設定規則與貼目",
   "delete_data.title": "刪除應用程式資料",
   "delete_data.warning_title": "危險操作：刪除資料",
   "delete_data.warning_message": "此操作無法復原。刪除設定可能使程式恢復預設值；刪除調校資料後，下次啟動可能需要重新調校 GPU。請確認只選取不再需要的資料。",

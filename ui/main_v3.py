@@ -8099,7 +8099,7 @@ def show_game_info_dialog():
     settings_win = tk.Toplevel(root)
     settings_win.iconbitmap(resource_path("image/logo.ico"))
     settings_win.title(t("dialog.game_info_title"))
-    settings_win.geometry("460x360")
+    settings_win.geometry("460x400")
     settings_win.transient(root)
     settings_win.grab_set()
     pywinstyles.change_header_color(settings_win, color=PANEL_BG)
@@ -8148,6 +8148,20 @@ def show_game_info_dialog():
                 show_ph()
             create_placeholder_logic()
 
+    ttk.Label(frame, text=t("label.game_info_komi")).grid(
+        row=len(fields), column=0, sticky="w", pady=(0, 10)
+    )
+
+    def open_rules_settings():
+        settings_win.destroy()
+        show_rules_settings_dialog()
+
+    ttk.Button(
+        frame,
+        text=t("button.open_rules_settings"),
+        command=open_rules_settings,
+    ).grid(row=len(fields), column=1, sticky="w", padx=(12, 0), pady=(0, 10))
+
     def apply_game_info():
         try:
             update_game_info(
@@ -8166,7 +8180,7 @@ def show_game_info_dialog():
         settings_win.destroy()
 
     button_frame = ttk.Frame(frame)
-    button_frame.grid(row=len(fields), column=0, columnspan=2, sticky="e", pady=(12, 0))
+    button_frame.grid(row=len(fields) + 1, column=0, columnspan=2, sticky="e", pady=(12, 0))
     ttk.Button(button_frame, text=t("button.save"), command=apply_game_info).pack(
         side="right", padx=(8, 0)
     )

@@ -251,6 +251,8 @@
   "label.game_info_white_rank": "White rank:",
   "label.game_info_result": "Result:",
   "label.game_info_date": "Date:",
+  "label.game_info_komi": "Komi:",
+  "button.open_rules_settings": "Set Rules and Komi",
   "delete_data.title": "Delete Application Data",
   "delete_data.warning_title": "Dangerous Operation: Delete Data",
   "delete_data.warning_message": "This action cannot be undone. Deleting settings may restore default values; deleting tuning data may require GPU tuning the next time the app starts. Select only data you no longer need.",
