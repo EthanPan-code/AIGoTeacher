@@ -383,6 +383,7 @@ from services.keyring_service import (
 from services.provider_factory import ProviderFactory
 from services import find_service
 from services.theme_service import resolve_theme, PALETTES
+from services.ime_font_manager import ImeFontManager
 from ui.menu import MenuBar
 from services.ollama_manager import (
     OLLAMA_RECOMMENDED_CLOUD_MODELS,
@@ -8597,6 +8598,8 @@ def on_mouse_wheel(event):
         board.navigate_node(1)
 
 root = tk.Tk()
+ime_font_manager = ImeFontManager(root)
+ime_font_manager.install()
 root.title(t("app.title"))
 root.configure(bg=UI_BG)
 BOARD_LAYOUT_PADDING = 100
@@ -8700,6 +8703,7 @@ def on_closing():
     if is_shutting_down and not data_cleanup_completed:
         return
     is_shutting_down = True
+    ime_font_manager.uninstall()
     stop_continuous_analysis("application_closing")
     analyzer_initializing = False
 
@@ -10141,6 +10145,10 @@ def apply_theme(theme_name, persist=True):
             board._apply_frame_background()
         rebuild_menu_bar()
     except (NameError, tk.TclError):
+        pass
+    try:
+        ime_font_manager.refresh()
+    except NameError:
         pass
 # 初始執行
 apply_theme(configured_theme, persist=False)
