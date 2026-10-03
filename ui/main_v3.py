@@ -8219,6 +8219,16 @@ def show_game_info_dialog():
                 parent=settings_win,
             )
             return
+        # Keep the tab title in sync with the SGF root game name.  GN takes
+        # precedence over the filename when it is present, matching the
+        # naming rule used after loading an SGF file.
+        game_name = (board.root_node.metadata.get("GN") or "").strip()
+        if game_name:
+            session.title = game_name
+        elif session.sgf_path:
+            session.title = os.path.splitext(os.path.basename(session.sgf_path))[0]
+        else:
+            session.title = t("tab.default_title")
         session.is_dirty = True
         refresh_tab_bar()
         settings_win.destroy()
