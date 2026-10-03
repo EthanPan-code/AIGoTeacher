@@ -15,7 +15,7 @@ GAME_INFO_FIELDS = (
 def validate_game_date(value: str) -> str:
     """Return a normalized date or raise ValueError for a non-SGF date."""
     value = (value or "").strip()
-    if not value:
+    if not value or value == "YYYY-MM-DD":
         return ""
     try:
         datetime.strptime(value, "%Y-%m-%d")

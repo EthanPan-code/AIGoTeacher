@@ -8148,19 +8148,39 @@ def show_game_info_dialog():
                 show_ph()
             create_placeholder_logic()
 
-    ttk.Label(frame, text=t("label.game_info_komi")).grid(
-        row=len(fields), column=0, sticky="w", pady=(0, 10)
-    )
-
     def open_rules_settings():
         settings_win.destroy()
         show_rules_settings_dialog()
+    
+    active_rules, active_komi = get_active_analysis_settings()
+    if active_rules == "ing" and active_komi == 7.5:
+        komi_display = 8
+    else:
+        komi_display = active_komi
+    rules_display = t(f"label.{active_rules}")
+    ttk.Label(frame, text=t("label.analysis_rules")).grid(
+        row=len(fields), column=0, sticky="w", pady=(0, 10)
+    )
+
+    ttk.Label(frame, text=f"{rules_display}").grid(
+        row=len(fields), column=1, sticky="w", pady=(0, 10), padx=(12, 0)
+    )
 
     ttk.Button(
         frame,
         text=t("button.open_rules_settings"),
         command=open_rules_settings,
-    ).grid(row=len(fields), column=1, sticky="w", padx=(12, 0), pady=(0, 10))
+    ).grid(row=len(fields), column=1, sticky="e", pady=(0, 10))
+
+
+
+    ttk.Label(frame, text=t("label.game_info_komi")).grid(
+        row=len(fields)+1, column=0, sticky="w", pady=(0, 10)
+    )
+
+    ttk.Label(frame, text=f"{komi_display}").grid(
+        row=len(fields)+1, column=1, sticky="w", pady=(0, 10), padx=(12, 0)
+    )
 
     def apply_game_info():
         try:
@@ -8180,7 +8200,7 @@ def show_game_info_dialog():
         settings_win.destroy()
 
     button_frame = ttk.Frame(frame)
-    button_frame.grid(row=len(fields) + 1, column=0, columnspan=2, sticky="e", pady=(12, 0))
+    button_frame.grid(row=len(fields) + 2, column=0, columnspan=2, sticky="e", pady=(12, 0))
     ttk.Button(button_frame, text=t("button.save"), command=apply_game_info).pack(
         side="right", padx=(8, 0)
     )
