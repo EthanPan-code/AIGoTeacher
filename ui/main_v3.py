@@ -8100,6 +8100,7 @@ def show_game_info_dialog():
     settings_win.iconbitmap(resource_path("image/logo.ico"))
     settings_win.title(t("dialog.game_info_title"))
     settings_win.geometry("460x400")
+    settings_win.minsize(460, 300)
     settings_win.transient(root)
     settings_win.grab_set()
     pywinstyles.change_header_color(settings_win, color=PANEL_BG)
@@ -8120,15 +8121,38 @@ def show_game_info_dialog():
     )
     values = get_game_info(getattr(board.root_node, "metadata", {}))
     variables = {}
+
+    m = 0 # 並排多少次（適用於PB-BR、PW-WR）
     for row, (key, label_key) in enumerate(fields):
-        variables[key] = tk.StringVar(value=values[key])
-        ttk.Label(frame, text=t(label_key)).grid(
-            row=row, column=0, sticky="w", pady=(0, 10)
-        )
-        entry = ttk.Entry(frame, textvariable=variables[key], width=34)
-        entry.grid(
-            row=row, column=1, sticky="ew", padx=(12, 0), pady=(0, 10)
-        )
+        if key == "PB" or key == "PW":
+            variables[key] = tk.StringVar(value=values[key])
+            ttk.Label(frame, text=t(label_key)).grid(
+                row=row, column=0, sticky="w", pady=(0, 10)
+            )
+            entry = ttk.Entry(frame, textvariable=variables[key], width=12)
+            entry.grid(
+                row=row, column=1, columnspan=1, sticky="ew", padx=(12, 0), pady=(0, 10)
+            )
+            m += 1
+
+        elif key == "BR" or key == "WR":
+            variables[key] = tk.StringVar(value=values[key])
+            ttk.Label(frame, text=t(label_key)).grid(
+                row=row-2, column=2, sticky="e", padx=(12, 0), pady=(0, 10)
+            )
+            entry = ttk.Entry(frame, textvariable=variables[key], width=12)
+            entry.grid(
+                row=row-2, column=3, columnspan=1, sticky="ew", padx=(12, 0), pady=(0, 10)
+            )
+        else:
+            variables[key] = tk.StringVar(value=values[key])
+            ttk.Label(frame, text=t(label_key)).grid(
+                row=row-m, column=0, sticky="w", pady=(0, 10)
+            )
+            entry = ttk.Entry(frame, textvariable=variables[key], width=34)
+            entry.grid(
+                row=row-m, column=1, columnspan=3, sticky="ew", padx=(12, 0), pady=(0, 10)
+            )
         if key == "DT":
             placeholder = t("placeholder.date")
             def create_placeholder_logic(e=entry, v=variables[key], p=placeholder):
@@ -8159,27 +8183,27 @@ def show_game_info_dialog():
         komi_display = active_komi
     rules_display = t(f"label.{active_rules}")
     ttk.Label(frame, text=t("label.analysis_rules")).grid(
-        row=len(fields), column=0, sticky="w", pady=(0, 10)
+        row=len(fields)-m, column=0, sticky="w", pady=(0, 10)
     )
 
     ttk.Label(frame, text=f"{rules_display}").grid(
-        row=len(fields), column=1, sticky="w", pady=(0, 10), padx=(12, 0)
+        row=len(fields)-m, column=1, sticky="w", pady=(0, 10), padx=(12, 0)
     )
 
     ttk.Button(
         frame,
         text=t("button.open_rules_settings"),
         command=open_rules_settings,
-    ).grid(row=len(fields), column=1, sticky="e", pady=(0, 10))
+    ).grid(row=len(fields)-m, column=3, sticky="e", pady=(0, 10))
 
 
 
     ttk.Label(frame, text=t("label.game_info_komi")).grid(
-        row=len(fields)+1, column=0, sticky="w", pady=(0, 10)
+        row=len(fields)+1-m, column=0, sticky="w", pady=(0, 10)
     )
 
     ttk.Label(frame, text=f"{komi_display}").grid(
-        row=len(fields)+1, column=1, sticky="w", pady=(0, 10), padx=(12, 0)
+        row=len(fields)+1-m, column=1, sticky="w", pady=(0, 10), padx=(12, 0)
     )
 
     def apply_game_info():
@@ -8200,7 +8224,7 @@ def show_game_info_dialog():
         settings_win.destroy()
 
     button_frame = ttk.Frame(frame)
-    button_frame.grid(row=len(fields) + 2, column=0, columnspan=2, sticky="e", pady=(12, 0))
+    button_frame.grid(row=len(fields) + 2, column=2, columnspan=2, sticky="e", pady=(12, 0))
     ttk.Button(button_frame, text=t("button.save"), command=apply_game_info).pack(
         side="right", padx=(8, 0)
     )

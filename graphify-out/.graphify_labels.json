@@ -1,8 +1,8 @@
 {
   "0": "GoBoard",
   "1": "AI 圍棋老師 / AI Go Teacher",
-  "2": "OllamaProvider",
-  "3": "_show_llm_selection_dialog",
+  "2": "OllamaManager",
+  "3": "ProviderFactory",
   "4": "Contributing to AI Go Teacher / 為 AI Go Teacher 貢獻",
   "5": "LLM 提供來源遷移指南 / LLM Provider Migration Guide",
   "6": "._start_generation",
@@ -21,7 +21,7 @@
   "19": "version.py",
   "20": "show_appearance_settings_dialog",
   "21": "safe_get_system_info",
-  "22": "tone_templates.py",
+  "22": "I18n",
   "23": "OpenRouterProvider",
   "24": "LLMChatWindow",
   "25": "normalize_api_key",
@@ -54,10 +54,13 @@
   "52": "create_path_row",
   "53": "._apply_chat_palette_swap",
   "54": "show_find_dialog",
-  "55": "I18n",
+  "55": "OllamaProvider",
   "56": "MessageBubble",
   "57": "refresh_language",
-  "58": "theme_service.py",
-  "59": "render_markdown",
-  "60": "apply_theme"
+  "58": "_show_llm_selection_dialog",
+  "59": "serialize_game_context",
+  "60": "save_and_apply_settings",
+  "61": "task",
+  "62": "update_ui",
+  "63": ".discover_nim_models"
 }

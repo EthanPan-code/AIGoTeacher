@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1790570804.3044052,
-    "seen": 1790570953.8328028,
-    "ast_hash": "2fb92267c4a7695878d852a24890cf74",
+    "mtime": 1790991261.4073343,
+    "seen": 1791005633.9260845,
+    "ast_hash": "ea939ff8d3562bef8fc077174415aaa1",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1790570804.7407985,
-    "seen": 1790570953.8328116,
-    "ast_hash": "9dc78c0bcb2c679b3b06e9b9d1ccda5a",
+    "mtime": 1790991243.4762113,
+    "seen": 1791005633.926097,
+    "ast_hash": "a0e0883d6d431acec4e031124eefda4f",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1790430695.05205,
-    "seen": 1790570953.8328607,
-    "ast_hash": "f749779129469389fc87481cea07cf9d",
+    "mtime": 1791005576.1796708,
+    "seen": 1791005633.926267,
+    "ast_hash": "7f1ba07cc10277dc1a3f017025695afd",
     "semantic_hash": ""
   },
   "version.py": {
@@ -108,9 +108,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1789865655.9925728,
-    "seen": 1789865686.7710235,
-    "ast_hash": "9277324d44dd78c6ff8abe13794d3e05",
+    "mtime": 1790599547.9506173,
+    "seen": 1791005633.9262853,
+    "ast_hash": "58b00e55e3973290cf7aad146665ff2d",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   ".github/image/GUI.png": {
-    "mtime": 1788689995.6449459,
-    "seen": 1789779835.6811752,
-    "ast_hash": "3c8cc8052702c8385754d20018ef48a3",
+    "mtime": 1790599461.660745,
+    "seen": 1791005633.9263027,
+    "ast_hash": "3232e0e8fb1324ed9adde4ca1c907a09",
     "semantic_hash": ""
   },
   "image/attach_dark.png": {
@@ -258,9 +258,9 @@
     "semantic_hash": ""
   },
   "services/sgf_metadata.py": {
-    "mtime": 1790429320.5566556,
-    "seen": 1790430268.5792484,
-    "ast_hash": "19109730a4e39ce8e2e900b2669e521f",
+    "mtime": 1790991780.527632,
+    "seen": 1791005633.9262493,
+    "ast_hash": "0dcb35e137e9c9baf8bc630c1271521a",
     "semantic_hash": ""
   },
   "ui/menu.py": {
