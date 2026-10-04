@@ -8869,7 +8869,13 @@ def build_menu_bar():
     theme_var = tk.StringVar(value=config_service.get_ui_theme())
     current_tone_var = tk.StringVar(value=config_service.get_llm_tone("friendly"))
     show_teacher_var = tk.BooleanVar(value=config_service.get_show_teacher())
-    show_branch_var = tk.BooleanVar(value=True)
+    # Rebuilding the menu (for example after toggling developer options) must
+    # preserve the current branch-panel visibility state.  Otherwise an
+    # unchecked "Show Branch" item is silently reset to checked.
+    previous_show_branch = globals().get("show_branch_var")
+    show_branch_var = tk.BooleanVar(
+        value=previous_show_branch.get() if previous_show_branch is not None else True
+    )
     show_move_numbers_var = tk.BooleanVar(value=False)
     show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
 
