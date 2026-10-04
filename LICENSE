@@ -1,26 +1,89 @@
-This project redistributes KataGo as a precompiled binary.
+## Third-Party Software and Assets
 
-KataGo is licensed under the MIT License:
+AI Go Teacher redistributes or incorporates the following third-party
+software, dependencies, and assets. These materials are **not covered by
+the license of AI Go Teacher** and remain subject to their respective
+licenses.
+
+### KataGo
+
+AI Go Teacher redistributes KataGo as a precompiled binary.
+
+KataGo is licensed under the MIT License.
 
 Copyright 2025 David J. Wu ("lightvector") and contributors.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
+The full MIT License text for KataGo is available at:
 
-(Full MIT License text is included in this repository or available at:
-https://github.com/lightvector/KataGo)
+https://github.com/lightvector/KataGo
 
----
+AI Go Teacher does not claim ownership of KataGo.
+
+### KataGo Third-Party Dependencies
 
 KataGo includes third-party dependencies located in:
+
 cpp/external/
 
 Each dependency is licensed under its own respective license.
 Please refer to the LICENSE files within those directories.
 
 Additionally:
-- cpp/core/sha2.cpp contains its own embedded license.
-- Some Python files are modified from other open-source projects as noted in-source.
 
-This redistribution does not claim ownership of KataGo or its dependencies.
+- `cpp/core/sha2.cpp` contains its own embedded license.
+- Some Python files are modified from other open-source projects as noted
+  in the source files.
+
+AI Go Teacher does not claim ownership of these third-party dependencies.
+
+### Audio Assets
+
+AI Go Teacher includes edited audio assets derived from the following
+third-party recording:
+
+**"baduk2" by Hongsungbock**
+
+Source:
+
+https://freesound.org/people/Hongsungbock/sounds/840425/
+
+**"Play Go Sounds (SE471) (High Quality)" by MPooman**
+
+Source:
+
+https://freesound.org/people/MPooman/sounds/664986/
+
+The original recording is licensed under the **Creative Commons CC0 1.0
+Universal (Public Domain Dedication)**.
+
+License:
+
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The audio included in this project has been cut and edited from the
+original recording for use as Go stone placement sound effects in
+AI Go Teacher.
+
+The original recording is provided under CC0 1.0 Universal and may be
+used, modified, and redistributed in accordance with its license.
+
+
+---
+
+## AI Go Teacher License
+
+Except for the third-party software, dependencies, and assets described
+above, all other contents of AI Go Teacher are licensed under the
+MIT License.
+
+---
+
+MIT License
+
+Copyright (c) 2026 AI Go Teacher contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
