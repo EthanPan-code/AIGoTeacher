@@ -31,6 +31,9 @@ BOARD_PIXEL = CELL_SIZE * (BOARD_SIZE - 1) + (MARGIN * 2)
 CANVAS_SIZE = BOARD_PIXEL 
 MIN_CANVAS_SIZE = 480
 STONE_IMAGE_SIZE = 24
+BRANCH_STONE_IMAGE_SIZE = 28
+DEFAULT_BLACK_STONE_IMAGE = "image/stones/black_stone.png"
+DEFAULT_WHITE_STONE_IMAGE = "image/stones/white_stone.png"
 ANALYSIS_CACHE_LIMIT = 300
 UI_POLL_INTERVAL_MS = 200
 COMMENTARY_CACHE_LIMIT = 200  
@@ -1766,7 +1769,7 @@ class BranchCanvas(tk.Canvas):
     def __init__(self, master, board_ref, **kwargs):
         super().__init__(master, **kwargs)
         self.board_ref = board_ref
-        self.node_radius = 15
+        self.node_radius = 14
         self.bind("<Button-1>", self.on_click)
 
     def draw_branches(self):
@@ -1790,10 +1793,20 @@ class BranchCanvas(tk.Canvas):
             outline = ACCENT if i == active_idx else "#9d8f7f"
             width = 3 if i == active_idx else 1
             
-            # 畫圓圈代表分支
-            self.create_oval(x-self.node_radius, y-self.node_radius, 
-                             x+self.node_radius, y+self.node_radius, 
-                             fill=color, outline=outline, width=width, tags=f"branch_{i}")
+            # 優先使用棋盤目前載入的棋子圖片，找不到時才退回圓形。
+            branch_color = node.move[2] if node.move else "white"
+            stone_image = self.board_ref.black_branch_stone_image if branch_color == "black" else self.board_ref.white_branch_stone_image
+            if stone_image:
+                self.create_image(x, y, image=stone_image, anchor="center", tags=f"branch_{i}")
+                # self.create_oval(
+                #     x-self.node_radius, y-self.node_radius,
+                #     x+self.node_radius, y+self.node_radius,
+                #     fill="", outline=outline, width=width, tags=f"branch_{i}"
+                # )
+            else:
+                self.create_oval(x-self.node_radius, y-self.node_radius,
+                                 x+self.node_radius, y+self.node_radius,
+                                 fill=color, outline=outline, width=width, tags=f"branch_{i}")
             
             # 顯示座標縮寫 (如 R16)
             move = node.move
@@ -2056,16 +2069,25 @@ class BranchTreeView(tk.Canvas):
                 self.create_line(toggle_x - 3, toggle_y, toggle_x + 3, toggle_y, fill=TEXT_MAIN)
                 if not expanded:
                     self.create_line(toggle_x, toggle_y - 3, toggle_x, toggle_y + 3, fill=TEXT_MAIN)
-            node_item = self.create_oval(
-                x - self.node_radius,
-                y - self.node_radius,
-                x + self.node_radius,
-                y + self.node_radius,
-                fill=fill_color,
-                outline=outline_color,
-                width=width,
-                tags=(node_id, "branch_node_shape")
-            )
+            stone_image = None
+            if not is_root and node_move:
+                stone_image = self.board_ref.black_branch_stone_image if node_move[2] == "black" else self.board_ref.white_branch_stone_image
+            if stone_image:
+                self.create_image(x, y, image=stone_image, anchor="center", tags=(node_id, "branch_node_image"))
+                if node is self.board_ref.current_node:
+                    node_item = self.create_oval(
+                        x - self.node_radius, y - self.node_radius,
+                        x + self.node_radius, y + self.node_radius,
+                        fill="", outline=outline_color, width=width,
+                        tags=(node_id, "branch_node_shape")
+                    )
+            else:
+                node_item = self.create_oval(
+                    x - self.node_radius, y - self.node_radius,
+                    x + self.node_radius, y + self.node_radius,
+                    fill=fill_color, outline=outline_color, width=width,
+                    tags=(node_id, "branch_node_shape")
+                )
             self._node_canvas_items[node] = node_item
 
             if is_root:
@@ -2142,7 +2164,15 @@ class BranchTreeView(tk.Canvas):
                 stone_color = STONE_BLACK if node.move and node.move[2] == "black" else STONE_WHITE
                 fill_color = stone_color if node not in current_path else ("#1f1f1f" if node.move and node.move[2] == "black" else "#f7f2e9")
                 outline_color = ACCENT if node is self.board_ref.current_node else ("#111111" if node.move and node.move[2] == "black" else "#b8ab9b")
-            self.itemconfigure(item, fill=fill_color, outline=outline_color, width=3 if node is self.board_ref.current_node else 1)
+            self.itemconfigure(
+                item,
+                fill="" if node.parent is not None and (
+                    self.board_ref.black_branch_stone_image if node.move and node.move[2] == "black"
+                    else self.board_ref.white_branch_stone_image
+                ) else fill_color,
+                outline=outline_color,
+                width=3 if node is self.board_ref.current_node else 1,
+            )
 
         for node, items in self._edge_canvas_items.items():
             active = node in current_path and node.parent in current_path
@@ -3171,6 +3201,8 @@ class GoBoard(tk.Canvas):
         self._board_resize_after_id = None  # 棋盤尺寸更新節流用的 after id
         self.black_stone_image = None
         self.white_stone_image = None
+        self.black_branch_stone_image = None
+        self.white_branch_stone_image = None
         self.frame_bg_label = None  # 外框背景 Label（由 board_shell 注入）
         self._load_custom_images()
 
@@ -3186,6 +3218,8 @@ class GoBoard(tk.Canvas):
         self.board_frame_image_path = None
         self.black_stone_image = None
         self.white_stone_image = None
+        self.black_branch_stone_image = None
+        self.white_branch_stone_image = None
 
         bg_path = config_service.get_board_background()
         if bg_path and os.path.exists(bg_path):
@@ -3206,8 +3240,10 @@ class GoBoard(tk.Canvas):
                 logger.warning(f"無法載入棋盤外框圖片 {frame_path}: {e}")
         self._apply_frame_background()
 
-        black_path = config_service.get_black_stone_image()
-        if black_path and os.path.exists(black_path):
+        black_path = config_service.get_black_stone_image() or resource_path(DEFAULT_BLACK_STONE_IMAGE)
+        if not os.path.exists(black_path):
+            black_path = resource_path(DEFAULT_BLACK_STONE_IMAGE)
+        if os.path.exists(black_path):
             try:
                 self.black_stone_image = load_tk_image(
                     black_path,
@@ -3217,8 +3253,10 @@ class GoBoard(tk.Canvas):
             except Exception as e:
                 logger.warning(f"無法載入黑棋圖片 {black_path}: {e}")
 
-        white_path = config_service.get_white_stone_image()
-        if white_path and os.path.exists(white_path):
+        white_path = config_service.get_white_stone_image() or resource_path(DEFAULT_WHITE_STONE_IMAGE)
+        if not os.path.exists(white_path):
+            white_path = resource_path(DEFAULT_WHITE_STONE_IMAGE)
+        if os.path.exists(white_path):
             try:
                 self.white_stone_image = load_tk_image(
                     white_path,
@@ -3227,6 +3265,28 @@ class GoBoard(tk.Canvas):
                 )
             except Exception as e:
                 logger.warning(f"無法載入白棋圖片 {white_path}: {e}")
+
+        # 分支圖的開局節點直徑為 28px，因此使用獨立的 28px 棋子圖片，
+        # 避免直接使用棋盤上的 24px 圖片造成分支棋子比開局節點小。
+        if os.path.exists(black_path):
+            try:
+                self.black_branch_stone_image = load_tk_image(
+                    black_path,
+                    (BRANCH_STONE_IMAGE_SIZE, BRANCH_STONE_IMAGE_SIZE),
+                    fill_size=True,
+                )
+            except Exception as e:
+                logger.warning(f"無法載入分支黑棋圖片 {black_path}: {e}")
+
+        if os.path.exists(white_path):
+            try:
+                self.white_branch_stone_image = load_tk_image(
+                    white_path,
+                    (BRANCH_STONE_IMAGE_SIZE, BRANCH_STONE_IMAGE_SIZE),
+                    fill_size=True,
+                )
+            except Exception as e:
+                logger.warning(f"無法載入分支白棋圖片 {white_path}: {e}")
 
     def _apply_frame_background(self):
         if self.frame_bg_label is None:
@@ -3593,19 +3653,21 @@ class GoBoard(tk.Canvas):
         margin = self.margin
         px, py = self._point(x, y)
         radius = self._scaled(12)
-        fill = VARIATION_BLACK if color == "black" else VARIATION_WHITE
         outline = "#000000" if color == "black" else "#6f6252"
         label_fill = VARIATION_LABEL_WHITE if color == "black" else VARIATION_LABEL_BLACK
-        self.create_oval(
-            px - radius,
-            py - radius,
-            px + radius,
-            py + radius,
-            fill=fill,
-            outline=outline,
-            width=2,
-            tags="variation_preview",
-        )
+        stone_image = self.black_stone_image if color == "black" else self.white_stone_image
+        if stone_image:
+            self.create_image(px, py, image=stone_image, anchor="center", tags="variation_preview")
+            # self.create_oval(
+            #     px - radius, py - radius, px + radius, py + radius,
+            #     fill="", outline=outline, width=2, tags="variation_preview",
+            # )
+        else:
+            fill = VARIATION_BLACK if color == "black" else VARIATION_WHITE
+            self.create_oval(
+                px - radius, py - radius, px + radius, py + radius,
+                fill=fill, outline=outline, width=2, tags="variation_preview",
+            )
         self.create_text(
             px,
             py,
@@ -8564,6 +8626,8 @@ def show_appearance_settings_dialog():
         # 重新載入棋盤圖片
         board._load_custom_images()
         board.refresh_display()
+        if hasattr(board, "branch_ui") and board.branch_ui is not None:
+            board.branch_ui.draw_tree()
 
         settings_win.destroy()
 
@@ -8780,7 +8844,7 @@ def build_menu_bar():
     def toggle_teacher_panel():
         if show_teacher_var.get():
             branch_ui.configure(height=160)
-            teacher_section.grid()
+            teacher_section.grid(columnspan=2)
         else:
             teacher_section.grid_remove()
             branch_ui.configure(height=350)

@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1791005576.1796708,
-    "seen": 1791005633.926267,
-    "ast_hash": "7f1ba07cc10277dc1a3f017025695afd",
+    "mtime": 1791091408.6684544,
+    "seen": 1791091480.194991,
+    "ast_hash": "f9effbef48e0f51767d1be2fe0a75b6a",
     "semantic_hash": ""
   },
   "version.py": {
@@ -267,6 +267,24 @@
     "mtime": 1789865930.3987842,
     "seen": 1789901044.2592425,
     "ast_hash": "7af3f0ff9823d901a242894897a3a81f",
+    "semantic_hash": ""
+  },
+  "services/ime_font_manager.py": {
+    "mtime": 1791007852.3096626,
+    "seen": 1791091480.1949496,
+    "ast_hash": "58999ec8013515f9f843c4adc08985f6",
+    "semantic_hash": ""
+  },
+  "image/stones/black_stone.png": {
+    "mtime": 1791035171.2841969,
+    "seen": 1791091480.1950717,
+    "ast_hash": "0f84ec8b1c80cad6d3c2c7ee35573d39",
+    "semantic_hash": ""
+  },
+  "image/stones/white_stone.png": {
+    "mtime": 1791035162.02978,
+    "seen": 1791091480.195075,
+    "ast_hash": "0f9ae97426b8352f2ec66c6f2c516d0e",
     "semantic_hash": ""
   }
 }
