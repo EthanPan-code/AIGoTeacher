@@ -3,6 +3,10 @@ from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
 import json, queue, threading, subprocess, time, os, copy, re, logging, itertools, sys, shutil, ctypes, platform, pywinstyles, webbrowser, stat, hashlib, requests
+try:
+    import winsound
+except ImportError:  # pragma: no cover - the packaged application targets Windows.
+    winsound = None
 from urllib.parse import urlparse, unquote
 from collections import OrderedDict
 import matplotlib as mpl
@@ -397,6 +401,31 @@ import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def play_move_sound(captured=False):
+    """Play the sound for a successfully applied board move.
+
+    Sound playback is deliberately best-effort: an unavailable audio device or
+    missing bundled asset must never prevent a legal move from being recorded.
+    """
+    if winsound is None:
+        logger.debug("音效播放不可用：目前平台沒有 winsound")
+        return
+
+    sound_name = "deadstone.wav" if captured else "move.wav"
+    sound_path = resource_path(os.path.join("sound", sound_name))
+    if not os.path.exists(sound_path):
+        logger.warning("找不到落子音效檔: %s", sound_path)
+        return
+
+    try:
+        # SND_MEMORY cannot be combined with SND_ASYNC on Windows. Use the
+        # filename-based asynchronous API so playback starts without blocking
+        # the Tkinter event loop.
+        winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    except Exception as exc:
+        logger.warning("播放落子音效失敗 (%s): %s", sound_path, exc)
 i18n = I18n(
     base_dir="i18n",
     settings_path=get_runtime_file_path("ui_settings.json")
@@ -3607,6 +3636,16 @@ class GoBoard(tk.Canvas):
     def _next_color(self, color):
         return "white" if color == "black" else "black"
 
+    def _move_would_capture(self, x, y, color):
+        """Return whether applying a legal move removes any opponent stones."""
+        board_state = [row[:] for row in self.board]
+        opponent = self._next_color(color)
+        before = sum(cell == opponent for row in board_state for cell in row)
+        if not self._play_preview_move(board_state, x, y, color):
+            return False
+        after = sum(cell == opponent for row in board_state for cell in row)
+        return after < before
+
     def _remove_group_on_board(self, board_state, group):
         for gx, gy in group:
             board_state[gy][gx] = None
@@ -3982,9 +4021,11 @@ class GoBoard(tk.Canvas):
             if child.move == (x, y, color):
                 if self.current_node.parent:
                     self.current_node.parent.active_child_idx = idx
+                captured_any = self._move_would_capture(x, y, color)
                 self.current_node = child
                 self.rebuild_board()
                 self.on_state_change()
+                play_move_sound(captured=captured_any)
                 return True
 
         # 2. 嘗試落子與提子判斷
@@ -4014,6 +4055,7 @@ class GoBoard(tk.Canvas):
         self.current_color = opponent
         self.refresh_display()
         self.on_state_change(structure_changed=True)
+        play_move_sound(captured=captured_any)
         return True
 
     def pass_move(self, forced_color=None):

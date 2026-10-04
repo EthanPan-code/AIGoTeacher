@@ -23,6 +23,9 @@ a = Analysis(
         # ===== 圖片 =====
         ('image', 'image'),
 
+        # ===== 落子音效 =====
+        ('sound', 'sound'),
+
         # ===== 模型 =====
         ('models', 'models'),
 
