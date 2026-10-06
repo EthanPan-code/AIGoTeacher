@@ -414,10 +414,19 @@ def play_move_sound(captured=False):
         return
 
     sound_name = "deadstone.wav" if captured else "move.wav"
-    sound_path = resource_path(os.path.join("sound", sound_name))
+    custom_path = (
+        config_service.get_capture_sound()
+        if captured
+        else config_service.get_move_sound()
+    )
+    sound_path = os.path.expanduser(custom_path) if custom_path else resource_path(os.path.join("sound", sound_name))
     if not os.path.exists(sound_path):
-        logger.warning("找不到落子音效檔: %s", sound_path)
-        return
+        if custom_path:
+            logger.warning("找不到自訂落子音效檔，改用預設音效: %s", sound_path)
+            sound_path = resource_path(os.path.join("sound", sound_name))
+        if not os.path.exists(sound_path):
+            logger.warning("找不到落子音效檔: %s", sound_path)
+            return
 
     try:
         # SND_MEMORY cannot be combined with SND_ASYNC on Windows. Use the
@@ -8680,6 +8689,102 @@ def show_appearance_settings_dialog():
     ttk.Button(btn_frame, text=t("button.cancel"), command=cancel_changes, width=12).pack(side="right")
 
 
+def show_sound_settings_dialog():
+    """顯示落子音效設定對話框。"""
+    settings_win = tk.Toplevel(root)
+    settings_win.title(t("settings.sound_title"))
+    settings_win.geometry("650x360")
+    settings_win.minsize(580, 240)
+    try:
+        settings_win.iconbitmap(resource_path("image/logo.ico"))
+    except Exception:
+        pass
+    settings_win.transient(root)
+    settings_win.grab_set()
+    pywinstyles.change_header_color(settings_win, color=PANEL_BG)
+    pywinstyles.change_title_color(settings_win, color=TEXT_MAIN)
+
+    main_frame = ttk.Frame(settings_win, padding=(16, 16, 16, 16))
+    main_frame.pack(fill="both", expand=True)
+    main_frame.columnconfigure(1, weight=1)
+
+    enabled_var = tk.BooleanVar(value=config_service.get_sound_enabled())
+    move_sound_var = tk.StringVar(value=config_service.get_move_sound())
+    capture_sound_var = tk.StringVar(value=config_service.get_capture_sound())
+
+    # Use the classic Tk checkbutton here because the ttk/clam indicator is
+    # rendered as an X on some Windows installations. The native Tk indicator
+    # displays the familiar check mark while retaining the current palette.
+    tk.Checkbutton(
+        main_frame,
+        text=t("settings.sound_enabled"),
+        variable=enabled_var,
+        bg=PANEL_BG,
+        fg=TEXT_MAIN,
+        activebackground=PANEL_BG,
+        activeforeground=TEXT_MAIN,
+        selectcolor=INPUT_BG,
+        highlightthickness=0,
+        bd=0,
+        anchor="w",
+        font=("Microsoft JhengHei", 10),
+    ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 16))
+
+    def create_sound_row(row, label_key, sound_var, default_name):
+        ttk.Label(main_frame, text=t(label_key)).grid(
+            row=row, column=0, sticky="w", padx=(0, 12), pady=(0, 10)
+        )
+        path_entry = ttk.Entry(main_frame, textvariable=sound_var, state="readonly")
+        path_entry.grid(row=row, column=1, sticky="ew", padx=(0, 8), pady=(0, 10))
+
+        def browse_sound():
+            file_path = filedialog.askopenfilename(
+                title=t("settings.select_sound"),
+                filetypes=[
+                    (t("settings.sound_files"), "*.wav"),
+                    (t("filetype.all"), "*.*"),
+                ],
+                parent=settings_win,
+            )
+            if file_path:
+                sound_var.set(file_path)
+
+        def use_default():
+            sound_var.set("")
+
+        ttk.Button(
+            main_frame, text=t("button.browse"), command=browse_sound, width=10
+        ).grid(row=row, column=2, sticky="e", pady=(0, 10))
+        ttk.Button(
+            main_frame, text=t("settings.use_default"), command=use_default, width=10
+        ).grid(row=row + 1, column=2, sticky="e", pady=(0, 10))
+        ttk.Label(
+            main_frame,
+            text=t("settings.sound_default", filename=default_name),
+            foreground=TEXT_MUTED,
+        ).grid(row=row + 1, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+    create_sound_row(1, "settings.move_sound", move_sound_var, "move.wav")
+    create_sound_row(3, "settings.capture_sound", capture_sound_var, "deadstone.wav")
+
+    button_frame = ttk.Frame(main_frame)
+    button_frame.grid(row=5, column=0, columnspan=3, sticky="e", pady=(8, 0))
+
+    def apply_changes():
+        config_service.set_sound_enabled(enabled_var.get())
+        config_service.set_move_sound(move_sound_var.get().strip())
+        config_service.set_capture_sound(capture_sound_var.get().strip())
+        config_service.save()
+        settings_win.destroy()
+
+    ttk.Button(
+        button_frame, text=t("button.apply"), command=apply_changes, width=12
+    ).pack(side="right", padx=(8, 0))
+    ttk.Button(
+        button_frame, text=t("button.cancel"), command=settings_win.destroy, width=12
+    ).pack(side="right")
+
+
 # 滾輪事件處理
 def on_mouse_wheel(event):
     # 【修正】當滑鼠位於分支圖（branch_ui）或其內部時，不要處理
@@ -8970,6 +9075,7 @@ def build_menu_bar():
             command(t("menu.model_settings"), show_settings_dialog),
             command(t("menu.rules_settings"), show_rules_settings_dialog, "Ctrl+K"),
             command(t("settings.appearance"), show_appearance_settings_dialog),
+            command(t("menu.sound_settings"), show_sound_settings_dialog),
             {"type": "submenu", "label": t("menu.language"), "items": [
                 radio(t(f"language.{lang}"), lang, language_var,
                       lambda selected=lang: set_language(selected))

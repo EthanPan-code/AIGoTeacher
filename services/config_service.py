@@ -103,3 +103,23 @@ class ConfigService:
 
     def set_white_stone_image(self, path):
         self.set_setting("white_stone_image", path)
+
+    # === Sound Settings ===
+
+    def get_sound_enabled(self, default=True):
+        return bool(self.get_setting("sound_enabled", default))
+
+    def set_sound_enabled(self, enabled):
+        self.set_setting("sound_enabled", bool(enabled))
+
+    def get_move_sound(self, default=""):
+        return self.get_setting("move_sound", default) or ""
+
+    def set_move_sound(self, path):
+        self.set_setting("move_sound", path or "")
+
+    def get_capture_sound(self, default=""):
+        return self.get_setting("capture_sound", default) or ""
+
+    def set_capture_sound(self, path):
+        self.set_setting("capture_sound", path or "")
