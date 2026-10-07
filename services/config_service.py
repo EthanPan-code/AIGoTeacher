@@ -47,6 +47,12 @@ class ConfigService:
     def set_show_teacher(self, show):
         self.set_setting("show_teacher", bool(show))
 
+    def get_show_move_numbers(self, default=False):
+        return bool(self.get_setting("show_move_numbers", default))
+
+    def set_show_move_numbers(self, show):
+        self.set_setting("show_move_numbers", bool(show))
+
     def migrate_removed_github_provider(self, ollama_default_model):
         """Migrate settings from the removed GitHub Models provider."""
         provider = self.get_setting("llm_provider", "ollama")

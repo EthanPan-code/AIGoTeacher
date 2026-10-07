@@ -412,6 +412,8 @@ def play_move_sound(captured=False):
     if winsound is None:
         logger.debug("音效播放不可用：目前平台沒有 winsound")
         return
+    if not config_service.get_sound_enabled():
+        return
 
     sound_name = "deadstone.wav" if captured else "move.wav"
     custom_path = (
@@ -4031,10 +4033,14 @@ class GoBoard(tk.Canvas):
                 if self.current_node.parent:
                     self.current_node.parent.active_child_idx = idx
                 captured_any = self._move_would_capture(x, y, color)
+                # Start playback before rebuilding the canvas and scheduling
+                # analysis. Those UI updates can be noticeable when moves are
+                # entered quickly, which used to make the sound lag behind the
+                # actual click.
+                play_move_sound(captured=captured_any)
                 self.current_node = child
                 self.rebuild_board()
                 self.on_state_change()
-                play_move_sound(captured=captured_any)
                 return True
 
         # 2. 嘗試落子與提子判斷
@@ -4054,6 +4060,9 @@ class GoBoard(tk.Canvas):
             self.board[y][x] = None # 退回
             return False
 
+        # The move is now known to be legal. Play immediately, before the
+        # display refresh and analysis bookkeeping can delay the event loop.
+        play_move_sound(captured=captured_any)
         self._record_edit()
 
         # 3. 合法，建立新節點並連接
@@ -4064,7 +4073,6 @@ class GoBoard(tk.Canvas):
         self.current_color = opponent
         self.refresh_display()
         self.on_state_change(structure_changed=True)
-        play_move_sound(captured=captured_any)
         return True
 
     def pass_move(self, forced_color=None):
@@ -9007,6 +9015,8 @@ def build_menu_bar():
     def toggle_move_numbers():
         board._handle_recommendation_hover(None)
         board._draw_move_numbers()
+        config_service.set_show_move_numbers(show_move_numbers_var.get())
+        config_service.save()
 
     def toggle_dev():
         config_service.set_setting("show_developer", show_dev_var.get())
@@ -9023,7 +9033,7 @@ def build_menu_bar():
     show_branch_var = tk.BooleanVar(
         value=previous_show_branch.get() if previous_show_branch is not None else True
     )
-    show_move_numbers_var = tk.BooleanVar(value=False)
+    show_move_numbers_var = tk.BooleanVar(value=config_service.get_show_move_numbers())
     show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
 
     def command(label, callback, accelerator=None):
