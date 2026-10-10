@@ -7401,7 +7401,7 @@ def show_system_info_dialog():
         win.title(t("dialog.system_info_title"))
         win.geometry("960x720")
         win.minsize(820, 600)
-        win.configure(fg_color=UI_BG)
+        win.configure(bg=UI_BG)
         try:
             win.iconbitmap(resource_path("image/logo.ico"))
         except (tk.TclError, OSError):
@@ -7421,7 +7421,7 @@ def show_system_info_dialog():
             try:
                 if state["closed"] or not win.winfo_exists():
                     return
-                win.configure(fg_color=UI_BG)
+                win.configure(bg=UI_BG)
                 scrollable.configure(fg_color=UI_BG)
                 for child in scrollable.winfo_children():
                     child.destroy()
@@ -9003,7 +9003,9 @@ def on_mouse_wheel(event):
     elif event.delta < 0 or event.num == 5: # 滾輪向下 -> 下一手
         board.navigate_node(1)
 
-root = tk.Tk()
+ctk.deactivate_automatic_dpi_awareness()
+
+root = ctk.CTk()
 ime_font_manager = ImeFontManager(root)
 ime_font_manager.install()
 root.title(t("app.title"))
