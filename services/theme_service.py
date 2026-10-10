@@ -20,7 +20,12 @@ PALETTES = {
 
     "TEXT_MAIN": "#2f271f", "TEXT_MUTED": "#786858", "ACCENT": "#1f6f78",
 
-    "ACCENT_DARK": "#15565d", "STONE_BLACK": "#171717", "STONE_WHITE": "#f7f3eb",
+    "ACCENT_DARK": "#15565d", 
+    
+    "BLUE_BUTTON":"#1580e5",
+    "BLUE_BUTTON_DARK":"#204475",
+    
+    "STONE_BLACK": "#171717", "STONE_WHITE": "#f7f3eb",
 
     "BEST_MOVE_BLUE": "#1967d2", "INPUT_BG": "#ffffff", "INPUT_FG": "#2f271f",
 
@@ -78,6 +83,9 @@ PALETTES = {
 
         "ACCENT": "#3C8E3D",
         "ACCENT_DARK": "#255B26",
+
+        "BLUE_BUTTON":"#1580e5",
+        "BLUE_BUTTON_DARK":"#204475",
 
         # ========= Input =========
 

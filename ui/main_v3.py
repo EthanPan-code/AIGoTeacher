@@ -1,4 +1,5 @@
 ﻿import tkinter as tk
+import customtkinter as ctk
 from tkinter import ttk  
 from tkinter import filedialog
 from tkinter import messagebox
@@ -91,6 +92,8 @@ COMBO_DROPDOWN_BG = None
 COMBO_DROPDOWN_FG = None
 COMBO_DROPDOWN_SELECT_BG = None
 COMBO_DROPDOWN_SELECT_FG = None
+BLUE_BUTTON = None
+BLUE_BUTTON_DARK = None
 WELCOME_BOARD_BG = "#ead7a8"
 WELCOME_PANEL_BG = "#fffaf2"
 WELCOME_PANEL_BORDER = "#b99b68"
@@ -105,6 +108,8 @@ DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
 RUNTIME_BUNDLE_DIR_NAME = "runtime"
 RUNTIME_MANIFEST_NAME = "version.json"
+
+_system_info_dialog_refreshers = set()
 
 
 def get_startup_sgf_request(argv=None):
@@ -1197,7 +1202,7 @@ def update_score_estimate_button_label():
     if button is None:
         return
     label_key = "button.close_score_estimate" if getattr(board, "score_estimate_active", False) else "button.score_estimate"
-    button.config(text=t(label_key))
+    button.configure(text=t(label_key))
 
 class KataGoAnalyzer:
     def __init__(self, katago_path, model_path, config_path, startup_callback=None):
@@ -7116,7 +7121,7 @@ def _create_katago_section(parent, katago_info):
         )
 
 
-def show_system_info_dialog():
+def _legacy_show_system_info_dialog():
 
     try:
 
@@ -7330,6 +7335,188 @@ def show_system_info_dialog():
             t("dialog.error_title"),
             t("dialog.system_info_error")
         )
+
+
+def _system_info_ram_percent(system_info):
+    """Return a safe RAM usage ratio for the dashboard progress meter."""
+    try:
+        total = float(str(system_info.get("total_ram", "")).split()[0])
+        used = float(str(system_info.get("used_ram", "")).split()[0])
+        if total <= 0:
+            return None
+        return max(0.0, min(1.0, used / total))
+    except (AttributeError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _system_info_card(parent, title, rows, *, columns=1):
+    """Create a theme-aware dashboard card containing labelled values."""
+    card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=14)
+    card.grid_columnconfigure(0, weight=1)
+    if columns == 2:
+        card.grid_columnconfigure(1, weight=1)
+    ctk.CTkLabel(card, text=title.upper(), text_color=ACCENT, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+        row=0, column=0, columnspan=columns, sticky="ew", padx=16, pady=(14, 8)
+    )
+    for index, (label, value) in enumerate(rows, start=1):
+        column = 0 if columns == 1 else (index - 1) % 2
+        row = index if columns == 1 else ((index - 1) // 2) + 1
+        cell = ctk.CTkFrame(card, fg_color="transparent")
+        cell.grid(row=row, column=column, sticky="ew", padx=(16, 8) if column == 0 else (8, 16), pady=(0, 10))
+        cell.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(cell, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 9), anchor="w").grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(cell, text=str(value), text_color=TEXT_MAIN, font=("Segoe UI", 10, "bold"), anchor="w", justify="left", wraplength=390).grid(
+            row=1, column=0, sticky="ew", pady=(2, 0)
+        )
+    return card
+
+
+def _system_info_metric(parent, label, value, *, accent=None):
+    card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=14)
+    ctk.CTkLabel(card, text=label.upper(), text_color=TEXT_MUTED, font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", padx=14, pady=(13, 4))
+    ctk.CTkLabel(card, text=str(value), text_color=accent or TEXT_MAIN, font=("Segoe UI", 16, "bold"), anchor="w").pack(fill="x", padx=14, pady=(0, 13))
+    return card
+
+
+def _system_info_status_card(parent, label, item):
+    exists = bool(item.get("exists"))
+    status_text = t("dialog.system_info_ready") if exists else t("dialog.system_info_missing")
+    status_color = SUCCESS if exists else ERROR
+    card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=12)
+    card.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(card, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 9), anchor="w").grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+    ctk.CTkLabel(card, text=status_text, text_color=status_color, font=("Segoe UI", 10, "bold"), anchor="w").grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 2))
+    ctk.CTkLabel(card, text=item.get("filename", "Unknown"), text_color=TEXT_MAIN, font=("Segoe UI", 10), anchor="w", wraplength=220).grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 10))
+    return card
+
+
+def show_system_info_dialog():
+    """Show the theme-aware CustomTkinter system diagnostics dashboard."""
+    try:
+        system_info = safe_get_system_info()
+        katago_info = safe_get_katago_info()
+        ai_config = safe_get_ai_config()
+
+        win = ctk.CTkToplevel(root)
+        win.title(t("dialog.system_info_title"))
+        win.geometry("960x720")
+        win.minsize(820, 600)
+        win.configure(fg_color=UI_BG)
+        try:
+            win.iconbitmap(resource_path("image/logo.ico"))
+        except (tk.TclError, OSError):
+            pass
+        win.transient(root)
+        win.grab_set()
+        pywinstyles.change_header_color(win, color=PANEL_BG)
+        pywinstyles.change_title_color(win, color=TEXT_MAIN)
+
+        scrollable = ctk.CTkScrollableFrame(win, fg_color=UI_BG, corner_radius=0)
+        scrollable.pack(fill="both", expand=True, padx=8, pady=(8, 0))
+        scrollable.grid_columnconfigure(0, weight=1)
+        scrollable.grid_columnconfigure(1, weight=1)
+        state = {"closed": False}
+
+        def render_dashboard():
+            try:
+                if state["closed"] or not win.winfo_exists():
+                    return
+                win.configure(fg_color=UI_BG)
+                scrollable.configure(fg_color=UI_BG)
+                for child in scrollable.winfo_children():
+                    child.destroy()
+
+                header = ctk.CTkFrame(scrollable, fg_color="transparent")
+                header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=18, pady=(10, 8))
+                header.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(header, text=t("dialog.system_info_header"), text_color=TEXT_MAIN, font=("Segoe UI", 24, "bold"), anchor="w").grid(row=0, column=0, sticky="ew")
+                ctk.CTkLabel(header, text=t("dialog.system_info_subtitle"), text_color=TEXT_MUTED, font=("Segoe UI", 10), anchor="w").grid(row=1, column=0, sticky="ew", pady=(4, 0))
+                ctk.CTkLabel(header, text=f"{t('dialog.system_info_version')}: {APP_VERSION}   |   {t('dialog.system_info_theme')}: {ACTIVE_THEME.title()}", text_color=ACCENT, font=("Consolas", 10, "bold"), anchor="e").grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+
+                ctk.CTkLabel(scrollable, text=t("dialog.system_info_status"), text_color=TEXT_MAIN, font=("Segoe UI", 11, "bold"), anchor="w").grid(row=1, column=0, columnspan=2, sticky="ew", padx=18, pady=(8, 6))
+                status_frame = ctk.CTkFrame(scrollable, fg_color="transparent")
+                status_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 14))
+                status_labels = {
+                    "executable": t("dialog.system_info_katago_executable"),
+                    "config": t("dialog.system_info_katago_config"),
+                    "model": t("dialog.system_info_katago_model"),
+                }
+                for index, key in enumerate(("executable", "config", "model")):
+                    status_frame.grid_columnconfigure(index, weight=1)
+                    _system_info_status_card(status_frame, status_labels[key], katago_info[key]).grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0 if index == 2 else 5))
+
+                metric_frame = ctk.CTkFrame(scrollable, fg_color="transparent")
+                metric_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 14))
+                for index in range(4):
+                    metric_frame.grid_columnconfigure(index, weight=1)
+                ram_ratio = _system_info_ram_percent(system_info)
+                ram_value = f"{system_info.get('used_ram', 'Unknown')} / {system_info.get('total_ram', 'Unknown')}"
+                metrics = (
+                    (t("dialog.system_info_cpu_cores"), system_info.get("cpu_core_count", "Unknown"), ACCENT),
+                    (t("dialog.system_info_ram_used"), ram_value, WARNING if ram_ratio is not None and ram_ratio >= 0.8 else ACCENT),
+                    (t("dialog.system_info_gpu_memory"), system_info.get("gpu_memory", "Unknown"), ACCENT),
+                    (t("dialog.system_info_provider"), ai_config.get("provider", "Unknown"), ACCENT),
+                )
+                for index, (label, value, color) in enumerate(metrics):
+                    _system_info_metric(metric_frame, label, value, accent=color).grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0 if index == 3 else 5))
+                if ram_ratio is not None:
+                    progress = ctk.CTkProgressBar(scrollable, height=8, fg_color=PANEL_BORDER, progress_color=WARNING if ram_ratio >= 0.8 else ACCENT, corner_radius=4)
+                    progress.set(ram_ratio)
+                    progress.grid(row=4, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 18))
+
+                _system_info_card(scrollable, t("dialog.system_info_os_runtime"), [
+                    (t("dialog.system_info_windows"), f"{system_info.get('windows_version', 'Unknown')} ({system_info.get('windows_build', 'Unknown')})"),
+                    (t("dialog.system_info_machine"), system_info.get("machine_type", "Unknown")),
+                    (t("dialog.system_info_python"), system_info.get("python", "Unknown")),
+                ], columns=2).grid(row=5, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
+                _system_info_card(scrollable, t("dialog.system_info_cpu"), [
+                    (t("dialog.system_info_cpu_name"), system_info.get("cpu_name", "Unknown")),
+                    (t("dialog.system_info_physical_cores"), system_info.get("cpu_core_count", "Unknown")),
+                    (t("dialog.system_info_logical_processors"), system_info.get("logical_processor_count", "Unknown")),
+                ]).grid(row=5, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
+                _system_info_card(scrollable, t("dialog.system_info_memory"), [
+                    (t("dialog.system_info_total_ram"), system_info.get("total_ram", "Unknown")),
+                    (t("dialog.system_info_available_ram"), system_info.get("available_ram", "Unknown")),
+                    (t("dialog.system_info_used_ram"), system_info.get("used_ram", "Unknown")),
+                ]).grid(row=6, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
+                _system_info_card(scrollable, t("dialog.system_info_gpu"), [
+                    (t("dialog.system_info_gpu_name"), system_info.get("gpu_name", "Unknown")),
+                    (t("dialog.system_info_gpu_memory_value"), system_info.get("gpu_memory", "Unknown")),
+                ]).grid(row=6, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
+
+                katago_rows = []
+                for key in ("executable", "config", "model"):
+                    item = katago_info[key]
+                    katago_rows.extend(((status_labels[key], item.get("filename", "Unknown")), (t("dialog.system_info_path"), item.get("path", "Unknown"))))
+                _system_info_card(scrollable, t("dialog.system_info_katago_runtime"), katago_rows).grid(row=7, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
+                _system_info_card(scrollable, t("dialog.system_info_ai_configuration"), [
+                    (t("dialog.system_info_provider"), ai_config.get("provider", "Unknown")),
+                    (t("dialog.system_info_model"), ai_config.get("model", "Unknown")),
+                    (t("dialog.system_info_language"), ai_config.get("language", "Unknown")),
+                ]).grid(row=7, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
+
+                footer = ctk.CTkFrame(scrollable, fg_color="transparent")
+                footer.grid(row=8, column=0, columnspan=2, sticky="ew", padx=18, pady=(4, 14))
+                ctk.CTkButton(footer, text=t("button.close"), width=120, height=36, fg_color=ACCENT, hover_color=ACCENT_DARK, text_color=STONE_WHITE, command=close_dialog).pack(side="right")
+            except tk.TclError:
+                if not state["closed"]:
+                    logger.exception("系統資訊儀表板重繪失敗")
+
+        def close_dialog():
+            state["closed"] = True
+            _system_info_dialog_refreshers.discard(render_dashboard)
+            try:
+                win.grab_release()
+            except tk.TclError:
+                pass
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", close_dialog)
+        render_dashboard()
+        _system_info_dialog_refreshers.add(render_dashboard)
+    except Exception:
+        logger.exception("系統資訊視窗建立失敗")
+        messagebox.showerror(t("dialog.error_title"), t("dialog.system_info_error"))
 
 
 def _iter_log_candidates():
@@ -9780,10 +9967,10 @@ btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 
 # btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
 # btn_load_sgf.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-btn_pass = ttk.Button(info_frame, text=t("button.pass"), command=board.pass_move, style="Tool.TButton")
+btn_pass = ctk.CTkButton(info_frame, text=t("button.pass"), command=board.pass_move)
 btn_pass.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
 
-btn_score_estimate = ttk.Button(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click, style="Tool.TButton")
+btn_score_estimate = ctk.CTkButton(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click)
 btn_score_estimate.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
 def build_branch_section(height):
@@ -10250,19 +10437,38 @@ def apply_theme(theme_name, persist=True):
                "troughcolor")
 
     def recolor(widget):
+        # 判斷是否為 CustomTkinter 元件
+        is_ctk = isinstance(widget, ctk.CTkBaseClass)
+
+        # CustomTkinter 與傳統 Tkinter 使用不同的顏色參數
+        option_map = {
+            "background": "fg_color" if is_ctk else "background",
+            "bg": "fg_color" if is_ctk else "bg",
+            "foreground": "text_color" if is_ctk else "foreground",
+            "fg": "text_color" if is_ctk else "fg",
+        }
+
         for option in options:
+            target_option = option_map.get(option, option)
+
             try:
                 value = widget.cget(option)
+
                 if value in color_map:
-                    widget.configure(**{option: color_map[value]})
-            except (tk.TclError, TypeError):
+                    widget.configure(
+                        **{target_option: color_map[value]}
+                    )
+            except (tk.TclError, TypeError, ValueError):
                 pass
+
         try:
             children = widget.winfo_children()
-        except tk.TclError:
+        except (tk.TclError, TypeError, ValueError):
             children = ()
+
         for child in children:
             recolor(child)
+
 
     try:
         pywinstyles.change_header_color(root, color=PANEL_BG)
@@ -10349,6 +10555,17 @@ def apply_theme(theme_name, persist=True):
         root.configure(bg=UI_BG)
         board.configure(bg=BOARD_BG, highlightbackground=PANEL_BORDER)
         board_frame_bg_label.configure(bg=BOARD_FRAME_BG)
+        # CTkButton keeps ``bg_color`` separately from its button face
+        # (``fg_color``).  The generic widget recolor pass cannot reliably
+        # update it because CustomTkinter exposes these options differently
+        # from classic Tk widgets, so keep these controls in sync explicitly.
+        for action_button in (btn_pass, btn_score_estimate):
+            action_button.configure(
+                bg_color=PANEL_BG,
+                fg_color=BLUE_BUTTON,
+                hover_color=BLUE_BUTTON_DARK,
+                text_color=STONE_WHITE,
+            )
         # Refresh classic Tk widgets in the right panel explicitly. They do
         # not inherit ttk styles and their Canvas text is drawn separately.
         branch_section.configure(bg=PANEL_BG)
@@ -10374,6 +10591,11 @@ def apply_theme(theme_name, persist=True):
         rebuild_menu_bar()
     except (NameError, tk.TclError):
         pass
+    for refresh_dialog in tuple(_system_info_dialog_refreshers):
+        try:
+            refresh_dialog()
+        except (NameError, tk.TclError, RuntimeError):
+            _system_info_dialog_refreshers.discard(refresh_dialog)
     try:
         ime_font_manager.refresh()
     except NameError:
@@ -10435,6 +10657,11 @@ def refresh_language():
     update_welcome_controls()
     # 【Phase 5】語言切換後重繪分頁列，讓分頁標題（含 dirty 星號）與「+」按鈕文字隨語言更新
     refresh_tab_bar()
+    for refresh_dialog in tuple(_system_info_dialog_refreshers):
+        try:
+            refresh_dialog()
+        except (NameError, tk.TclError, RuntimeError):
+            _system_info_dialog_refreshers.discard(refresh_dialog)
 
 
 # 初始化 LLM Provider - 根據配置選擇提供商

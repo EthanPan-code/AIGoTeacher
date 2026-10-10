@@ -45,6 +45,7 @@ a = Analysis(
         *collect_data_files('certifi'),
         *collect_data_files('opencc'),
         *collect_data_files('matplotlib'),
+        *collect_data_files('customtkinter'),
     ],
 
     hiddenimports=[
@@ -61,6 +62,7 @@ a = Analysis(
         *collect_submodules('opencc'),
         *collect_submodules('PIL'),
         *collect_submodules('pywinstyles'),
+        *collect_submodules('customtkinter'),
         *collect_submodules('matplotlib'),
         'certifi',
         'charset_normalizer',
