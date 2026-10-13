@@ -1,25 +1,25 @@
-# Graph Report - AIGoTeacher  (2026-10-04)
+# Graph Report - AIGoTeacher  (2026-10-13)
 
 ## Corpus Check
-- 30 files · ~64,377 words
+- 30 files · ~66,009 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 7 file(s) not represented in the graph (top: .gz 2, .spec 1, (none) 1)
 
 ## Summary
-- 1145 nodes · 2322 edges · 60 communities (50 shown, 10 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 147 edges (avg confidence: 0.86)
+- 1171 nodes · 2384 edges · 63 communities (55 shown, 8 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 153 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `219e15dc`
+- Built from commit: `1ffd0aba`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - GoBoard
 - AI 圍棋老師 / AI Go Teacher
-- OllamaProvider
-- _show_llm_selection_dialog
+- OllamaManager
+- ProviderFactory
 - Contributing to AI Go Teacher / 為 AI Go Teacher 貢獻
 - LLM 提供來源遷移指南 / LLM Provider Migration Guide
 - ._start_generation
@@ -31,27 +31,27 @@
 - chat_sandbox.py
 - find_service.py
 - LLMProvider
-- rules.py
+- OllamaProvider
 - TabManager
 - MenuBar
 - BranchTreeView
 - version.py
 - show_appearance_settings_dialog
 - safe_get_system_info
-- tone_templates.py
-- openrouter_provider.py
+- I18n
+- OpenRouterProvider
 - LLMChatWindow
 - normalize_api_key
 - Security Policy
 - NvidiaProvider
 - plot_window
 - requirements.txt - Python Dependencies
-- show_system_info_dialog
+- _legacy_show_system_info_dialog
 - get_runtime_data_root
 - GUI Screenshot
-- Available Status Screenshot
-- Cloud API Illustration
-- Download UI Screenshot
+- _show_llm_selection_dialog
+- show_analysis_log_dialog
+- show_system_info_dialog
 - _download_ollama_model
 - version_info.txt - PyInstaller VSVersionInfo
 - start_analyzer_async
@@ -65,61 +65,64 @@
 - t
 - _ask_sgf_link
 - resource_path
-- set_winrate_text
+- update_ui_with_data
 - KataGoAnalyzer
 - create_path_row
 - ._apply_chat_palette_swap
 - show_find_dialog
 - ImeFontManager
 - MessageBubble
-- refresh_language
-- config_service.py
-- show_winrate_chart
+- save_and_apply_settings
+- task
+- set_winrate_text
+- update_ui
+- _build_diagnostic_report_text
+- .discover_nim_models
 
 ## God Nodes (most connected - your core abstractions)
-1. `t()` - 113 edges
+1. `t()` - 119 edges
 2. `LLMChatWindow` - 86 edges
-3. `GoBoard` - 64 edges
-4. `build_menu_bar()` - 36 edges
-5. `_show_llm_selection_dialog()` - 35 edges
-6. `ProviderFactory` - 31 edges
-7. `ConfigService` - 30 edges
-8. `resource_path()` - 26 edges
+3. `GoBoard` - 65 edges
+4. `ConfigService` - 38 edges
+5. `build_menu_bar()` - 37 edges
+6. `_show_llm_selection_dialog()` - 35 edges
+7. `ProviderFactory` - 31 edges
+8. `resource_path()` - 29 edges
 9. `LLMProvider` - 24 edges
 10. `plot_window()` - 24 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `ProviderFactory` --uses--> `NvidiaProvider`  [INFERRED]
   services/provider_factory.py → providers/nvidia_provider.py
+- `OllamaProvider` --uses--> `OllamaModelInfo`  [INFERRED]
+  providers/ollama_provider.py → services/ollama_manager.py
 - `ProviderFactory` --uses--> `OllamaProvider`  [INFERRED]
   services/provider_factory.py → providers/ollama_provider.py
 - `ProviderFactory` --uses--> `OpenRouterProvider`  [INFERRED]
   services/provider_factory.py → providers/openrouter_provider.py
 - `_download_ollama_model()` --uses--> `ProviderFactory`  [INFERRED]
   ui/main_v3.py → services/provider_factory.py
-- `plot_window()` --uses--> `ProviderFactory`  [INFERRED]
-  ui/main_v3.py → services/provider_factory.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (60 total, 10 thin omitted)
+## Communities (63 total, 8 thin omitted)
 
 ### Community 0 - "GoBoard"
 Cohesion: 0.06
-Nodes (20): _copy_game_tree(), GameNode, GoBoard, parse_sequence(), load_tk_image(), Load an image as a Tk image, preferring Pillow for broad format support., 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。 由 board_shell 的 <Configure>…, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確 (+12 more)
+Nodes (21): _copy_game_tree(), GameNode, GoBoard, parse_sequence(), load_tk_image(), Load an image as a Tk image, preferring Pillow for broad format support., 依 board_shell 實際尺寸重新縮放外框背景圖片（cover 模式：填滿裁切）。 由 board_shell 的 <Configure>…, 動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確 (+13 more)
 
 ### Community 1 - "AI 圍棋老師 / AI Go Teacher"
 Cohesion: 0.05
 Nodes (44): AI 圍棋老師 / AI Go Teacher, Communication Protocols, Contents, Core Capabilities, Core Modules, Custom Teaching Tones, Development Commands, Download the Executable (Windows) (+36 more)
 
-### Community 2 - "OllamaProvider"
-Cohesion: 0.07
-Nodes (12): OllamaProvider, get_ollama_manager(), OllamaManager, download_task(), emit_complete(), emit_progress(), OllamaModelInfo, Return (models, error), retaining the last good catalog on failure. (+4 more)
+### Community 2 - "OllamaManager"
+Cohesion: 0.12
+Nodes (10): OllamaManager, download_task(), emit_complete(), emit_progress(), OllamaModelInfo, Return (models, error), retaining the last good catalog on failure., Read a model without triggering network I/O., Start a streaming REST pull for a local model. (+2 more)
 
-### Community 3 - "_show_llm_selection_dialog"
-Cohesion: 0.06
-Nodes (38): ProviderFactory, Return the human-readable display name for a model ID. Falls back to the raw…, Reverse lookup: display name → model ID. Returns None when the display name is…, Return [(display_name, model_id), ...] for UI widgets. The list follows the…, 向 NIM 端點探索可用模型；失敗時回傳空清單與錯誤。 回傳 (model_ids, used_fallback, error_message)： -…, 從 model_id 清單取出 publisher 清單（已排序、去重）。, 取得指定 publisher 下的 model_id 清單（保持原始順序）。, 從 model_id 拆出 publisher（供 UI 還原選擇用）。 (+30 more)
+### Community 3 - "ProviderFactory"
+Cohesion: 0.13
+Nodes (13): ProviderFactory, Return the human-readable display name for a model ID. Falls back to the raw…, Reverse lookup: display name → model ID. Returns None when the display name is…, Return [(display_name, model_id), ...] for UI widgets. The list follows the…, 從 model_id 清單取出 publisher 清單（已排序、去重）。, get_board_context_text(), 安全取得目前 AI 提供商、模型與語言設定。, 回傳目前棋盤局面的文字快照，供 LLM Chat Sandbox 附加為上下文。 (+5 more)
 
 ### Community 4 - "Contributing to AI Go Teacher / 為 AI Go Teacher 貢獻"
 Cohesion: 0.05
@@ -134,20 +137,20 @@ Cohesion: 0.16
 Nodes (4): on_error(), run(), 使用者按下停止：要求 provider 中止串流，並立即收尾。, 回傳 (顯示文字, 送給 LLM 的完整文字)。附件只附在完整文字中。
 
 ### Community 7 - "ConfigService"
-Cohesion: 0.14
-Nodes (3): ConfigService, Small wrapper around persisted UI settings., Migrate settings from the removed GitHub Models provider.
+Cohesion: 0.05
+Nodes (27): dataclasses, math, ConfigService, Small wrapper around persisted UI settings., Migrate settings from the removed GitHub Models provider., calculate_area_score(), get_display_komi_from_sgf(), get_katago_komi() (+19 more)
 
 ### Community 8 - "nvidia_provider.py"
-Cohesion: 0.39
-Nodes (6): discover_nim_models(), get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。 無 '/' 的 model_id 歸類為 "unknown"，確保 UI…, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。 保持各 publisher 內…, 向 NIM 端點 /v1/models 查詢可用模型清單。 成功時回傳 (True, [model_id, ...])；失敗時回傳 (False,…
+Cohesion: 0.27
+Nodes (9): opencc, get_publisher_from_model_id(), group_models_by_publisher(), 從 model_id 拆出 publisher（第一個 '/' 之前的部分）。 無 '/' 的 model_id 歸類為 "unknown"，確保 UI…, 將 model_id 清單依 publisher 分組，回傳 {publisher: [model_id, ...]}。 保持各 publisher 內…, get_publisher_from_model_id(), group_models_by_publisher(), threading (+1 more)
 
 ### Community 9 - "refresh_tab_bar"
-Cohesion: 0.11
-Nodes (33): _capture_board_snapshot(), _close_tab_silently(), hydrate_active_session(), load_sgf_file(), on_close_tab_click(), on_copy_tab_click(), on_cycle_tab(), _on_find_tab_changed() (+25 more)
+Cohesion: 0.09
+Nodes (38): apply_theme(), recolor(), _capture_board_snapshot(), _close_tab_silently(), hydrate_active_session(), load_sgf_file(), on_close_tab_click(), on_copy_tab_click() (+30 more)
 
 ### Community 10 - "_clear_selected_runtime_data"
-Cohesion: 0.17
-Nodes (12): _delete_api_key(), delete_nvidia_api_key(), delete_openrouter_api_key(), Delete one application credential, treating a missing credential as success., Delete the NVIDIA API key owned by this application., Delete the OpenRouter API key owned by this application., _clear_selected_runtime_data(), _delete_runtime_path() (+4 more)
+Cohesion: 0.20
+Nodes (10): _delete_api_key(), delete_nvidia_api_key(), delete_openrouter_api_key(), Delete one application credential, treating a missing credential as success., Delete the NVIDIA API key owned by this application., Delete the OpenRouter API key owned by this application., _clear_selected_runtime_data(), _delete_runtime_path() (+2 more)
 
 ### Community 11 - "materialize_bundled_runtime_file"
 Cohesion: 0.22
@@ -155,7 +158,7 @@ Nodes (12): get_config_path(), get_katago_path(), get_model_path(), hide_path_on
 
 ### Community 12 - "chat_sandbox.py"
 Cohesion: 0.12
-Nodes (19): copy, json, opencc, os, pil, threading, time, traceback (+11 more)
+Nodes (17): copy, json, pathlib, pil, sys, time, traceback, _insert_inline_markdown() (+9 more)
 
 ### Community 13 - "find_service.py"
 Cohesion: 0.20
@@ -165,13 +168,9 @@ Nodes (13): _branch_label(), find(), FindResult, _iter_all_paths(), parse_coordi
 Cohesion: 0.11
 Nodes (6): LLMProvider, Return a human-readable display name for the given model ID. Subclasses should…, Return (is_valid, error_message)., Send a raw prompt to the LLM for a plain chat conversation. This is used by the…, Base class for streaming LLM commentary providers., Build the final prompt sent to the model from plain user text plus data.
 
-### Community 15 - "rules.py"
-Cohesion: 0.13
-Nodes (18): dataclasses, math, calculate_area_score(), get_display_komi_from_sgf(), get_katago_komi(), get_rule_preset(), normalize_analysis_settings(), normalize_rule_id() (+10 more)
-
 ### Community 16 - "TabManager"
 Cohesion: 0.08
-Nodes (9): Move one session and preserve which session is active., Restore the most recently closed session at the end of the list., 支援 tab_manager[idx] 取第 idx 個分頁。, 多分頁文件管理器：維護所有 TabSession 並提供 active session 切換。, 建立第一個分頁並設為 active。供 main 流程開機時呼叫一次。, 建立新分頁。若已達 MAX_TABS，回傳 None。, 關閉指定分頁；回傳 (success, reason)。 規則： - 至少保留一個分頁。 - 若傳入 index 為 active，自動切到鄰近分頁。, TabManager (+1 more)
+Nodes (9): 建立第一個分頁並設為 active。供 main 流程開機時呼叫一次。, 建立新分頁。若已達 MAX_TABS，回傳 None。, 關閉指定分頁；回傳 (success, reason)。 規則： - 至少保留一個分頁。 - 若傳入 index 為 active，自動切到鄰近分頁。, Move one session and preserve which session is active., Restore the most recently closed session at the end of the list., 支援 tab_manager[idx] 取第 idx 個分頁。, 多分頁文件管理器：維護所有 TabSession 並提供 active session 切換。, TabManager (+1 more)
 
 ### Community 17 - "MenuBar"
 Cohesion: 0.21
@@ -182,92 +181,108 @@ Cohesion: 0.08
 Nodes (12): BranchCanvas, BranchTreeView, assign(), build_branch_section(), get_node_turn_number(), write_node(), is_pass_move(), LLMSelectionDialog (+4 more)
 
 ### Community 19 - "version.py"
-Cohesion: 0.12
-Nodes (16): argparse, Path, pathlib, re, sys, I18n, resource_path(), main() (+8 more)
+Cohesion: 0.24
+Nodes (12): argparse, Path, re, main(), Application version helpers for AI Go Teacher. Run this file to update every…, Return the numeric tuple used by PyInstaller's VSVersionInfo., _replace_once(), sync_version() (+4 more)
 
 ### Community 20 - "show_appearance_settings_dialog"
-Cohesion: 0.38
-Nodes (5): show_appearance_settings_dialog(), create_image_row(), browse_image(), use_default(), update_preview()
+Cohesion: 0.21
+Nodes (9): show_appearance_settings_dialog(), apply_changes(), create_image_row(), browse_image(), use_default(), update_preview(), show_sound_settings_dialog(), create_sound_row() (+1 more)
 
 ### Community 21 - "safe_get_system_info"
 Cohesion: 0.15
 Nodes (16): _format_bytes_as_gb(), _get_cpu_name(), _get_gpu_info(), _get_physical_core_count(), _get_ram_info(), _get_windows_display_version(), 把位元組數轉成 GB 字串；輸入不可用時回傳 Unknown。, 執行 PowerShell 並解析 JSON，失敗時回傳 None。 這裡只用於診斷資訊的 best-effort 查詢，任何錯誤都不能影響主 UI。 (+8 more)
 
-### Community 22 - "tone_templates.py"
-Cohesion: 0.13
-Nodes (17): find_preset_tone(), get_all_tones(), get_tone_description(), get_tone_display_name(), get_tone_prompt(), Single-block LLM prompt templates for AI Go teacher commentary. The application…, Return the preset prompt in the requested UI language., Return the tone if prompt is an untouched preset, otherwise ``None``. (+9 more)
+### Community 22 - "I18n"
+Cohesion: 0.10
+Nodes (19): find_preset_tone(), get_all_tones(), get_tone_description(), get_tone_display_name(), get_tone_prompt(), Single-block LLM prompt templates for AI Go teacher commentary. The application…, Return the preset prompt in the requested UI language., Return the tone if prompt is an untouched preset, otherwise ``None``. (+11 more)
 
-### Community 23 - "openrouter_provider.py"
-Cohesion: 0.19
-Nodes (3): get_publisher_from_model_id(), group_models_by_publisher(), OpenRouterProvider
+### Community 23 - "OpenRouterProvider"
+Cohesion: 0.20
+Nodes (3): discover_openrouter_models(), OpenRouterProvider, Return (True, model_ids) or (False, error_message).
 
 ### Community 24 - "LLMChatWindow"
 Cohesion: 0.09
 Nodes (5): LLMChatWindow, 把使用者訊息回填輸入框，並截斷該則之後的所有對話。, 遞迴綁定滾輪事件，讓游標在卡片上也能捲動聊天區。, 輸入框獲得焦點時清除 placeholder。, 輸入框失去焦點時恢復 placeholder。
 
 ### Community 25 - "normalize_api_key"
-Cohesion: 0.13
-Nodes (20): keyring, discover_openrouter_models(), Return (True, model_ids) or (False, error_message)., get_nvidia_api_key(), get_openrouter_api_key(), normalize_api_key(), Trim whitespace and common quote wrappers from API key values., Read NVIDIA API key from keyring first, then environment variables. (+12 more)
+Cohesion: 0.14
+Nodes (18): keyring, get_nvidia_api_key(), get_openrouter_api_key(), normalize_api_key(), Trim whitespace and common quote wrappers from API key values., Read NVIDIA API key from keyring first, then environment variables., Store NVIDIA API key in the OS keyring. Does not write to .env., Read OpenRouter API key from keyring first, then environment variables. (+10 more)
 
 ### Community 26 - "Security Policy"
 Cohesion: 0.10
 Nodes (19): Accepted Reports, Declined Reports, In-Scope, Information to Include, Out-of-Scope, Reporting a Vulnerability, Response & Resolution Process, Scope (+11 more)
 
+### Community 27 - "NvidiaProvider"
+Cohesion: 0.18
+Nodes (4): discover_nim_models(), NvidiaProvider, 動態探索 NIM 可用模型。 回傳 (model_ids, used_fallback, error_message)： -…, 向 NIM 端點 /v1/models 查詢可用模型清單。 成功時回傳 (True, [model_id, ...])；失敗時回傳 (False,…
+
 ### Community 28 - "plot_window"
-Cohesion: 0.10
-Nodes (33): _analysis_lines(), _gtp(), _move_text(), Compact, factual Go-game context for LLM teaching prompts. This module…, Serialize only the selected mainline and explicitly named snapshots., serialize_board(), serialize_game_context(), serialize_mainline() (+25 more)
+Cohesion: 0.15
+Nodes (23): add_full_game_commentary_to_cache(), get_full_game_commentary_from_cache(), plot_window(), apply_chart_mode(), build_full_game_summary_data(), build_summary_prompt(), get_player_from_move(), get_player_name() (+15 more)
 
 ### Community 29 - "requirements.txt - Python Dependencies"
 Cohesion: 0.29
 Nodes (7): requirements.txt - Python Dependencies, httpx HTTP Client, keyring Package, matplotlib Package, ollama Python Package, opencc Chinese Conversion, Pillow (PIL) Package
 
-### Community 30 - "show_system_info_dialog"
+### Community 30 - "_legacy_show_system_info_dialog"
 Cohesion: 0.22
-Nodes (6): _create_info_section(), _create_katago_section(), _create_labeled_row(), 建立診斷資訊視窗中的單列 label/value。, setup_system_info_styles(), show_system_info_dialog()
+Nodes (6): _create_info_section(), _create_katago_section(), _create_labeled_row(), _legacy_show_system_info_dialog(), 建立診斷資訊視窗中的單列 label/value。, setup_system_info_styles()
 
 ### Community 31 - "get_runtime_data_root"
-Cohesion: 0.12
-Nodes (26): _build_diagnostic_report_text(), create_dev_menu(), ensure_runtime_dir(), export_diagnostic_report(), get_executable_dir(), get_katago_runtime_overrides(), _get_newest_log_file(), get_runtime_data_root() (+18 more)
+Cohesion: 0.17
+Nodes (17): ensure_runtime_dir(), get_executable_dir(), get_katago_runtime_overrides(), get_runtime_data_root(), get_runtime_file_path(), is_frozen_app(), iter_dotenv_paths(), _iter_log_candidates() (+9 more)
+
+### Community 33 - "_show_llm_selection_dialog"
+Cohesion: 0.22
+Nodes (10): _show_llm_selection_dialog(), bind_ollama_mousewheel(), download_named_ollama_model(), refresh_ollama_models(), task(), render_ollama_models(), add_section(), scroll_ollama_models() (+2 more)
+
+### Community 34 - "show_analysis_log_dialog"
+Cohesion: 0.22
+Nodes (11): create_dev_menu(), export_diagnostic_report(), _open_folder(), 顯示診斷報告匯出完成訊息與開啟資料夾按鈕。, 匯出診斷報告到 diagnostics/diagnostic_report.txt。, Return Dev menu items for the themeable menu bar., show_analysis_log_dialog(), apply_highlighting() (+3 more)
+
+### Community 35 - "show_system_info_dialog"
+Cohesion: 0.22
+Nodes (10): Return a safe RAM usage ratio for the dashboard progress meter., Create a theme-aware dashboard card containing labelled values., Show the theme-aware CustomTkinter system diagnostics dashboard., show_system_info_dialog(), close_dialog(), render_dashboard(), _system_info_card(), _system_info_metric() (+2 more)
 
 ### Community 36 - "_download_ollama_model"
-Cohesion: 0.20
-Nodes (10): _confirm_and_download_ollama_model(), _create_ollama_model_row(), on_row_click(), _download_ollama_model(), on_download_complete(), update_progress(), _load_ollama_icon(), 為 Ollama 模型創建一個選擇行。 - 已下載（available）：點擊直接選中 - 雲端（cloud）：點擊直接選中，不顯示下載 -… (+2 more)
+Cohesion: 0.22
+Nodes (9): _confirm_and_download_ollama_model(), _create_ollama_model_row(), on_row_click(), _download_ollama_model(), on_download_complete(), update_progress(), _load_ollama_icon(), 為 Ollama 模型創建一個選擇行。 - 已下載（available）：點擊直接選中 - 雲端（cloud）：點擊直接選中，不顯示下載 -… (+1 more)
 
 ### Community 38 - "start_analyzer_async"
 Cohesion: 0.22
 Nodes (13): get_config_display_name(), get_model_display_name(), set_analysis_controls_state(), start_analyzer_async(), finish_failure(), finish_success(), task(), update_startup_message() (+5 more)
 
 ### Community 39 - "main_v3.py"
-Cohesion: 0.07
-Nodes (31): collections, dotenv, hashlib, itertools, matplotlib, matplotlib_backends_backend_tkagg, matplotlib_figure, matplotlib_pyplot (+23 more)
+Cohesion: 0.06
+Nodes (35): collections, customtkinter, dotenv, hashlib, itertools, matplotlib, matplotlib_backends_backend_tkagg, matplotlib_figure (+27 more)
 
 ### Community 41 - "._refresh_conversation_list"
 Cohesion: 0.21
 Nodes (3): _select(), on_change(), on_close()
 
 ### Community 43 - "build_menu_bar"
-Cohesion: 0.20
-Nodes (4): build_menu_bar(), save_game_as_json(), save_game_as_json_dialog(), show_about()
+Cohesion: 0.12
+Nodes (12): build_menu_bar(), toggle_dev(), Refresh a known static teacher prompt without touching LLM output., Refresh controls that expose the continuous-analysis state., rebuild_menu_bar(), refresh_language(), refresh_teacher_static_message(), render_winrate_text() (+4 more)
 
 ### Community 44 - "get_active_analysis_settings"
-Cohesion: 0.08
-Nodes (28): datetime, get_game_info(), Helpers for editable SGF game-information properties., Return a normalized date or raise ValueError for a non-SGF date., Read the editable game-info fields without exposing the metadata dict., Update editable fields in place while preserving every other property., update_game_info(), validate_game_date() (+20 more)
+Cohesion: 0.06
+Nodes (36): datetime, _analysis_lines(), _gtp(), _move_text(), Compact, factual Go-game context for LLM teaching prompts. This module…, Serialize only the selected mainline and explicitly named snapshots., serialize_board(), serialize_game_context() (+28 more)
 
 ### Community 47 - "t"
-Cohesion: 0.24
-Nodes (13): change_config_path(), change_katago_path(), change_model_path(), new_game(), open_feedback_form(), 重新初始化分析器（關閉舊進程，建立新進程）, reinitialize_analyzer(), show_custom_prompt_dialog() (+5 more)
+Cohesion: 0.21
+Nodes (16): change_config_path(), change_katago_path(), change_model_path(), create_katago_startup_popup(), update_elapsed(), new_game(), open_feedback_form(), 重新初始化分析器（關閉舊進程，建立新進程） (+8 more)
 
 ### Community 48 - "_ask_sgf_link"
 Cohesion: 0.20
 Nodes (7): _ask_sgf_link(), _fetch_sgf_content_from_url(), on_load_sgf_click_through_link(), download_task(), Load an SGF from a URL, or ask the user for one from the File menu., Fetch SGF bytes into memory and return decoded SGF text., Show a URL input dialog with a real placeholder entry.
 
 ### Community 49 - "resource_path"
-Cohesion: 0.11
-Nodes (16): detect_ollama_installed(), _open_folder(), 在 Windows 上抑制子進程彈出的主控台視窗。 隱藏終端機 (windowed) 模式下，子進程預設會繼承一個可見的主控台， 即使…, 檢查系統是否能執行 `ollama --version`，回傳 (installed: bool, version_or_none), 顯示簡單的 Ollama 安裝引導對話框（包含開啟下載頁與重新檢測）。, 顯示診斷報告匯出完成訊息與開啟資料夾按鈕。, Show a guarded, itemized dialog for deleting application runtime data., 彈出儲存 / 不儲存 / 取消 三選一對話框，回傳 'save' / 'discard' / 'cancel'。 (+8 more)
+Cohesion: 0.17
+Nodes (11): detect_ollama_installed(), play_move_sound(), Play the sound for a successfully applied board move. Sound playback is…, 檢查系統是否能執行 `ollama --version`，回傳 (installed: bool, version_or_none), 顯示簡單的 Ollama 安裝引導對話框（包含開啟下載頁與重新檢測）。, 彈出儲存 / 不儲存 / 取消 三選一對話框，回傳 'save' / 'discard' / 'cancel'。, resource_path(), _show_close_tab_dialog() (+3 more)
 
-### Community 50 - "set_winrate_text"
-Cohesion: 0.18
-Nodes (14): add_to_commentary_cache(), auto_analyze(), _commentary_cache_key(), get_commentary_from_cache(), is_analyzer_ready(), on_analyze_button_click(), on_commentary_generation_complete(), poll_ai() (+6 more)
+### Community 50 - "update_ui_with_data"
+Cohesion: 0.22
+Nodes (9): add_to_commentary_cache(), _commentary_cache_key(), get_commentary_from_cache(), on_commentary_generation_complete(), poll_ai(), 【Phase 1】LLM 生成完成後的回呼 — 將完整的解說存儲到快取, 將解說文本新增到快取 (執行緒安全，儲存全部手數), 直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用 (+1 more)
 
 ### Community 51 - "KataGoAnalyzer"
 Cohesion: 0.13
@@ -287,43 +302,51 @@ Nodes (6): 開啟尋找對話框；已存在則聚焦並清空舊結果。, show
 
 ### Community 55 - "ImeFontManager"
 Cohesion: 0.12
-Nodes (12): ctypes, logging, _font_height_from_tk_size(), ImeFontManager, LOGFONTW, Synchronize Windows IME composition fonts with focused Tk widgets. Tk delegates…, Remove only this manager's binding., Apply the current focused widget's font to its IME context. (+4 more)
+Nodes (13): ctypes, logging, os, _font_height_from_tk_size(), ImeFontManager, LOGFONTW, Synchronize Windows IME composition fonts with focused Tk widgets. Tk delegates…, Remove only this manager's binding. (+5 more)
 
 ### Community 56 - "MessageBubble"
 Cohesion: 0.32
 Nodes (4): MessageBubble, _action_btn(), _action_icon(), 依 wrap 後的 displayline 數調整 Text 高度，消除多餘空白。
 
-### Community 57 - "refresh_language"
-Cohesion: 0.17
-Nodes (13): apply_theme(), recolor(), toggle_dev(), Apply a configured theme to existing widgets without restarting., Refresh a known static teacher prompt without touching LLM output., Refresh controls that expose the continuous-analysis state., Expose semantic theme tokens to legacy drawing code in this module., rebuild_menu_bar() (+5 more)
+### Community 57 - "save_and_apply_settings"
+Cohesion: 0.31
+Nodes (8): Compatibility callback for components that report transient status., 只更新老師解說區，不改動生成中的快取狀態。, LLM Provider 的串流回呼；累積全文但在回放時不覆蓋既有解說。, render_teacher_ui(), apply_settings(), save_and_apply_settings(), update_status(), update_teacher_ui()
 
-### Community 58 - "config_service.py"
-Cohesion: 0.24
-Nodes (6): detect_system_theme(), normalize_theme(), Application color themes and Windows system-theme resolution., Return the Windows theme at process startup; safely fall back to light., resolve_theme(), winreg
+### Community 58 - "task"
+Cohesion: 0.25
+Nodes (4): refresh_openrouter_model_combo(), refresh_openrouter_models_async(), task(), update_ui()
 
-### Community 59 - "show_winrate_chart"
-Cohesion: 0.24
-Nodes (10): create_katago_startup_popup(), update_elapsed(), 分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報), run_full_game_analysis(), refresh_nim_models_async(), show_winrate_chart(), on_cancel(), task() (+2 more)
+### Community 59 - "set_winrate_text"
+Cohesion: 0.26
+Nodes (12): auto_analyze(), is_analyzer_ready(), on_analyze_button_click(), 分析整盤棋並回傳每手的勝率列表 (複用全局 KataGo analyzer，支援取消與進度回報), run_full_game_analysis(), set_winrate_text(), show_analyzer_not_ready(), refresh_nim_models_async() (+4 more)
+
+### Community 60 - "update_ui"
+Cohesion: 0.29
+Nodes (5): 取得指定 publisher 下的 model_id 清單（保持原始順序）。, 從 model_id 拆出 publisher（供 UI 還原選擇用）。, on_nvidia_publisher_changed(), update_ui(), refresh_nvidia_model_combo()
+
+### Community 61 - "_build_diagnostic_report_text"
+Cohesion: 0.40
+Nodes (5): _build_diagnostic_report_text(), _get_newest_log_file(), 讀取最新 log 的最後 max_lines 行；沒有 log 時回傳提示文字。, 組合 diagnostic_report.txt 的完整內容。, _read_recent_log_lines()
 
 ## Knowledge Gaps
-- **105 isolated node(s):** `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report`, `How Do I Submit a Good Bug Report?`, `Before Submitting an Enhancement` (+100 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 412 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **102 isolated node(s):** `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report`, `How Do I Submit a Good Bug Report?`, `Before Submitting an Enhancement` (+97 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 417 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LLMChatWindow` connect `LLMChatWindow` to `_show_llm_selection_dialog`, `._start_generation`, `main_v3.py`, `._active_conversation`, `._refresh_conversation_list`, `._tr`, `chat_sandbox.py`, `.__init__`, `._build_ui`, `._apply_chat_palette_swap`?**
-  _High betweenness centrality (0.163) - this node is a cross-community bridge._
+- **Why does `LLMChatWindow` connect `LLMChatWindow` to `ProviderFactory`, `._start_generation`, `main_v3.py`, `._active_conversation`, `._refresh_conversation_list`, `._tr`, `chat_sandbox.py`, `.__init__`, `._build_ui`, `._apply_chat_palette_swap`?**
+  _High betweenness centrality (0.152) - this node is a cross-community bridge._
+- **Why does `t()` connect `t` to `GoBoard`, `ProviderFactory`, `ConfigService`, `refresh_tab_bar`, `_clear_selected_runtime_data`, `TabManager`, `BranchTreeView`, `show_appearance_settings_dialog`, `I18n`, `normalize_api_key`, `plot_window`, `_legacy_show_system_info_dialog`, `get_runtime_data_root`, `_show_llm_selection_dialog`, `show_analysis_log_dialog`, `show_system_info_dialog`, `_download_ollama_model`, `start_analyzer_async`, `main_v3.py`, `build_menu_bar`, `get_active_analysis_settings`, `_ask_sgf_link`, `resource_path`, `create_path_row`, `show_find_dialog`, `save_and_apply_settings`, `task`, `set_winrate_text`, `update_ui`?**
+  _High betweenness centrality (0.099) - this node is a cross-community bridge._
 - **Why does `GoBoard` connect `GoBoard` to `BranchTreeView`, `main_v3.py`?**
-  _High betweenness centrality (0.114) - this node is a cross-community bridge._
-- **Why does `t()` connect `t` to `GoBoard`, `_show_llm_selection_dialog`, `refresh_tab_bar`, `_clear_selected_runtime_data`, `rules.py`, `TabManager`, `BranchTreeView`, `show_appearance_settings_dialog`, `tone_templates.py`, `normalize_api_key`, `plot_window`, `show_system_info_dialog`, `get_runtime_data_root`, `_download_ollama_model`, `start_analyzer_async`, `main_v3.py`, `build_menu_bar`, `get_active_analysis_settings`, `_ask_sgf_link`, `resource_path`, `create_path_row`, `show_find_dialog`, `refresh_language`, `show_winrate_chart`?**
-  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+  _High betweenness centrality (0.067) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `t()` (e.g. with `set_llm_tone()` and `show_chat_sandbox()`) actually correct?**
   _`t()` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 26 inferred relationships involving `build_menu_bar()` (e.g. with `palette()` and `toggle_branch_panel()`) actually correct?**
-  _`build_menu_bar()` has 26 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 10 inferred relationships involving `_show_llm_selection_dialog()` (e.g. with `ProviderFactory` and `apply_settings()`) actually correct?**
-  _`_show_llm_selection_dialog()` has 10 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 27 inferred relationships involving `build_menu_bar()` (e.g. with `palette()` and `toggle_branch_panel()`) actually correct?**
+  _`build_menu_bar()` has 27 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `Table of Contents`, `I Have a Question`, `Before Submitting a Bug Report` to the rest of the system?**
-  _105 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _102 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `GoBoard` be split into smaller, more focused modules?**
+  _Cohesion score 0.057703081232493 - nodes in this community are weakly interconnected._

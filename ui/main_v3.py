@@ -1799,6 +1799,11 @@ class GameNode:
         self.metadata = {}
 
 
+def is_markup_node(node):
+    """Return whether a node stores board annotations instead of a move."""
+    return node is not None and node.move is None and node.metadata.get("node_kind") == "markup"
+
+
 def is_pass_move(move):
     """Return whether a move tuple represents a pass (SGF B[]/W[])."""
     return move is not None and move[0] is None and move[1] is None
@@ -1982,10 +1987,10 @@ class BranchTreeView(tk.Canvas):
         return layout
 
     def _current_path_set(self):
-        return set(self.board_ref._current_node_path())
+        return set(self.board_ref._current_tree_path())
 
     def _current_path_ids(self):
-        return {id(node) for node in self.board_ref._current_node_path()}
+        return {id(node) for node in self.board_ref._current_tree_path()}
 
     def _node_tag(self, node):
         return f"node_{id(node)}"
@@ -2089,11 +2094,16 @@ class BranchTreeView(tk.Canvas):
             is_current = node is self.board_ref.current_node
             is_on_path = node in current_path
             is_root = node.parent is None
+            is_markup = is_markup_node(node)
             node_move = node.move
             if is_root:
                 fill_color = PANEL_BG
                 outline_color = ACCENT if is_current else TEXT_MUTED
                 text_color = TEXT_MAIN
+            elif is_markup:
+                fill_color = ACCENT if is_on_path else PANEL_BG
+                outline_color = ACCENT if is_current else TEXT_MUTED
+                text_color = "#ffffff" if is_on_path else TEXT_MAIN
             else:
                 stone_color = STONE_BLACK if node_move and node_move[2] == "black" else STONE_WHITE
                 fill_color = stone_color if not is_on_path else ("#1f1f1f" if node_move and node_move[2] == "black" else "#f7f2e9")
@@ -2147,26 +2157,23 @@ class BranchTreeView(tk.Canvas):
             else:
                 move_no = 0
                 current = node
-                while current.parent is not None:
-                    move_no += 1
+                while current is not None:
+                    if current.move is not None:
+                        move_no += 1
                     current = current.parent
-                coord = "Pass" if is_pass_move(node_move) else self.board_ref.to_gtp_coord(node_move[0], node_move[1])
-                self.create_text(
-                    x,
-                    y - 4,
-                    text=str(move_no),
-                    fill=text_color,
-                    font=("Arial", 7, "bold"),
-                    tags=(node_id,)
-                )
-                self.create_text(
-                    x,
-                    y + 6,
-                    text=coord,
-                    fill=text_color,
-                    font=("Arial", 7, "bold"),
-                    tags=(node_id,)
-                )
+                if is_markup:
+                    self.create_text(
+                        x,
+                        y,
+                        text=t("branch.markup", move_number=move_no),
+                        fill=text_color,
+                        font=("Microsoft JhengHei", 8, "bold"),
+                        tags=(node_id,),
+                    )
+                else:
+                    coord = "Pass" if is_pass_move(node_move) else self.board_ref.to_gtp_coord(node_move[0], node_move[1])
+                    self.create_text(x, y - 4, text=str(move_no), fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
+                    self.create_text(x, y + 6, text=coord, fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
 
                 if id(node) in self.collapsed_nodes:
                     hidden_count = self._count_descendants(node)
@@ -3207,6 +3214,65 @@ def on_analyze_button_click():
 
 
 # --- 棋盤邏輯 ---
+class MarkupToolbar(ctk.CTkFrame):
+    TOOLS = (
+        ("move", "↖", "toolbar.move"),
+        ("label", "A", "toolbar.label"),
+        ("cross", "×", "toolbar.cross"),
+        ("triangle", "△", "toolbar.triangle"),
+        ("square", "□", "toolbar.square"),
+        ("circle", "○", "toolbar.circle"),
+        ("eraser", "⌫", "toolbar.eraser"),
+    )
+
+    def __init__(self, master, board_ref):
+        super().__init__(master, fg_color=PANEL_BG, corner_radius=8, border_width=1, border_color=PANEL_BORDER)
+        self.board_ref = board_ref
+        self.buttons = {}
+        self._tooltip = None
+        self.grid_columnconfigure(0, weight=1)
+        for row, (tool, glyph, translation_key) in enumerate(self.TOOLS):
+            button = ctk.CTkButton(
+                self,
+                text=glyph,
+                width=36,
+                height=36,
+                corner_radius=6,
+                font=("Segoe UI Symbol", 18 if tool != "label" else 16, "bold"),
+                fg_color=ACCENT if tool == "move" else "transparent",
+                hover_color=ACCENT_DARK,
+                text_color="#ffffff" if tool == "move" else TEXT_MAIN,
+                command=lambda selected_tool=tool: self.select_tool(selected_tool),
+            )
+            button.grid(row=row, column=0, padx=5, pady=(5 if row == 0 else 2, 5 if row == len(self.TOOLS) - 1 else 2), sticky="ew")
+            button.bind("<Enter>", lambda _event, b=button, key=translation_key: self._show_tooltip(b, key))
+            button.bind("<Leave>", lambda _event: self._hide_tooltip())
+            self.buttons[tool] = button
+
+    def select_tool(self, tool):
+        self.board_ref.active_tool = tool
+        for button_tool, button in self.buttons.items():
+            selected = button_tool == tool
+            button.configure(
+                fg_color=ACCENT if selected else "transparent",
+                text_color="#ffffff" if selected else TEXT_MAIN,
+            )
+        set_winrate_text("toolbar.tool_changed", tool=t(self._translation_key(tool)))
+
+    def _translation_key(self, tool):
+        return next(key for item, _glyph, key in self.TOOLS if item == tool)
+
+    def _show_tooltip(self, widget, key):
+        self._hide_tooltip()
+        self._tooltip = tk.Label(self, text=t(key), bg=TEXT_MAIN, fg=PANEL_BG, font=("Microsoft JhengHei", 9), padx=6, pady=3)
+        self._tooltip.place(in_=widget, relx=1.0, x=8, rely=0.5, anchor="w")
+
+    def _hide_tooltip(self):
+        if self._tooltip is not None:
+            self._tooltip.destroy()
+            self._tooltip = None
+
+
 class GoBoard(tk.Canvas):
     def __init__(self, master=None):
         self.canvas_size = CANVAS_SIZE
@@ -3232,6 +3298,8 @@ class GoBoard(tk.Canvas):
         self.score_estimate_data = None
         self.variation_timer = None
         self.variation_hover_coord = None
+        self.active_tool = "move"
+        self.markup_toolbar = None
         
         # --- 分支系統核心 ---
         self.root_node = GameNode()
@@ -3401,18 +3469,212 @@ class GoBoard(tk.Canvas):
         """動態生成歷史落子紀錄，不會再因為提子而消失，確保 AI 判斷正確"""
         path = []
         curr = self.current_node
-        while curr and curr.move is not None:
-            path.append(curr.move)
+        while curr is not None:
+            if curr.move is not None:
+                path.append(curr.move)
             curr = curr.parent
         return path[::-1] # 反轉成從頭到尾的順序
 
     def _current_node_path(self):
         path = []
         curr = self.current_node
-        while curr and curr.move is not None:
+        while curr is not None:
+            if curr.move is not None:
+                path.append(curr)
+            curr = curr.parent
+        return path[::-1]
+
+    def _current_tree_path(self):
+        path = []
+        curr = self.current_node
+        while curr is not None:
             path.append(curr)
             curr = curr.parent
         return path[::-1]
+
+    @staticmethod
+    def _markup_key(x, y):
+        return f"{x},{y}"
+
+    @staticmethod
+    def _new_markup_data():
+        return {
+            "triangle": [],
+            "square": [],
+            "circle": [],
+            "cross": [],
+            "label": {},
+        }
+
+    def _get_active_markup_node(self):
+        if self.current_node.metadata.get("markup"):
+            return self.current_node
+        if is_markup_node(self.current_node):
+            return self.current_node
+        if self.current_node.children:
+            active_index = min(self.current_node.active_child_idx, len(self.current_node.children) - 1)
+            child = self.current_node.children[active_index]
+            if is_markup_node(child):
+                return child
+        return None
+
+    def _markup_from_properties(self, properties):
+        markup = self._new_markup_data()
+        property_tools = {
+            "TR": "triangle",
+            "SQ": "square",
+            "CR": "circle",
+            "MA": "cross",
+        }
+        for property_name, tool in property_tools.items():
+            for value in properties.get(property_name, []):
+                coords = self._expand_sgf_points(value)
+                for x, y in coords:
+                    key = self._markup_key(x, y)
+                    if key not in markup[tool]:
+                        markup[tool].append(key)
+        for value in properties.get("LB", []):
+            if ":" not in value:
+                continue
+            sgf_pos, label = value.split(":", 1)
+            coords = self._expand_sgf_points(sgf_pos)
+            for x, y in coords:
+                markup["label"][self._markup_key(x, y)] = label
+        if any(markup[tool] for tool in ("triangle", "square", "circle", "cross")) or markup["label"]:
+            return markup
+        return None
+
+    def _expand_sgf_points(self, value):
+        if ":" not in value:
+            point = self.from_sgf_coord(value)
+            return [point] if point else []
+        start, end = value.split(":", 1)
+        start_point = self.from_sgf_coord(start)
+        end_point = self.from_sgf_coord(end)
+        if not start_point or not end_point:
+            return []
+        start_x, start_y = start_point
+        end_x, end_y = end_point
+        return [
+            (x, y)
+            for x in range(min(start_x, end_x), max(start_x, end_x) + 1)
+            for y in range(min(start_y, end_y), max(start_y, end_y) + 1)
+        ]
+
+    def _markup_properties(self, node):
+        markup = node.metadata.get("markup", {})
+        properties = {
+            "TR": [self.to_sgf_coord(*self.from_markup_key(key)) for key in markup.get("triangle", [])],
+            "SQ": [self.to_sgf_coord(*self.from_markup_key(key)) for key in markup.get("square", [])],
+            "CR": [self.to_sgf_coord(*self.from_markup_key(key)) for key in markup.get("circle", [])],
+            "MA": [self.to_sgf_coord(*self.from_markup_key(key)) for key in markup.get("cross", [])],
+            "LB": [f"{self.to_sgf_coord(*self.from_markup_key(key))}:{label}" for key, label in markup.get("label", {}).items()],
+        }
+        return {key: values for key, values in properties.items() if values}
+
+    @staticmethod
+    def from_markup_key(key):
+        x, y = (int(part) for part in key.split(",", 1))
+        return x, y
+
+    def _get_or_create_markup_node(self):
+        node = self._get_active_markup_node()
+        if node is not None:
+            return node
+
+        node = GameNode(None, self.current_node)
+        node.metadata["node_kind"] = "markup"
+        node.metadata["markup"] = self._new_markup_data()
+        self.current_node.children.append(node)
+        self.current_node.active_child_idx = len(self.current_node.children) - 1
+        self.current_node = node
+        return node
+
+    def _markup_labels(self, markup):
+        return set(markup.get("label", {}).values())
+
+    def _next_markup_label(self, markup):
+        used = self._markup_labels(markup)
+        for code in range(ord("A"), ord("Z") + 1):
+            label = chr(code)
+            if label not in used:
+                return label
+        return None
+
+    def _set_markup_dirty(self):
+        session = tab_manager.active_session
+        if session is not None:
+            session.is_dirty = True
+            refresh_tab_bar()
+
+    def apply_markup(self, tool, x, y):
+        """Apply one annotation and keep consecutive annotations in one node."""
+        if self.is_welcome_mode() or self.score_estimate_active:
+            return False
+        if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE):
+            return False
+
+        existing_markup_node = self._get_active_markup_node()
+        if tool == "label" and existing_markup_node is None:
+            markup = self._new_markup_data()
+            label = self._next_markup_label(markup)
+            if label is None:
+                set_winrate_text("toolbar.label_limit")
+                return False
+        markup_node = self._get_or_create_markup_node()
+        markup = markup_node.metadata.setdefault("markup", self._new_markup_data())
+        key = self._markup_key(x, y)
+
+        if tool == "label":
+            if key in markup["label"]:
+                return False
+            label = self._next_markup_label(markup)
+            if label is None:
+                set_winrate_text("toolbar.label_limit")
+                return False
+            markup["label"][key] = label
+        elif tool in {"cross", "triangle", "square", "circle"}:
+            if key in markup[tool]:
+                return False
+            markup[tool].append(key)
+        else:
+            return False
+
+        self._set_markup_dirty()
+        self.refresh_display()
+        self.on_state_change(structure_changed=True)
+        return True
+
+    def erase_markup(self, x, y):
+        """Remove every annotation at one coordinate."""
+        markup_node = self._get_active_markup_node()
+        if markup_node is None:
+            return False
+        markup = markup_node.metadata.get("markup", {})
+        key = self._markup_key(x, y)
+        changed = False
+        for tool in ("triangle", "square", "circle", "cross"):
+            if key in markup.get(tool, []):
+                markup[tool].remove(key)
+                changed = True
+        if key in markup.get("label", {}):
+            del markup["label"][key]
+            changed = True
+        if not changed:
+            return False
+
+        if not any(markup.get(tool) for tool in ("triangle", "square", "circle", "cross")) and not markup.get("label"):
+            parent = markup_node.parent
+            if parent is not None:
+                index = parent.children.index(markup_node)
+                parent.children.pop(index)
+                parent.active_child_idx = min(parent.active_child_idx, max(0, len(parent.children) - 1))
+                self.current_node = parent
+
+        self._set_markup_dirty()
+        self.refresh_display()
+        self.on_state_change(structure_changed=True)
+        return True
 
     def _branch_display_start_index(self):
         """Return 1-based move index where the current branch starts, or None on main line."""
@@ -3995,6 +4257,9 @@ class GoBoard(tk.Canvas):
         if self.score_estimate_active:
             self._handle_recommendation_hover(None)
             return
+        if self.active_tool != "move":
+            self.on_leave()
+            return
         margin = self.margin
         x, y = round((event.x - margin) / self.cell_size), round((event.y - margin) / self.cell_size)
         if self.preview_id:
@@ -4119,7 +4384,11 @@ class GoBoard(tk.Canvas):
         margin = self.margin
         x, y = round((event.x - margin) / self.cell_size), round((event.y - margin) / self.cell_size)
         self._handle_recommendation_hover(None)
-        if self.play_move(x, y):
+        if self.active_tool == "move" and self.play_move(x, y):
+            self.refresh_display()
+        elif self.active_tool == "eraser":
+            self.erase_markup(x, y)
+        elif self.apply_markup(self.active_tool, x, y):
             self.refresh_display()
 
     def get_group_and_liberties(self, x, y):
@@ -4196,6 +4465,9 @@ class GoBoard(tk.Canvas):
                         self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=fill, outline=outline, width=1)
 
         # 2. 繪製最後一手標記
+            self._draw_markup()
+
+            # 2. 繪製最後一手標記
         if self.current_node and self.current_node.move and not is_pass_move(self.current_node.move):
             lx, ly, lcolor = self.current_node.move
             px, py = self._point(lx, ly)
@@ -4210,6 +4482,37 @@ class GoBoard(tk.Canvas):
         # 3. 顯示目前手數 (選擇性：顯示在標籤或標題)
         total_moves = len(self.stones)
         root.title(t("app.title_with_move", moves=total_moves))
+
+    def _draw_markup(self):
+        markup_node = self._get_active_markup_node()
+        if markup_node is None:
+            return
+        markup = markup_node.metadata.get("markup", {})
+        radius = self._scaled(9)
+        line_width = max(1, round(self._scaled(2)))
+
+        def point_from_key(key):
+            x, y = (int(part) for part in key.split(",", 1))
+            return x, y, self._point(x, y)
+
+        for key in markup.get("triangle", []):
+            _x, _y, (px, py) = point_from_key(key)
+            self.create_polygon(px, py - radius, px - radius, py + radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", width=line_width, tags="markup")
+        for key in markup.get("square", []):
+            _x, _y, (px, py) = point_from_key(key)
+            self.create_rectangle(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", width=line_width, tags="markup")
+        for key in markup.get("circle", []):
+            _x, _y, (px, py) = point_from_key(key)
+            self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, width=line_width, tags="markup")
+        for key in markup.get("cross", []):
+            _x, _y, (px, py) = point_from_key(key)
+            self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ACCENT_DARK, width=line_width, tags="markup")
+            self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ACCENT_DARK, width=line_width, tags="markup")
+        for key, label in markup.get("label", {}).items():
+            x, y, (px, py) = point_from_key(key)
+            stone_color = self.board[y][x]
+            label_fill = "#ffffff" if stone_color == "black" else TEXT_MAIN
+            self.create_text(px, py, text=label, fill=label_fill, font=("Arial", max(8, round(self._scaled(10))), "bold"), tags="markup")
     # --- 座標與檔案處理 ---
     def to_gtp_coord(self, x, y):
         col = chr(ord('A') + x)
@@ -4278,8 +4581,9 @@ class GoBoard(tk.Canvas):
             # 從該節點往回追溯到根節點
             while current.parent:
                 current = current.parent
-                turns += 1
-            return turns + 1
+                if current.move is not None:
+                    turns += 1
+            return turns + (1 if node.move is not None else 0)
         
         # 從根節點的子節點開始遞迴
         def write_node(node):
@@ -4300,6 +4604,15 @@ class GoBoard(tk.Canvas):
                     escaped_commentary = cached_commentary.replace("\\", "\\\\").replace("]", "\\]")
                     content += f"C[{escaped_commentary}]"
                     logger.debug(f"【SGF 匯出】第 {turn_num} 手已新增註解: {len(escaped_commentary)} 字")
+            elif is_markup_node(node):
+                turn_num = get_node_turn_number(node)
+                content += f";N[{escape_sgf(t('branch.markup', move_number=turn_num))}]"
+            for property_name, values in self._markup_properties(node).items():
+                if values:
+                    content += "".join(f"{property_name}[{escape_sgf(value)}]" for value in values)
+            for property_name, values in node.metadata.get("sgf_properties", {}).items():
+                if property_name not in standard_metadata and values:
+                    content += "".join(f"{property_name}[{escape_sgf(value)}]" for value in values)
             
             if not node.children:
                 return content
@@ -4376,49 +4689,88 @@ class GoBoard(tk.Canvas):
             parent_node: 該序列的父節點
             回傳：(最後的位置, 當前分支的最後節點)
             """
-            turn_num = 0
             current = parent_node
+
+            def read_properties(start):
+                properties = {}
+                cursor = start
+                while cursor < len(content) and content[cursor] not in ";()":
+                    if content[cursor].isspace():
+                        cursor += 1
+                        continue
+                    prop_match = re.match(r"([A-Z]+)", content[cursor:])
+                    if not prop_match:
+                        cursor += 1
+                        continue
+                    property_name = prop_match.group(1)
+                    cursor += prop_match.end()
+                    values = properties.setdefault(property_name, [])
+                    while cursor < len(content) and content[cursor] == "[":
+                        cursor += 1
+                        value_chars = []
+                        while cursor < len(content):
+                            char = content[cursor]
+                            if char == "\\" and cursor + 1 < len(content):
+                                value_chars.append(content[cursor + 1])
+                                cursor += 2
+                            elif char == "]":
+                                cursor += 1
+                                break
+                            else:
+                                value_chars.append(char)
+                                cursor += 1
+                        values.append("".join(value_chars))
+                return cursor, properties
             
             while pos < len(content):
                 # 找下一個節點或分支標記
                 if content[pos] == ';':
-                    # 解析單個節點
                     pos += 1
-                    match = re.match(r'([BW])\[([a-z]{0,2})\](?:C\[((?:[^\]]|\\\])*)\])?', content[pos:])
-                    if match:
-                        color_code = match.group(1)
-                        sgf_pos = match.group(2)
-                        comment = match.group(3)
-                        pos += match.end()
-                        
-                        is_pass = not sgf_pos or sgf_pos.lower() == "tt"
-                        if is_pass:
-                            color = "black" if color_code == "B" else "white"
-                            new_node = GameNode((None, None, color), current)
-                            current.children.append(new_node)
-                            current = new_node
-                            turn_num += 1
-                            if comment:
-                                unescaped_comment = comment.replace("\\]", "]").replace("\\\\", "\\")
-                                add_to_commentary_cache(turn_num, "Pass", unescaped_comment)
-                        else:
-                            coords = self.from_sgf_coord(sgf_pos)
-                            if coords:
-                                x, y = coords
-                                gtp_move = self.to_gtp_coord(x, y)
-                                
-                                # 建立新節點
-                                color = "black" if color_code == "B" else "white"
-                                new_node = GameNode((x, y, color), current)
-                                current.children.append(new_node)
-                                current = new_node
-                                
-                                # 恢復註解快取
+                    pos, properties = read_properties(pos)
+                    move_properties = properties.get("B", []) or properties.get("W", [])
+                    markup = self._markup_from_properties(properties)
+                    if move_properties:
+                        color_code = "B" if properties.get("B") else "W"
+                        sgf_pos = move_properties[0]
+                        color = "black" if color_code == "B" else "white"
+                        coords = self.from_sgf_coord(sgf_pos) if sgf_pos and sgf_pos.lower() != "tt" else None
+                        move = (None, None, color) if coords is None else (*coords, color)
+                        new_node = GameNode(move, current)
+                        if markup:
+                            new_node.metadata["markup"] = markup
+                        for property_name, values in properties.items():
+                            if property_name not in {"B", "W", "C", "TR", "SQ", "CR", "MA", "LB"}:
+                                new_node.metadata.setdefault("sgf_properties", {})[property_name] = values
+                        current.children.append(new_node)
+                        current = new_node
+                        turn_num = 0
+                        turn_cursor = current
+                        while turn_cursor is not None:
+                            if turn_cursor.move is not None:
                                 turn_num += 1
-                                if comment:
-                                    unescaped_comment = comment.replace("\\]", "]").replace("\\\\", "\\")
-                                    add_to_commentary_cache(turn_num, gtp_move, unescaped_comment)
-                                    logger.debug(f"【SGF 載入】第 {turn_num} 手恢復註解: {len(unescaped_comment)} 字")
+                            turn_cursor = turn_cursor.parent
+                        comment = properties.get("C", [None])[0]
+                        if comment:
+                            commentary_move = "Pass" if coords is None else self.to_gtp_coord(*coords)
+                            add_to_commentary_cache(turn_num, commentary_move, comment)
+                    elif markup:
+                        new_node = GameNode(None, current)
+                        new_node.metadata["node_kind"] = "markup"
+                        new_node.metadata["markup"] = markup
+                        for property_name, values in properties.items():
+                            if property_name not in {"N", "TR", "SQ", "CR", "MA", "LB"}:
+                                new_node.metadata.setdefault("sgf_properties", {})[property_name] = values
+                        current.children.append(new_node)
+                        current = new_node
+                    elif properties and current is self.root_node and current.parent is None:
+                        for property_name, values in properties.items():
+                            if values:
+                                self.root_node.metadata[property_name] = values[0] if len(values) == 1 else values
+                    elif properties:
+                        new_node = GameNode(None, current)
+                        new_node.metadata["sgf_properties"] = properties
+                        current.children.append(new_node)
+                        current = new_node
                 elif content[pos] == '(':
                     # 開始分支，遞迴處理
                     pos += 1
@@ -4463,21 +4815,12 @@ class GoBoard(tk.Canvas):
         is_playback_mode = True
 
         if target_idx < current_idx:
-            # 目標在過去：不斷往回退 (Undo 邏輯)
-            steps = current_idx - target_idx
-            for _ in range(steps):
-                if self.current_node.parent is not None:
-                    self.current_node = self.current_node.parent
+            while len(self.stones) > target_idx and self.current_node.parent is not None:
+                self.current_node = self.current_node.parent
         else:
-            # 目標在未來：不斷往前走 (Redo 邏輯)
-            steps = target_idx - current_idx
-            for _ in range(steps):
-                if self.current_node.children:
-                    # 預設走目前啟用的分支
-                    idx = self.current_node.active_child_idx
-                    self.current_node = self.current_node.children[idx]
-                else:
-                    break # 已經到底了
+            while len(self.stones) < target_idx and self.current_node.children:
+                idx = min(self.current_node.active_child_idx, len(self.current_node.children) - 1)
+                self.current_node = self.current_node.children[idx]
 
         # 重建盤面並觸發更新
         self.rebuild_board()
@@ -9855,8 +10198,16 @@ board_frame_bg_label = tk.Label(
 )
 board_frame_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-board = GoBoard(board_shell)
-board.pack(anchor="center")
+board_content = tk.Frame(board_shell, bg=PANEL_BG)
+board_content.pack(anchor="center")
+board_content.grid_columnconfigure(1, weight=1)
+board_content.grid_rowconfigure(0, weight=1)
+
+board = GoBoard(board_content)
+markup_toolbar = MarkupToolbar(board_content, board)
+board.markup_toolbar = markup_toolbar
+markup_toolbar.grid(row=0, column=0, padx=(0, 10), sticky="ns")
+board.grid(row=0, column=1)
 board.frame_bg_label = board_frame_bg_label
 
 # 手動顯示（不啟用）
