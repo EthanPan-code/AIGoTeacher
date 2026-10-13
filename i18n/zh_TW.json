@@ -436,7 +436,7 @@
   "dialog.check_log_title":"查看 KataGo 日誌",
   "dialog.system_info_title": "系統資訊",
   "dialog.system_info_error": "無法顯示系統資訊，詳細錯誤已記錄到 log。",
-  "dialog.system_info_header": "系統智慧儀表板",
+  "dialog.system_info_header": "系統儀表板",
   "dialog.system_info_subtitle": "執行環境、硬體配置與 KataGo 就緒狀態",
   "dialog.system_info_version": "版本",
   "dialog.system_info_theme": "主題",

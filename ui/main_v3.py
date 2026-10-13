@@ -7352,20 +7352,19 @@ def _system_info_ram_percent(system_info):
 def _system_info_card(parent, title, rows, *, columns=1):
     """Create a theme-aware dashboard card containing labelled values."""
     card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=14)
-    card.grid_columnconfigure(0, weight=1)
-    if columns == 2:
-        card.grid_columnconfigure(1, weight=1)
-    ctk.CTkLabel(card, text=title.upper(), text_color=ACCENT, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+    card.grid_columnconfigure(columns-1, weight=1)
+
+    ctk.CTkLabel(card, text=title.upper(), text_color=ACCENT, font=("Segoe UI", 14, "bold"), anchor="w").grid(
         row=0, column=0, columnspan=columns, sticky="ew", padx=16, pady=(14, 8)
     )
     for index, (label, value) in enumerate(rows, start=1):
-        column = 0 if columns == 1 else (index - 1) % 2
-        row = index if columns == 1 else ((index - 1) // 2) + 1
+        column = 0 
+        row = index 
         cell = ctk.CTkFrame(card, fg_color="transparent")
         cell.grid(row=row, column=column, sticky="ew", padx=(16, 8) if column == 0 else (8, 16), pady=(0, 10))
         cell.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(cell, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 9), anchor="w").grid(row=0, column=0, sticky="ew")
-        ctk.CTkLabel(cell, text=str(value), text_color=TEXT_MAIN, font=("Segoe UI", 10, "bold"), anchor="w", justify="left", wraplength=390).grid(
+        ctk.CTkLabel(cell, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 12), anchor="w").grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(cell, text=str(value), text_color=TEXT_MAIN, font=("Segoe UI", 10, "bold"), anchor="w", justify="left", wraplength=280).grid(
             row=1, column=0, sticky="ew", pady=(2, 0)
         )
     return card
@@ -7373,7 +7372,7 @@ def _system_info_card(parent, title, rows, *, columns=1):
 
 def _system_info_metric(parent, label, value, *, accent=None):
     card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=14)
-    ctk.CTkLabel(card, text=label.upper(), text_color=TEXT_MUTED, font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", padx=14, pady=(13, 4))
+    ctk.CTkLabel(card, text=label.upper(), text_color=TEXT_MUTED, font=("Segoe UI", 12, "bold"), anchor="w").pack(fill="x", padx=14, pady=(13, 4))
     ctk.CTkLabel(card, text=str(value), text_color=accent or TEXT_MAIN, font=("Segoe UI", 16, "bold"), anchor="w").pack(fill="x", padx=14, pady=(0, 13))
     return card
 
@@ -7384,9 +7383,9 @@ def _system_info_status_card(parent, label, item):
     status_color = SUCCESS if exists else ERROR
     card = ctk.CTkFrame(parent, fg_color=PANEL_BG, border_color=PANEL_BORDER, border_width=1, corner_radius=12)
     card.grid_columnconfigure(0, weight=1)
-    ctk.CTkLabel(card, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 9), anchor="w").grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
-    ctk.CTkLabel(card, text=status_text, text_color=status_color, font=("Segoe UI", 10, "bold"), anchor="w").grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 2))
-    ctk.CTkLabel(card, text=item.get("filename", "Unknown"), text_color=TEXT_MAIN, font=("Segoe UI", 10), anchor="w", wraplength=220).grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 10))
+    ctk.CTkLabel(card, text=label, text_color=TEXT_MUTED, font=("Segoe UI", 12), anchor="w").grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+    ctk.CTkLabel(card, text=status_text, text_color=status_color, font=("Segoe UI", 12, "bold"), anchor="w").grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 2))
+    ctk.CTkLabel(card, text=item.get("filename", "Unknown"), text_color=TEXT_MAIN, font=("Segoe UI", 10), anchor="w", wraplength=240).grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 10))
     return card
 
 
@@ -7399,14 +7398,13 @@ def show_system_info_dialog():
 
         win = ctk.CTkToplevel(root)
         win.title(t("dialog.system_info_title"))
-        win.geometry("960x720")
+        win.geometry("1080x720")
         win.minsize(820, 600)
         win.configure(bg=UI_BG)
         try:
             win.iconbitmap(resource_path("image/logo.ico"))
         except (tk.TclError, OSError):
             pass
-        win.transient(root)
         win.grab_set()
         pywinstyles.change_header_color(win, color=PANEL_BG)
         pywinstyles.change_title_color(win, color=TEXT_MAIN)
@@ -7415,6 +7413,7 @@ def show_system_info_dialog():
         scrollable.pack(fill="both", expand=True, padx=8, pady=(8, 0))
         scrollable.grid_columnconfigure(0, weight=1)
         scrollable.grid_columnconfigure(1, weight=1)
+        scrollable.grid_columnconfigure(2, weight=1)
         state = {"closed": False}
 
         def render_dashboard():
@@ -7427,15 +7426,15 @@ def show_system_info_dialog():
                     child.destroy()
 
                 header = ctk.CTkFrame(scrollable, fg_color="transparent")
-                header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=18, pady=(10, 8))
+                header.grid(row=0, column=0, columnspan=3, sticky="ew", padx=18, pady=(10, 8))
                 header.grid_columnconfigure(0, weight=1)
                 ctk.CTkLabel(header, text=t("dialog.system_info_header"), text_color=TEXT_MAIN, font=("Segoe UI", 24, "bold"), anchor="w").grid(row=0, column=0, sticky="ew")
-                ctk.CTkLabel(header, text=t("dialog.system_info_subtitle"), text_color=TEXT_MUTED, font=("Segoe UI", 10), anchor="w").grid(row=1, column=0, sticky="ew", pady=(4, 0))
-                ctk.CTkLabel(header, text=f"{t('dialog.system_info_version')}: {APP_VERSION}   |   {t('dialog.system_info_theme')}: {ACTIVE_THEME.title()}", text_color=ACCENT, font=("Consolas", 10, "bold"), anchor="e").grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+                ctk.CTkLabel(header, text=t("dialog.system_info_subtitle"), text_color=TEXT_MUTED, font=("Segoe UI", 12), anchor="w").grid(row=1, column=0, sticky="ew", pady=(4, 0))
+                ctk.CTkLabel(header, text=f"{t('dialog.system_info_version')}: {APP_VERSION}   |   {t('dialog.system_info_theme')}: {ACTIVE_THEME.title()}", text_color=ACCENT, font=("Consolas", 12, "bold"), anchor="e").grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
 
-                ctk.CTkLabel(scrollable, text=t("dialog.system_info_status"), text_color=TEXT_MAIN, font=("Segoe UI", 11, "bold"), anchor="w").grid(row=1, column=0, columnspan=2, sticky="ew", padx=18, pady=(8, 6))
+                ctk.CTkLabel(scrollable, text=t("dialog.system_info_status"), text_color=TEXT_MAIN, font=("Segoe UI", 12, "bold"), anchor="w").grid(row=1, column=0, columnspan=2, sticky="ew", padx=18, pady=(8, 6))
                 status_frame = ctk.CTkFrame(scrollable, fg_color="transparent")
-                status_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 14))
+                status_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=18, pady=(0, 14))
                 status_labels = {
                     "executable": t("dialog.system_info_katago_executable"),
                     "config": t("dialog.system_info_katago_config"),
@@ -7446,7 +7445,7 @@ def show_system_info_dialog():
                     _system_info_status_card(status_frame, status_labels[key], katago_info[key]).grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0 if index == 2 else 5))
 
                 metric_frame = ctk.CTkFrame(scrollable, fg_color="transparent")
-                metric_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 14))
+                metric_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=18, pady=(0, 14))
                 for index in range(4):
                     metric_frame.grid_columnconfigure(index, weight=1)
                 ram_ratio = _system_info_ram_percent(system_info)
@@ -7462,41 +7461,26 @@ def show_system_info_dialog():
                 if ram_ratio is not None:
                     progress = ctk.CTkProgressBar(scrollable, height=8, fg_color=PANEL_BORDER, progress_color=WARNING if ram_ratio >= 0.8 else ACCENT, corner_radius=4)
                     progress.set(ram_ratio)
-                    progress.grid(row=4, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 18))
+                    progress.grid(row=4, column=0, columnspan=3, sticky="ew", padx=18, pady=(0, 18))
+
 
                 _system_info_card(scrollable, t("dialog.system_info_os_runtime"), [
                     (t("dialog.system_info_windows"), f"{system_info.get('windows_version', 'Unknown')} ({system_info.get('windows_build', 'Unknown')})"),
                     (t("dialog.system_info_machine"), system_info.get("machine_type", "Unknown")),
                     (t("dialog.system_info_python"), system_info.get("python", "Unknown")),
-                ], columns=2).grid(row=5, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
+                ], columns=2).grid(row=5, column=0, sticky="ew", padx=(18, 7), pady=(0, 12))
                 _system_info_card(scrollable, t("dialog.system_info_cpu"), [
                     (t("dialog.system_info_cpu_name"), system_info.get("cpu_name", "Unknown")),
                     (t("dialog.system_info_physical_cores"), system_info.get("cpu_core_count", "Unknown")),
                     (t("dialog.system_info_logical_processors"), system_info.get("logical_processor_count", "Unknown")),
-                ]).grid(row=5, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
-                _system_info_card(scrollable, t("dialog.system_info_memory"), [
-                    (t("dialog.system_info_total_ram"), system_info.get("total_ram", "Unknown")),
-                    (t("dialog.system_info_available_ram"), system_info.get("available_ram", "Unknown")),
-                    (t("dialog.system_info_used_ram"), system_info.get("used_ram", "Unknown")),
-                ]).grid(row=6, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
+                ]).grid(row=5, column=1, sticky="ew", padx=(7, 7), pady=(0, 12))
                 _system_info_card(scrollable, t("dialog.system_info_gpu"), [
                     (t("dialog.system_info_gpu_name"), system_info.get("gpu_name", "Unknown")),
                     (t("dialog.system_info_gpu_memory_value"), system_info.get("gpu_memory", "Unknown")),
-                ]).grid(row=6, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
-
-                katago_rows = []
-                for key in ("executable", "config", "model"):
-                    item = katago_info[key]
-                    katago_rows.extend(((status_labels[key], item.get("filename", "Unknown")), (t("dialog.system_info_path"), item.get("path", "Unknown"))))
-                _system_info_card(scrollable, t("dialog.system_info_katago_runtime"), katago_rows).grid(row=7, column=0, sticky="nsew", padx=(18, 7), pady=(0, 12))
-                _system_info_card(scrollable, t("dialog.system_info_ai_configuration"), [
-                    (t("dialog.system_info_provider"), ai_config.get("provider", "Unknown")),
-                    (t("dialog.system_info_model"), ai_config.get("model", "Unknown")),
-                    (t("dialog.system_info_language"), ai_config.get("language", "Unknown")),
-                ]).grid(row=7, column=1, sticky="nsew", padx=(7, 18), pady=(0, 12))
+                ]).grid(row=5, column=2, sticky="nsew", padx=(7, 18), pady=(0, 12))
 
                 footer = ctk.CTkFrame(scrollable, fg_color="transparent")
-                footer.grid(row=8, column=0, columnspan=2, sticky="ew", padx=18, pady=(4, 14))
+                footer.grid(row=8, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 14))
                 ctk.CTkButton(footer, text=t("button.close"), width=120, height=36, fg_color=ACCENT, hover_color=ACCENT_DARK, text_color=STONE_WHITE, command=close_dialog).pack(side="right")
             except tk.TclError:
                 if not state["closed"]:
