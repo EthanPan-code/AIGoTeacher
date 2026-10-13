@@ -3229,6 +3229,7 @@ class MarkupToolbar(ctk.CTkFrame):
         super().__init__(master, fg_color=PANEL_BG, corner_radius=8, border_width=1, border_color=PANEL_BORDER)
         self.board_ref = board_ref
         self.buttons = {}
+        self.tool_images = {}
         self._tooltip = None
         self.grid_columnconfigure(0, weight=1)
         for row, (tool, glyph, translation_key) in enumerate(self.TOOLS):
@@ -3248,8 +3249,33 @@ class MarkupToolbar(ctk.CTkFrame):
             button.bind("<Enter>", lambda _event, b=button, key=translation_key: self._show_tooltip(b, key))
             button.bind("<Leave>", lambda _event: self._hide_tooltip())
             self.buttons[tool] = button
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        is_dark = UI_BG == PALETTES["dark"]["UI_BG"]
+        palette = PALETTES["dark"] if is_dark else PALETTES["light"]
+        self.configure(fg_color=palette["PANEL_BG"], border_color=palette["PANEL_BORDER"])
+        self.tool_images = {}
+        for tool, filename in (("move", "click"), ("eraser", "eraser")):
+            image_path = resource_path(f"image/tools/{filename}_{'dark' if is_dark else 'light'}.png")
+            if os.path.exists(image_path):
+                try:
+                    self.tool_images[tool] = load_tk_image(image_path, (24, 24), fill_size=True)
+                except Exception as exc:
+                    logger.warning("無法載入工具圖示 %s: %s", image_path, exc)
+
+        for tool, button in self.buttons.items():
+            selected = self.board_ref.active_tool == tool
+            button.configure(
+                image=self.tool_images.get(tool),
+                text="" if tool in self.tool_images else next(glyph for item, glyph, _key in self.TOOLS if item == tool),
+                fg_color=palette["ACCENT"] if selected else "transparent",
+                hover_color=palette["ACCENT_DARK"],
+                text_color="#ffffff" if selected else palette["TEXT_MAIN"],
+            )
 
     def select_tool(self, tool):
+        self.board_ref.on_leave()
         self.board_ref.active_tool = tool
         for button_tool, button in self.buttons.items():
             selected = button_tool == tool
@@ -3289,6 +3315,7 @@ class GoBoard(tk.Canvas):
         self.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
         self.current_color = "black"
         self.preview_id = None
+        self.tool_preview_ids = []
         self.blue_point_ids = []
         self.recommendation_points = {}
         self.recommendations_hidden = False
@@ -4257,15 +4284,20 @@ class GoBoard(tk.Canvas):
         if self.score_estimate_active:
             self._handle_recommendation_hover(None)
             return
-        if self.active_tool != "move":
-            self.on_leave()
-            return
         margin = self.margin
         x, y = round((event.x - margin) / self.cell_size), round((event.y - margin) / self.cell_size)
         if self.preview_id:
             self.delete(self.preview_id)
             self.preview_id = None
-        if 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE and self.board[y][x] is None:
+        self._clear_tool_preview()
+        if not (0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE):
+            self._handle_recommendation_hover(None)
+            return
+        if self.active_tool != "move":
+            self._draw_tool_preview(x, y)
+            self._handle_recommendation_hover(None)
+            return
+        if self.board[y][x] is None:
             px, py = self._point(x, y)
             radius = self._scaled(12)
             self.preview_id = self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=ACCENT, outline="", stipple="gray50")
@@ -4275,10 +4307,46 @@ class GoBoard(tk.Canvas):
         else:
             self._handle_recommendation_hover(None)
 
+    def _clear_tool_preview(self):
+        if self.tool_preview_ids:
+            for item_id in self.tool_preview_ids:
+                self.delete(item_id)
+            self.tool_preview_ids.clear()
+
+    def _draw_tool_preview(self, x, y):
+        px, py = self._point(x, y)
+        radius = self._scaled(9)
+        width = max(1, round(self._scaled(2)))
+        tags = "tool_preview"
+        if self.active_tool == "label":
+            markup_node = self._get_active_markup_node()
+            markup = markup_node.metadata.get("markup", {}) if markup_node else self._new_markup_data()
+            label = self._next_markup_label(markup)
+            if label:
+                self.tool_preview_ids.append(self.create_text(px, py, text=label, fill=ACCENT_DARK, font=("Arial", max(12, round(self._scaled(10))), "bold"), tags=tags))
+        elif self.active_tool == "triangle":
+            self.tool_preview_ids.append(self.create_polygon(px, py - radius, px - radius, py + radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", dash=(3, 2), width=width, tags=tags))
+        elif self.active_tool == "square":
+            self.tool_preview_ids.append(self.create_rectangle(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, dash=(3, 2), width=width, tags=tags))
+        elif self.active_tool == "circle":
+            self.tool_preview_ids.append(self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, dash=(3, 2), width=width, tags=tags))
+        elif self.active_tool == "cross":
+            self.tool_preview_ids.extend((
+                self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ACCENT_DARK, dash=(3, 2), width=width, tags=tags),
+                self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ACCENT_DARK, dash=(3, 2), width=width, tags=tags),
+            ))
+        elif self.active_tool == "eraser":
+            self.tool_preview_ids.extend((
+                self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ERROR, dash=(3, 2), width=width, tags=tags),
+                self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
+                self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
+            ))
+
     def on_leave(self, event=None):
         if self.preview_id:
             self.delete(self.preview_id)
             self.preview_id = None
+        self._clear_tool_preview()
         self._handle_recommendation_hover(None)
 
 
@@ -4497,22 +4565,27 @@ class GoBoard(tk.Canvas):
 
         for key in markup.get("triangle", []):
             _x, _y, (px, py) = point_from_key(key)
+            self.create_oval(px - radius-4, py - radius-4, px + radius+ 4, py + radius+4, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
             self.create_polygon(px, py - radius, px - radius, py + radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", width=line_width, tags="markup")
         for key in markup.get("square", []):
             _x, _y, (px, py) = point_from_key(key)
+            self.create_oval(px - radius-4, py - radius-4, px + radius+ 4, py + radius+4, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
             self.create_rectangle(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", width=line_width, tags="markup")
         for key in markup.get("circle", []):
             _x, _y, (px, py) = point_from_key(key)
+            self.create_oval(px - radius-4, py - radius-4, px + radius+ 4, py + radius+4, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
             self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ACCENT_DARK, width=line_width, tags="markup")
         for key in markup.get("cross", []):
             _x, _y, (px, py) = point_from_key(key)
-            self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ACCENT_DARK, width=line_width, tags="markup")
+            self.create_oval(px - radius-4, py - radius-4, px + radius+ 4, py + radius+4, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
+            self.create_line(px - radius , py - radius, px + radius, py + radius, fill=ACCENT_DARK, width=line_width, tags="markup")
             self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ACCENT_DARK, width=line_width, tags="markup")
         for key, label in markup.get("label", {}).items():
             x, y, (px, py) = point_from_key(key)
             stone_color = self.board[y][x]
             label_fill = "#ffffff" if stone_color == "black" else TEXT_MAIN
-            self.create_text(px, py, text=label, fill=label_fill, font=("Arial", max(8, round(self._scaled(10))), "bold"), tags="markup")
+            self.create_oval(px - radius, py - radius, px + radius, py + radius, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
+            self.create_text(px, py, text=label, fill=label_fill, font=("Arial", max(12, round(self._scaled(10))), "bold"), tags="markup")
     # --- 座標與檔案處理 ---
     def to_gtp_coord(self, x, y):
         col = chr(ord('A') + x)
@@ -10206,7 +10279,7 @@ board_content.grid_rowconfigure(0, weight=1)
 board = GoBoard(board_content)
 markup_toolbar = MarkupToolbar(board_content, board)
 board.markup_toolbar = markup_toolbar
-markup_toolbar.grid(row=0, column=0, padx=(0, 10), sticky="ns")
+markup_toolbar.grid(row=0, column=0, padx=(0, 10), sticky="e")
 board.grid(row=0, column=1)
 board.frame_bg_label = board_frame_bg_label
 
@@ -10811,6 +10884,9 @@ def apply_theme(theme_name, persist=True):
         pywinstyles.change_header_color(root, color=PANEL_BG)
         pywinstyles.change_title_color(root, color=TEXT_MAIN)
         recolor(root)
+        toolbar = globals().get("markup_toolbar")
+        if toolbar is not None:
+            toolbar.refresh_theme()
     except (NameError, tk.TclError):
         pass
 

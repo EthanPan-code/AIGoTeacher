@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1791611073.9674356,
-    "seen": 1791896147.2982502,
-    "ast_hash": "c630ec98c7090a8008cddff7d2a87d18",
+    "mtime": 1791896865.704478,
+    "seen": 1791898990.3509881,
+    "ast_hash": "b9b318a6b80ccfd607b656099647a351",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1791679078.7179918,
-    "seen": 1791896147.2982616,
-    "ast_hash": "3add0f3d413b89145ed3080300e6706b",
+    "mtime": 1791896865.704478,
+    "seen": 1791898990.3510027,
+    "ast_hash": "2de0d6baac4c6550724ab3ca613d89f4",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1791889463.2347796,
-    "seen": 1791896147.2983234,
-    "ast_hash": "44839dba811ed4cae573dec28a974d9c",
+    "mtime": 1791898705.944231,
+    "seen": 1791898990.3510795,
+    "ast_hash": "bc265da225677798b05a10ad2ee92e98",
     "semantic_hash": ""
   },
   "version.py": {
@@ -297,6 +297,30 @@
     "mtime": 1791105202.2918646,
     "seen": 1791896147.2983794,
     "ast_hash": "e4c9a8a52e4f471b20b29962a81cb06b",
+    "semantic_hash": ""
+  },
+  "image/tools/click_dark.png": {
+    "mtime": 1791897735.277445,
+    "seen": 1791898990.3511524,
+    "ast_hash": "a30a9878492e245368c791a5b1bc72cd",
+    "semantic_hash": ""
+  },
+  "image/tools/click_light.png": {
+    "mtime": 1791897673.8606215,
+    "seen": 1791898990.351156,
+    "ast_hash": "b1434eb257fec9d359945b2d8969eca2",
+    "semantic_hash": ""
+  },
+  "image/tools/eraser_dark.png": {
+    "mtime": 1791897814.0882237,
+    "seen": 1791898990.3511584,
+    "ast_hash": "f81d41ef2cb8b9fe9e1d701ef405d05c",
+    "semantic_hash": ""
+  },
+  "image/tools/eraser_light.png": {
+    "mtime": 1791898597.8774421,
+    "seen": 1791898990.3511605,
+    "ast_hash": "792c139a845fb39ffb02e6c2d239f11c",
     "semantic_hash": ""
   }
 }
