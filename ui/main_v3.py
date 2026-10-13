@@ -533,7 +533,7 @@ def show_first_run_onboarding_dialog():
     win.resizable(False, False)
     win.transient(root)
     try:
-        win.iconbitmap(resource_path("image/logo.ico"))
+        win.iconbitmap(resource_path("image/logo/logo.ico"))
     except tk.TclError:
         pass
 
@@ -2358,7 +2358,7 @@ def show_winrate_chart():
     progress_popup.title(t("analysis.progress_title"))
     progress_popup.geometry("300x180")
     progress_popup.resizable(False, False)
-    progress_popup.iconbitmap(resource_path("image/logo.ico"))
+    progress_popup.iconbitmap(resource_path("image/logo/logo.ico"))
     progress_popup.transient(root) # 讓視窗保持在主視窗之上
     progress_popup.grab_set()      # 【關鍵】鎖定主視窗，無法點擊棋盤或其他按鈕
     pywinstyles.change_header_color(progress_popup, color=PANEL_BG)
@@ -2449,7 +2449,7 @@ def plot_window(winrates, scoreLeads):
     top.title(t("analysis.chart_title_window"))
     top.geometry("1100x800")
     top.minsize(900, 680)
-    top.iconbitmap(resource_path("image/logo.ico"))
+    top.iconbitmap(resource_path("image/logo/logo.ico"))
     chart_window_state = {"closed": False}
     pywinstyles.change_header_color(top, color=PANEL_BG)
     pywinstyles.change_title_color(top, color=TEXT_MAIN)
@@ -4762,7 +4762,7 @@ def _ask_sgf_link():
     dialog.title(t("dialog.load_sgf_link_title"))
     dialog.transient(root)
     dialog.resizable(False, False)
-    dialog.iconbitmap(resource_path("image/logo.ico"))
+    dialog.iconbitmap(resource_path("image/logo/logo.ico"))
     dialog.grab_set()
     pywinstyles.change_header_color(dialog, color=PANEL_BG)
     pywinstyles.change_title_color(dialog, color=TEXT_MAIN)
@@ -5081,7 +5081,7 @@ def _handle_score_estimate_result(result):
 def show_score_estimate_popup(summary, black_total, white_total, komi, leader, lead):
     popup = tk.Toplevel(root)
     popup.title(t("dialog.score_estimate_title"))
-    popup.iconbitmap(resource_path("image/logo.ico"))
+    popup.iconbitmap(resource_path("image/logo/logo.ico"))
     popup.resizable(False, False)
     popup.transient(root)
     pywinstyles.change_header_color(popup, color=PANEL_BG)
@@ -5236,7 +5236,7 @@ def show_feedback():
     feedback_win.configure(bg=UI_BG)
     feedback_win.resizable(False, False)
     feedback_win.transient(root)
-    feedback_win.iconbitmap(resource_path("image/logo.ico"))
+    feedback_win.iconbitmap(resource_path("image/logo/logo.ico"))
     feedback_win.grab_set()
 
     outer = tk.Frame(feedback_win, bg=UI_BG, padx=18, pady=18)
@@ -5374,7 +5374,7 @@ def _load_ollama_icon(icon_name, size=18):
     if cache_key in _ollama_icon_cache:
         return _ollama_icon_cache[cache_key]
 
-    icon_path = resource_path(f"image/{icon_name}")
+    icon_path = resource_path(f"image/status/{icon_name}")
     if not os.path.exists(icon_path):
         _ollama_icon_cache[cache_key] = None
         return None
@@ -5480,7 +5480,7 @@ def show_ollama_install_dialog(parent):
     win = tk.Toplevel(parent)
     win.title(t("dialog.ollama_install_title") if hasattr(t, '__call__') else "Ollama 安裝指南")
     win.geometry("540x420")
-    win.iconbitmap(resource_path("image/logo.ico"))
+    win.iconbitmap(resource_path("image/logo/logo.ico"))
     win.transient(parent)
     win.grab_set()
     frame = tk.Frame(win, bg=PANEL_BG)
@@ -5635,7 +5635,7 @@ def _download_ollama_model(parent, model_name, provider, refresh_callback, on_su
     progress_win.title(t("dialog.ollama_model_downloading"))
     progress_win.geometry("440x220")
     try:
-        progress_win.iconbitmap(resource_path("image/logo.ico"))
+        progress_win.iconbitmap(resource_path("image/logo/logo.ico"))
     except Exception:
         pass
     progress_win.transient(parent)
@@ -5764,7 +5764,7 @@ def _show_llm_selection_dialog(parent):
     dialog_win.title(t("dialog.llm_selection_title"))
     dialog_win.geometry("560x560")
     dialog_win.minsize(520, 560)
-    dialog_win.iconbitmap(resource_path("image/logo.ico"))
+    dialog_win.iconbitmap(resource_path("image/logo/logo.ico"))
     dialog_win.configure(bg=PANEL_BG)
     dialog_win.transient(parent)
     dialog_win.grab_set()
@@ -7137,7 +7137,7 @@ def _legacy_show_system_info_dialog():
         win.minsize(640, 600)
 
         win.iconbitmap(
-            resource_path("image/logo.ico")
+            resource_path("image/logo/logo.ico")
         )
 
         win.transient(root)
@@ -7402,7 +7402,7 @@ def show_system_info_dialog():
         win.minsize(820, 600)
         win.configure(bg=UI_BG)
         try:
-            win.iconbitmap(resource_path("image/logo.ico"))
+            win.iconbitmap(resource_path("image/logo/logo.ico"))
         except (tk.TclError, OSError):
             pass
         win.grab_set()
@@ -7607,7 +7607,7 @@ def _show_diagnostic_export_success(report_path, diagnostics_dir):
     win = tk.Toplevel(root)
     win.title(t("dialog.diagnostics_exported_title"))
     win.resizable(False, False)
-    win.iconbitmap(resource_path("image/logo.ico"))
+    win.iconbitmap(resource_path("image/logo/logo.ico"))
     win.transient(root)
     win.grab_set()
     pywinstyles.change_header_color(win, color=PANEL_BG)
@@ -7774,7 +7774,7 @@ def show_analysis_log_dialog():
     analysis_log_win = tk.Toplevel(root)
     analysis_log_win.title(t("dialog.check_log_title"))
     analysis_log_win.geometry("750x600")
-    analysis_log_win.iconbitmap(resource_path("image/logo.ico"))
+    analysis_log_win.iconbitmap(resource_path("image/logo/logo.ico"))
     analysis_log_win.transient(root)
     analysis_log_win.grab_set()
     pywinstyles.change_header_color(analysis_log_win, color=PANEL_BG)
@@ -7971,7 +7971,7 @@ def show_delete_data_dialog():
     win.resizable(False, False)
     win.configure(bg=PANEL_BG)
     try:
-        win.iconbitmap(resource_path("image/logo.ico"))
+        win.iconbitmap(resource_path("image/logo/logo.ico"))
         pywinstyles.change_header_color(win, color=PANEL_BG)
         pywinstyles.change_title_color(win, color=TEXT_MAIN)
     except Exception:
@@ -8067,7 +8067,7 @@ def show_custom_prompt_dialog():
     prompt_win = tk.Toplevel(root)
     prompt_win.title(t("dialog.custom_prompts_title"))
     prompt_win.geometry("700x520")
-    prompt_win.iconbitmap(resource_path("image/logo.ico"))
+    prompt_win.iconbitmap(resource_path("image/logo/logo.ico"))
     prompt_win.transient(root)
     prompt_win.grab_set()
     pywinstyles.change_header_color(prompt_win, color=PANEL_BG)
@@ -8172,7 +8172,7 @@ def show_find_dialog():
 
     win = tk.Toplevel(root)
     win.title(t("find.title"))
-    win.iconbitmap(resource_path("image/logo.ico"))
+    win.iconbitmap(resource_path("image/logo/logo.ico"))
     win.resizable(False, True)
     win.transient(root)
     win.configure(bg=UI_BG)
@@ -8300,7 +8300,7 @@ def show_find_dialog():
 def show_rules_settings_dialog():
     """Edit the active tab's rules and the default for newly created tabs."""
     settings_win = tk.Toplevel(root)
-    settings_win.iconbitmap(resource_path("image/logo.ico"))
+    settings_win.iconbitmap(resource_path("image/logo/logo.ico"))
     settings_win.title(t("dialog.rules_settings_title"))
     settings_win.geometry("430x260")
     settings_win.transient(root)
@@ -8390,7 +8390,7 @@ def show_game_info_dialog():
         return
 
     settings_win = tk.Toplevel(root)
-    settings_win.iconbitmap(resource_path("image/logo.ico"))
+    settings_win.iconbitmap(resource_path("image/logo/logo.ico"))
     settings_win.title(t("dialog.game_info_title"))
     settings_win.geometry("460x400")
     settings_win.minsize(460, 300)
@@ -8541,7 +8541,7 @@ def show_settings_dialog():
     settings_win = tk.Toplevel(root)
     settings_win.title(t("dialog.settings_title"))
     settings_win.geometry("560x430")
-    settings_win.iconbitmap(resource_path("image/logo.ico"))  # Set the icon for the settings window
+    settings_win.iconbitmap(resource_path("image/logo/logo.ico"))  # Set the icon for the settings window
     settings_win.transient(root)
     settings_win.grab_set()
     pywinstyles.change_header_color(settings_win, color=PANEL_BG)
@@ -8742,7 +8742,7 @@ def show_appearance_settings_dialog():
     settings_win.title(t("settings.appearance_title"))
     settings_win.geometry("520x400")
     try:
-        settings_win.iconbitmap(resource_path("image/logo.ico"))
+        settings_win.iconbitmap(resource_path("image/logo/logo.ico"))
     except Exception:
         pass
     settings_win.transient(root)
@@ -8875,7 +8875,7 @@ def show_sound_settings_dialog():
     settings_win.geometry("650x360")
     settings_win.minsize(580, 240)
     try:
-        settings_win.iconbitmap(resource_path("image/logo.ico"))
+        settings_win.iconbitmap(resource_path("image/logo/logo.ico"))
     except Exception:
         pass
     settings_win.transient(root)
@@ -8996,7 +8996,7 @@ root.title(t("app.title"))
 root.configure(bg=UI_BG)
 BOARD_LAYOUT_PADDING = 100
 root.minsize(MIN_CANVAS_SIZE + BOARD_LAYOUT_PADDING, 720)
-root.iconbitmap(resource_path("image/logo.ico"))  
+root.iconbitmap(resource_path("image/logo/logo.ico"))  
 
 style = ttk.Style(root)
 style.theme_use("clam")
@@ -9612,7 +9612,7 @@ def _show_close_tab_dialog(session):
     dialog.title(t("dialog.close_tab_title"))
     dialog.transient(root)
     dialog.resizable(False, False)
-    dialog.iconbitmap(resource_path("image/logo.ico")) 
+    dialog.iconbitmap(resource_path("image/logo/logo.ico")) 
     dialog.configure(bg=PANEL_BG)
     pywinstyles.change_header_color(dialog, color=PANEL_BG)
     pywinstyles.change_title_color(dialog, color=TEXT_MAIN)
@@ -10139,7 +10139,7 @@ def create_katago_startup_popup():
     popup = tk.Toplevel(root)
     popup.title(t("startup.title"))
     popup.geometry("420x200")
-    popup.iconbitmap(resource_path("image/logo.ico"))
+    popup.iconbitmap(resource_path("image/logo/logo.ico"))
     popup.resizable(False, False)
     popup.transient(root)
     popup.protocol("WM_DELETE_WINDOW", lambda: None)

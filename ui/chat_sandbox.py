@@ -416,7 +416,7 @@ class LLMChatWindow(tk.Toplevel):
         fallback_suffix = "dark" if suffix == "light" else "light"
         try:
             _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            _img_dir = os.path.join(_proj_root, 'image')
+            _img_dir = os.path.join(_proj_root, 'image', 'buttons')
             for _name in ('attach', 'copy', 'edit', 'refresh'):
                 _p = os.path.join(_img_dir, f'{_name}_{suffix}.png')
                 if not os.path.exists(_p):
