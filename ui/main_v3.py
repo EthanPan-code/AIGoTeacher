@@ -2162,11 +2162,12 @@ class BranchTreeView(tk.Canvas):
                         move_no += 1
                     current = current.parent
                 if is_markup:
+                    self.create_text(x, y - 4, text=str(move_no), fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
                     self.create_text(
                         x,
-                        y,
-                        text=t("branch.markup", move_number=move_no),
-                        fill=text_color,
+                        y+6,
+                        text=t("branch.markup"),
+                        fill=TEXT_MAIN,
                         font=("Microsoft JhengHei", 8, "bold"),
                         tags=(node_id,),
                     )
@@ -2272,6 +2273,8 @@ class BranchTreeView(tk.Canvas):
         return
 
 def auto_analyze():
+    if is_markup_node_active():
+        return
     if not is_analyzer_ready():
         set_winrate_text("analysis.engine_not_ready")
         return
@@ -3062,6 +3065,9 @@ def plot_window(winrates, scoreLeads):
 def update_ui_with_data(result):
     """直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用"""
     try:
+        if is_markup_node_active():
+            board.clear_blue_point()
+            return
         current_turn = len(board.stones)
         result_turn = result["turnNumber"]
         
@@ -3180,6 +3186,8 @@ def update_continuous_analysis_ui():
 
 def on_analyze_button_click():
     global is_playback_mode, continuous_analysis_enabled, continuous_analysis_query_id
+    if is_markup_node_active():
+        return
     if not is_analyzer_ready():
         show_analyzer_not_ready()
         return
@@ -3283,7 +3291,6 @@ class MarkupToolbar(ctk.CTkFrame):
                 fg_color=ACCENT if selected else "transparent",
                 text_color="#ffffff" if selected else TEXT_MAIN,
             )
-        set_winrate_text("toolbar.tool_changed", tool=t(self._translation_key(tool)))
 
     def _translation_key(self, tool):
         return next(key for item, _glyph, key in self.TOOLS if item == tool)
@@ -4140,6 +4147,9 @@ class GoBoard(tk.Canvas):
             self._show_playback_commentary()
 
     def on_state_change(self, structure_changed=False):
+        global score_estimate_pending_start
+        markup_active = is_markup_node(self.current_node)
+        score_estimate_pending_start = False if markup_active else score_estimate_pending_start
         if continuous_analysis_enabled:
             stop_continuous_analysis("board_state_changed")
         if self.score_estimate_active:
@@ -4147,6 +4157,20 @@ class GoBoard(tk.Canvas):
             update_score_estimate_button_label()
 
         self.clear_blue_point()
+
+        if markup_active:
+            set_analysis_controls_state(False)
+            if self.analyze_timer:
+                root.after_cancel(self.analyze_timer)
+                self.analyze_timer = None
+            if hasattr(self, 'branch_ui'):
+                if structure_changed:
+                    self.branch_ui.draw_tree()
+                else:
+                    self.branch_ui.update_highlight()
+            return
+
+        set_analysis_controls_state(True)
         
         if not is_analyzer_ready():
             set_winrate_text("analysis.engine_not_ready")
@@ -4509,6 +4533,9 @@ class GoBoard(tk.Canvas):
         self.refresh_display()
         
     def refresh_display(self):
+        if len(self.board) != BOARD_SIZE or any(len(row) != BOARD_SIZE for row in self.board):
+            self.rebuild_board()
+            return
         self.delete("all")
         self.draw_board()
         self.draw_welcome_overlay()
@@ -4532,10 +4559,9 @@ class GoBoard(tk.Canvas):
                         radius = self._scaled(12)
                         self.create_oval(px-radius, py-radius, px+radius, py+radius, fill=fill, outline=outline, width=1)
 
-        # 2. 繪製最後一手標記
-            self._draw_markup()
+        self._draw_markup()
 
-            # 2. 繪製最後一手標記
+        # 2. 繪製最後一手標記
         if self.current_node and self.current_node.move and not is_pass_move(self.current_node.move):
             lx, ly, lcolor = self.current_node.move
             px, py = self._point(lx, ly)
@@ -5590,7 +5616,7 @@ def _wait_for_score_estimate_response():
 def _start_score_estimate_query():
     global score_query_in_flight, score_estimate_pending_start
 
-    if is_shutting_down or not score_estimate_pending_start:
+    if is_shutting_down or is_markup_node_active() or not score_estimate_pending_start:
         return
     if score_query_in_flight:
         return
@@ -5623,6 +5649,9 @@ def _start_score_estimate_query():
 
 def on_score_estimate_click():
     global score_estimate_pending_start
+
+    if is_markup_node_active():
+        return
 
     if getattr(board, "score_estimate_active", False):
         on_close_score_estimate_click()
@@ -10152,7 +10181,7 @@ def _capture_board_snapshot(target_session):
         path.insert(0, idx)
         node = parent
     target_session.board_snapshot = {
-        "stones": [list(row) for row in board.stones],  # 淺複製 2D list 即可
+        "stones": [list(row) for row in board.board],  # 保存 19x19 的實際棋盤狀態
         "root_node": _copy_game_tree(board.root_node),  # 自訂複製，避免 deepcopy 循環
         "current_node_path": path,
         "current_color": board.current_color,
@@ -10186,7 +10215,13 @@ def _restore_board_snapshot(source_session):
             board.current_node = board.current_node.children[idx]
         else:
             break
-    board.board = [list(row) for row in snap["stones"]]  # 淺複製 2D list
+    snapshot_board = snap.get("stones", [])
+    if len(snapshot_board) == BOARD_SIZE and all(len(row) == BOARD_SIZE for row in snapshot_board):
+        board.board = [list(row) for row in snapshot_board]
+    else:
+        # 相容修正前已建立的快照：由樹狀落子紀錄重新建構棋盤。
+        board.board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        board.rebuild_board()
     board.current_color = snap["current_color"]
     source_session.analysis_rules = snap.get("analysis_rules", source_session.analysis_rules)
     source_session.analysis_komi = snap.get("analysis_komi", source_session.analysis_komi)
@@ -10196,15 +10231,22 @@ def _restore_board_snapshot(source_session):
 def update_welcome_controls():
     """歡迎頁隱藏棋局操作能力，但保留檔案選單與中央兩個入口。"""
     session = tab_manager.active_session
-    disabled = session is not None and session.tab_type == "welcome"
+    welcome_disabled = session is not None and session.tab_type == "welcome"
+    analysis_disabled = welcome_disabled or is_markup_node_active()
     for name in (
-        "btn_analyze", "btn_full_analysis", "btn_undo", "btn_redo",
-        "btn_load_sgf", "btn_pass", "btn_score_estimate",
+        "btn_undo", "btn_redo", "btn_load_sgf", "btn_pass",
     ):
         widget = globals().get(name)
         if widget is not None:
             try:
-                widget.configure(state="disabled" if disabled else "normal")
+                widget.configure(state="disabled" if welcome_disabled else "normal")
+            except tk.TclError:
+                pass
+    for name in ("btn_analyze", "btn_full_analysis", "btn_score_estimate"):
+        widget = globals().get(name)
+        if widget is not None:
+            try:
+                widget.configure(state="disabled" if analysis_disabled else "normal")
             except tk.TclError:
                 pass
 
@@ -10549,10 +10591,14 @@ def is_analyzer_ready():
 
 def set_analysis_controls_state(enabled):
     state = "normal" if enabled else "disabled"
-    for name in ("btn_analyze", "btn_full_analysis"):
+    for name in ("btn_analyze", "btn_full_analysis", "btn_score_estimate"):
         widget = globals().get(name)
         if widget is not None:
-            widget.config(state=state)
+            widget.configure(state=state)
+
+
+def is_markup_node_active():
+    return is_markup_node(getattr(globals().get("board"), "current_node", None))
 
 
 def show_analyzer_not_ready():

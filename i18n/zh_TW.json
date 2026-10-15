@@ -226,7 +226,7 @@
   "branch.collapsed_count": "+{n}",
   "branch.opening": "0", 
   "branch.turn_branches": "第 {move_count} 手分支",
-  "branch.markup": "第 {move_number} 手 標記",
+  "branch.markup": "標記",
   "teacher.default_message": "AI 老師解說會在偵測到關鍵失誤時出現。",
   "teacher.thinking": "老師思考中...\n(正在呼叫 Ollama)",
   "teacher.best_unknown": "未知",
