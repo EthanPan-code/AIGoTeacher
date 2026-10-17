@@ -102,7 +102,7 @@
   "toolbar.circle": "圓形標記",
   "toolbar.eraser": "橡皮擦",
   "toolbar.tool_changed": "已切換工具：{tool}",
-  "toolbar.label_limit": "字母標籤已用完（A-Z）",
+  "toolbar.label_limit": "文字標記已用完（361 個）",
   "label.ai_analysis": "AI 分析",
   "label.branch_switch": "分支切換",
   "label.teacher": "AI 老師解說",

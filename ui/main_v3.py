@@ -108,6 +108,8 @@ DEFAULT_CONFIG_PATH = "analysis_example.cfg"
 APP_DATA_DIR_NAME = "AIGoTeacher"
 RUNTIME_BUNDLE_DIR_NAME = "runtime"
 RUNTIME_MANIFEST_NAME = "version.json"
+TAIJITU_MARKER = "@TAIJITU"
+MARKUP_LABELS = ()
 
 _system_info_dialog_refreshers = set()
 
@@ -406,6 +408,22 @@ import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _load_markup_labels():
+    path = resource_path("markup/markup.json")
+    try:
+        with open(path, "r", encoding="utf-8") as markup_file:
+            labels = json.load(markup_file)
+        if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+            raise ValueError("markup.json must contain a string array")
+        return tuple(labels)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        logger.warning("無法載入文字標記清單 %s: %s", path, exc)
+        return tuple()
+
+
+MARKUP_LABELS = _load_markup_labels()
 
 
 def play_move_sound(captured=False):
@@ -3367,6 +3385,14 @@ class GoBoard(tk.Canvas):
         self.white_stone_image = None
         self.black_branch_stone_image = None
         self.white_branch_stone_image = None
+        self.taijitu_image = None
+
+        taijitu_path = resource_path("image/mark/taijitu.png")
+        if os.path.exists(taijitu_path):
+            try:
+                self.taijitu_image = load_tk_image(taijitu_path, (24, 24), fill_size=True)
+            except Exception as exc:
+                logger.warning("無法載入太極圖標記 %s: %s", taijitu_path, exc)
 
         bg_path = config_service.get_board_background()
         if bg_path and os.path.exists(bg_path):
@@ -3625,14 +3651,20 @@ class GoBoard(tk.Canvas):
         return node
 
     def _markup_labels(self, markup):
-        return set(markup.get("label", {}).values())
+        counts = {}
+        for label in markup.get("label", {}).values():
+            counts[label] = counts.get(label, 0) + 1
+        return counts
 
     def _next_markup_label(self, markup):
-        used = self._markup_labels(markup)
-        for code in range(ord("A"), ord("Z") + 1):
-            label = chr(code)
-            if label not in used:
+        remaining = self._markup_labels(markup)
+        for label in MARKUP_LABELS:
+            if remaining.get(label, 0):
+                remaining[label] -= 1
+            else:
                 return label
+        if not remaining.get(TAIJITU_MARKER):
+            return TAIJITU_MARKER
         return None
 
     def _set_markup_dirty(self):
@@ -4347,7 +4379,10 @@ class GoBoard(tk.Canvas):
             markup = markup_node.metadata.get("markup", {}) if markup_node else self._new_markup_data()
             label = self._next_markup_label(markup)
             if label:
-                self.tool_preview_ids.append(self.create_text(px, py, text=label, fill=ACCENT_DARK, font=("Arial", max(12, round(self._scaled(10))), "bold"), tags=tags))
+                if label == TAIJITU_MARKER and self.taijitu_image:
+                    self.tool_preview_ids.append(self.create_image(px, py, image=self.taijitu_image, anchor="center", tags=tags))
+                else:
+                    self.tool_preview_ids.append(self.create_text(px, py, text=label, fill=ACCENT_DARK, font=("Arial", max(12, round(self._scaled(10))), "bold"), tags=tags))
         elif self.active_tool == "triangle":
             self.tool_preview_ids.append(self.create_polygon(px, py - radius, px - radius, py + radius, px + radius, py + radius, outline=ACCENT_DARK, fill="", dash=(3, 2), width=width, tags=tags))
         elif self.active_tool == "square":
@@ -4610,6 +4645,9 @@ class GoBoard(tk.Canvas):
             x, y, (px, py) = point_from_key(key)
             stone_color = self.board[y][x]
             label_fill = "#ffffff" if stone_color == "black" else TEXT_MAIN
+            if label == TAIJITU_MARKER and self.taijitu_image:
+                self.create_image(px, py, image=self.taijitu_image, anchor="center", tags="markup")
+                continue
             self.create_oval(px - radius, py - radius, px + radius, py + radius, fill=BOARD_BG, outline=BOARD_BG, width=line_width, tags="markup")
             self.create_text(px, py, text=label, fill=label_fill, font=("Arial", max(12, round(self._scaled(10))), "bold"), tags="markup")
     # --- 座標與檔案處理 ---

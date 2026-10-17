@@ -99,7 +99,7 @@
   "toolbar.circle": "Circle Mark",
   "toolbar.eraser": "Eraser",
   "toolbar.tool_changed": "Tool selected: {tool}",
-  "toolbar.label_limit": "Letter labels are full (A-Z)",
+  "toolbar.label_limit": "All 361 markup labels are used",
   "label.ai_analysis": "AI Analysis",
   "label.branch_switch": "Branch Switcher",
   "label.teacher": "AI Teacher Commentary",
