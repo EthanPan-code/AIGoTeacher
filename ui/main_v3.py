@@ -9627,7 +9627,7 @@ from providers import tone_templates
 
 def build_menu_bar():
     global menu_bar, current_tone_var, theme_var
-    global show_teacher_var, show_branch_var, show_move_numbers_var, show_dev_var
+    global show_teacher_var, show_branch_var, show_move_numbers_var, show_toolbar_var, show_dev_var
 
     # 關閉流程中 root 可能已銷毀，此時重建選單會丟出 RuntimeError
     if is_shutting_down:
@@ -9674,6 +9674,14 @@ def build_menu_bar():
         config_service.set_show_move_numbers(show_move_numbers_var.get())
         config_service.save()
 
+    def toggle_toolbar():
+        if show_toolbar_var.get():
+            markup_toolbar.grid()
+        else:
+            markup_toolbar.grid_remove()
+        config_service.set_show_toolbar(show_toolbar_var.get())
+        config_service.save()
+
     def toggle_dev():
         config_service.set_setting("show_developer", show_dev_var.get())
         config_service.save()
@@ -9690,6 +9698,7 @@ def build_menu_bar():
         value=previous_show_branch.get() if previous_show_branch is not None else True
     )
     show_move_numbers_var = tk.BooleanVar(value=config_service.get_show_move_numbers())
+    show_toolbar_var = tk.BooleanVar(value=config_service.get_show_toolbar())
     show_dev_var = tk.BooleanVar(value=config_service.get_setting("show_developer", False))
 
     def command(label, callback, accelerator=None):
@@ -9776,6 +9785,9 @@ def build_menu_bar():
             {"type": "check", "label": t("menu.show_move_numbers"),
              "get_state": show_move_numbers_var.get, "variable": show_move_numbers_var,
              "command": toggle_move_numbers},
+            {"type": "check", "label": t("menu.show_toolbar"),
+             "get_state": show_toolbar_var.get, "variable": show_toolbar_var,
+             "command": toggle_toolbar},
             {"type": "check", "label": t("menu.dev_show"),
              "get_state": show_dev_var.get, "variable": show_dev_var,
              "command": toggle_dev},
@@ -10362,6 +10374,9 @@ board.markup_toolbar = markup_toolbar
 markup_toolbar.grid(row=0, column=0, padx=(0, 10), sticky="e")
 board.grid(row=0, column=1)
 board.frame_bg_label = board_frame_bg_label
+board._apply_frame_background()
+if not show_toolbar_var.get():
+    markup_toolbar.grid_remove()
 
 # 手動顯示（不啟用）
 # show_ai_panel_button = ttk.Button(
@@ -10373,9 +10388,8 @@ board.frame_bg_label = board_frame_bg_label
 # show_ai_panel_button.place(relx=1.0, rely=1.0, anchor="se", x=-4, y=-4)
 # show_ai_panel_button.place_forget()
 
-# board_frame_bg_label 在 board 之前建立，預設疊加順序已正確（Label在下、Canvas在上），
-# 無需額外 lift/tkraise。tk.Canvas 覆寫了 lift/tkraise（用於 canvas items），
-# 不接受無參數呼叫，故不可調用。
+# board_frame_bg_label 在其他棋盤元件之前建立，透過 lower() 保持在背景層。
+board_frame_bg_label.lower()
 
 # <Configure> 動態重縮放：視窗縮放導致 board_shell 尺寸改變時，重新縮放外框背景圖片。
 # 棋盤 Canvas 本身保持固定 620×620，不會被縮放。

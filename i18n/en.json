@@ -47,6 +47,7 @@
   "menu.show_teacher": "Show AI Teacher Commentary",
   "menu.show_branch": "Show Branch Switcher",
   "menu.show_move_numbers": "Show Move Numbers",
+  "menu.show_toolbar": "Show Toolbar",
   "menu.find": "Find...",
   "menu.dev_show":"Show Developer Options",
   "menu.shortcuts": "Shortcuts",

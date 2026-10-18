@@ -53,6 +53,12 @@ class ConfigService:
     def set_show_move_numbers(self, show):
         self.set_setting("show_move_numbers", bool(show))
 
+    def get_show_toolbar(self, default=True):
+        return bool(self.get_setting("show_toolbar", default))
+
+    def set_show_toolbar(self, show):
+        self.set_setting("show_toolbar", bool(show))
+
     def migrate_removed_github_provider(self, ollama_default_model):
         """Migrate settings from the removed GitHub Models provider."""
         provider = self.get_setting("llm_provider", "ollama")
