@@ -23,7 +23,7 @@ AI Go Teacher does not claim ownership of KataGo.
 
 KataGo includes third-party dependencies located in:
 
-cpp/external/
+`cpp/external/`
 
 Each dependency is licensed under its own respective license.
 Please refer to the LICENSE files within those directories.
@@ -35,6 +35,52 @@ Additionally:
   in the source files.
 
 AI Go Teacher does not claim ownership of these third-party dependencies.
+
+### Image Assets
+
+This directory contains image assets used by **AI Go Teacher**. Different assets have different origins and licensing terms. Please refer to the sections below for details.
+
+#### 1. Buttons and Tools
+
+**Directories:** `image/buttons/`, `image/tools/`
+
+These directories contain icons from Google's Material Symbols and/or Material Icons collection.
+
+- **Source:** [Google Fonts Icons](https://fonts.google.com/icons)
+- **License:** [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+
+These icons are subject to the Apache License 2.0 and are not covered by the MIT License of AI Go Teacher.
+
+Some icons may have been modified or adapted for use in this project.
+
+#### 2. Project Logo
+
+**Directory:** `image/logo/`
+
+The logo in this directory was created by the AI Go Teacher project author.
+
+Unless otherwise stated, these logo assets are original works and are licensed under the MIT License of AI Go Teacher.
+
+#### 3. Taijitu Image
+
+**File:** `image/mark/taijitu.png`
+
+- **Source:** [Wikimedia Commons](https://commons.wikimedia.org/)
+- **Copyright status:** Public domain, as stated by the original source.
+
+The original work has been released into the public domain by its author. This image is not subject to the MIT License of AI Go Teacher.
+
+Please refer to the original Wikimedia Commons file page for the specific source and public-domain statement.
+
+#### 4. Status Images
+
+**Directory:** `status/`
+
+These images were created using elements from Canva and subsequently edited for use in AI Go Teacher.
+
+- **Source:** [Canva](https://www.canva.com/)
+
+These assets are subject to the applicable Canva content license and terms. They should not be assumed to be independently licensed under the MIT License of AI Go Teacher.
 
 ### Audio Assets
 

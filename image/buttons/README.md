@@ -1,0 +1,1 @@
+These icons are from [Google Fonts - Icons](https://fonts.google.com/icons).

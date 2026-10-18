@@ -1,0 +1,1 @@
+This symbol is from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Yin_and_Yang_symbol.svg)
