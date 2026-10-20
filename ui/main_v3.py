@@ -164,6 +164,28 @@ def load_tk_image(file_path, size=None, fill_size=False):
     return image
 
 
+def load_ctk_image(file_path, size=None, fill_size=False):
+    """Load an image for CustomTkinter widgets with HighDPI scaling support."""
+    if not Image:
+        return None
+
+    with Image.open(file_path) as img:
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA")
+        if size:
+            resample = Image.Resampling.LANCZOS
+            if fill_size:
+                img = ImageOps.fit(img, size, method=resample)
+            else:
+                img = img.copy()
+                img.thumbnail(size, resample)
+        else:
+            img = img.copy()
+
+    return ctk.CTkImage(light_image=img, dark_image=img, size=size or img.size)
+
+
 
 
 def is_frozen_app():
@@ -3243,8 +3265,9 @@ def on_analyze_button_click():
 class MarkupToolbar(ctk.CTkFrame):
     TOOLS = (
         ("move", "↖", "toolbar.move"),
+        ("pass", "Ⓟ", "button.pass"),
         ("label", "A", "toolbar.label"),
-        ("cross", "×", "toolbar.cross"),
+        ("cross", "\u2573", "toolbar.cross"),
         ("triangle", "△", "toolbar.triangle"),
         ("square", "□", "toolbar.square"),
         ("circle", "○", "toolbar.circle"),
@@ -3269,7 +3292,7 @@ class MarkupToolbar(ctk.CTkFrame):
                 fg_color=ACCENT if tool == "move" else "transparent",
                 hover_color=ACCENT_DARK,
                 text_color="#ffffff" if tool == "move" else TEXT_MAIN,
-                command=lambda selected_tool=tool: self.select_tool(selected_tool),
+                command=lambda selected_tool=tool: self.activate_tool(selected_tool),
             )
             button.grid(row=row, column=0, padx=5, pady=(5 if row == 0 else 2, 5 if row == len(self.TOOLS) - 1 else 2), sticky="ew")
             button.bind("<Enter>", lambda _event, b=button, key=translation_key: self._show_tooltip(b, key))
@@ -3282,11 +3305,11 @@ class MarkupToolbar(ctk.CTkFrame):
         palette = PALETTES["dark"] if is_dark else PALETTES["light"]
         self.configure(fg_color=palette["PANEL_BG"], border_color=palette["PANEL_BORDER"])
         self.tool_images = {}
-        for tool, filename in (("move", "click"), ("eraser", "eraser")):
+        for tool, filename in (("move", "click"), ("eraser", "eraser"), ("pass", "pass")):
             image_path = resource_path(f"image/tools/{filename}_{'dark' if is_dark else 'light'}.png")
             if os.path.exists(image_path):
                 try:
-                    self.tool_images[tool] = load_tk_image(image_path, (24, 24), fill_size=True)
+                    self.tool_images[tool] = load_ctk_image(image_path, (24, 24), fill_size=True)
                 except Exception as exc:
                     logger.warning("無法載入工具圖示 %s: %s", image_path, exc)
 
@@ -3299,6 +3322,12 @@ class MarkupToolbar(ctk.CTkFrame):
                 hover_color=palette["ACCENT_DARK"],
                 text_color="#ffffff" if selected else palette["TEXT_MAIN"],
             )
+
+    def activate_tool(self, tool):
+        if tool == "pass":
+            self.board_ref.pass_move()
+            return
+        self.select_tool(tool)
 
     def select_tool(self, tool):
         self.board_ref.on_leave()
@@ -3386,6 +3415,7 @@ class GoBoard(tk.Canvas):
         self.black_branch_stone_image = None
         self.white_branch_stone_image = None
         self.taijitu_image = None
+        self.reticle_image = None
 
         taijitu_path = resource_path("image/mark/taijitu.png")
         if os.path.exists(taijitu_path):
@@ -3393,6 +3423,13 @@ class GoBoard(tk.Canvas):
                 self.taijitu_image = load_tk_image(taijitu_path, (24, 24), fill_size=True)
             except Exception as exc:
                 logger.warning("無法載入太極圖標記 %s: %s", taijitu_path, exc)
+
+        reticle_path = resource_path("image/tools/reticle.png")
+        if os.path.exists(reticle_path):
+            try:
+                self.reticle_image = load_tk_image(reticle_path, (24, 24), fill_size=True)
+            except Exception as exc:
+                logger.warning("無法載入橡皮擦準星 %s: %s", reticle_path, exc)
 
         bg_path = config_service.get_board_background()
         if bg_path and os.path.exists(bg_path):
@@ -4395,11 +4432,16 @@ class GoBoard(tk.Canvas):
                 self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ACCENT_DARK, dash=(3, 2), width=width, tags=tags),
             ))
         elif self.active_tool == "eraser":
-            self.tool_preview_ids.extend((
-                self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ERROR, dash=(3, 2), width=width, tags=tags),
-                self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
-                self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
-            ))
+            if self.reticle_image:
+                self.tool_preview_ids.append(
+                    self.create_image(px, py, image=self.reticle_image, anchor="center", tags=tags)
+                )
+            else:
+                self.tool_preview_ids.extend((
+                    self.create_oval(px - radius, py - radius, px + radius, py + radius, outline=ERROR, dash=(3, 2), width=width, tags=tags),
+                    self.create_line(px - radius, py - radius, px + radius, py + radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
+                    self.create_line(px - radius, py + radius, px + radius, py - radius, fill=ERROR, dash=(3, 2), width=width, tags=tags),
+                ))
 
     def on_leave(self, event=None):
         if self.preview_id:
@@ -10284,7 +10326,7 @@ def update_welcome_controls():
     welcome_disabled = session is not None and session.tab_type == "welcome"
     analysis_disabled = welcome_disabled or is_markup_node_active()
     for name in (
-        "btn_undo", "btn_redo", "btn_load_sgf", "btn_pass",
+        "btn_undo", "btn_redo", "btn_load_sgf",
     ):
         widget = globals().get(name)
         if widget is not None:
@@ -10292,6 +10334,12 @@ def update_welcome_controls():
                 widget.configure(state="disabled" if welcome_disabled else "normal")
             except tk.TclError:
                 pass
+    toolbar = globals().get("markup_toolbar")
+    if toolbar is not None:
+        try:
+            toolbar.buttons["pass"].configure(state="disabled" if welcome_disabled else "normal")
+        except (KeyError, tk.TclError):
+            pass
     for name in ("btn_analyze", "btn_full_analysis", "btn_score_estimate"):
         widget = globals().get(name)
         if widget is not None:
@@ -10469,13 +10517,8 @@ btn_full_analysis.grid(row=3, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 # btn_redo = ttk.Button(info_frame, text=t("button.redo"), command=board.redo, style="Tool.TButton")
 # btn_redo.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
 
-# btn_load_sgf = ttk.Button(info_frame, text=t("button.load_sgf"), command=on_load_sgf_click, style="Tool.TButton")
-# btn_load_sgf.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-btn_pass = ctk.CTkButton(info_frame, text=t("button.pass"), command=board.pass_move)
-btn_pass.grid(row=4, column=0, padx=(0, 4), pady=(0, 8), sticky="ew")
-
 btn_score_estimate = ctk.CTkButton(info_frame, text=t("button.score_estimate"), command=on_score_estimate_click)
-btn_score_estimate.grid(row=4, column=1, padx=(4, 0), pady=(0, 8), sticky="ew")
+btn_score_estimate.grid(row=4, column=0, columnspan=2, pady=(0, 8), sticky="ew")
 
 def build_branch_section(height):
     global branch_section, branch_title_label, branch_view_frame, branch_ui
@@ -11070,13 +11113,14 @@ def apply_theme(theme_name, persist=True):
         # (``fg_color``).  The generic widget recolor pass cannot reliably
         # update it because CustomTkinter exposes these options differently
         # from classic Tk widgets, so keep these controls in sync explicitly.
-        for action_button in (btn_pass, btn_score_estimate):
+        for action_button in (btn_score_estimate,):
             action_button.configure(
                 bg_color=PANEL_BG,
                 fg_color=BLUE_BUTTON,
                 hover_color=BLUE_BUTTON_DARK,
                 text_color=STONE_WHITE,
             )
+        markup_toolbar.refresh_theme()
         # Refresh classic Tk widgets in the right panel explicitly. They do
         # not inherit ttk styles and their Canvas text is drawn separately.
         branch_section.configure(bg=PANEL_BG)
@@ -11155,7 +11199,6 @@ def refresh_language():
     # btn_undo.config(text=t("button.undo"))
     # btn_redo.config(text=t("button.redo"))
     # btn_load_sgf.config(text=t("button.load_sgf"))
-    btn_pass.config(text=t("button.pass"))
     update_score_estimate_button_label()
     branch_title_label.config(text=t("branch.tree_title"))
     # branch_hint_label.config(text=t("branch.collapse_hint"))

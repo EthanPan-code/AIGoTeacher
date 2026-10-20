@@ -224,6 +224,7 @@
   "branch.collapsed_count": "+{n}",
   "branch.opening": "0",
   "branch.turn_branches": "Move {move_count} branches",
+  "branch.pass": "Pass", 
   "branch.markup": "Markup",
   "teacher.default_message": "AI teacher commentary will appear when a key mistake is detected.",
   "teacher.thinking": "Teacher is thinking...\n(calling Ollama)",

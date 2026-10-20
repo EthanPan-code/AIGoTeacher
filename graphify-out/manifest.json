@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1791896865.704478,
-    "seen": 1791898990.3509881,
-    "ast_hash": "b9b318a6b80ccfd607b656099647a351",
+    "mtime": 1792283564.9704416,
+    "seen": 1792502745.48968,
+    "ast_hash": "c5ea4ef25ee1c0b5409b8da0dc0bfcbb",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1791896865.704478,
-    "seen": 1791898990.3510027,
-    "ast_hash": "2de0d6baac4c6550724ab3ca613d89f4",
+    "mtime": 1792283554.6242154,
+    "seen": 1792502745.4896934,
+    "ast_hash": "c41d2dcafd071c01664840fe3968dd1d",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -54,9 +54,9 @@
     "semantic_hash": "e5990bc0490845ed7dee4025ee285350"
   },
   "services/config_service.py": {
-    "mtime": 1791383373.6310298,
-    "seen": 1791896147.2982934,
-    "ast_hash": "b4b174228900479793549dd9150beb84",
+    "mtime": 1792283554.568547,
+    "seen": 1792502745.4897351,
+    "ast_hash": "ecf73283ce072a2fcb767f0e1b197aea",
     "semantic_hash": ""
   },
   "services/keyring_service.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1791898705.944231,
-    "seen": 1791898990.3510795,
-    "ast_hash": "bc265da225677798b05a10ad2ee92e98",
+    "mtime": 1792284520.9056914,
+    "seen": 1792502745.489772,
+    "ast_hash": "c7d0e968af0a6618458c48dc4a35218f",
     "semantic_hash": ""
   },
   "version.py": {
@@ -321,6 +321,54 @@
     "mtime": 1791898597.8774421,
     "seen": 1791898990.3511605,
     "ast_hash": "792c139a845fb39ffb02e6c2d239f11c",
+    "semantic_hash": ""
+  },
+  "markup/markup.json": {
+    "mtime": 1792221503.836312,
+    "seen": 1792502745.4896991,
+    "ast_hash": "819c9b4ce66304b0852b1183539336fa",
+    "semantic_hash": ""
+  },
+  "image/buttons/README.md": {
+    "mtime": 1792285345.9906209,
+    "seen": 1792502745.489794,
+    "ast_hash": "c820b9b4851e9fcc35bdbc7e4f4cb4d2",
+    "semantic_hash": ""
+  },
+  "image/mark/README.md": {
+    "mtime": 1792285615.8739905,
+    "seen": 1792502745.4897966,
+    "ast_hash": "04e9e7fa227181a7c0d8168c5da69f0c",
+    "semantic_hash": ""
+  },
+  "image/tools/README.md": {
+    "mtime": 1792285345.9906209,
+    "seen": 1792502745.4897993,
+    "ast_hash": "c820b9b4851e9fcc35bdbc7e4f4cb4d2",
+    "semantic_hash": ""
+  },
+  "image/mark/taijitu.png": {
+    "mtime": 1792072372.8601196,
+    "seen": 1792502745.489835,
+    "ast_hash": "774bff566ea9f318f7c937c4f5f7fcd2",
+    "semantic_hash": ""
+  },
+  "image/tools/pass_dark.png": {
+    "mtime": 1792502062.9932017,
+    "seen": 1792502745.489863,
+    "ast_hash": "eec4bfbdacb039139d172797e6149e84",
+    "semantic_hash": ""
+  },
+  "image/tools/pass_light.png": {
+    "mtime": 1792502082.542153,
+    "seen": 1792502745.4898658,
+    "ast_hash": "bff319c5bc76d817d9bc9d2da36fd694",
+    "semantic_hash": ""
+  },
+  "image/tools/reticle.png": {
+    "mtime": 1792502485.702924,
+    "seen": 1792502745.4898677,
+    "ast_hash": "c388a4f2d647cda66ac8b457410fc717",
     "semantic_hash": ""
   }
 }
