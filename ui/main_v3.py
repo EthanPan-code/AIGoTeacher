@@ -1900,8 +1900,8 @@ class BranchCanvas(tk.Canvas):
             
             # 顯示座標縮寫 (如 R16)
             move = node.move
-            txt = "Pass" if is_pass_move(move) else self.board_ref.to_gtp_coord(move[0], move[1])
-            self.create_text(x, y, text=txt, font=("Arial", 7, "bold"), fill=TEXT_MAIN, tags=f"branch_{i}")
+            txt = t("branch.pass") if is_pass_move(move) else self.board_ref.to_gtp_coord(move[0], move[1])
+            self.create_text(x, y, text=txt, font=("Microsoft JhengHei", 7, "bold"), fill=TEXT_MAIN, tags=f"branch_{i}")
 
     def on_click(self, event):
         item = self.find_closest(event.x, event.y)
@@ -2212,9 +2212,14 @@ class BranchTreeView(tk.Canvas):
                         tags=(node_id,),
                     )
                 else:
-                    coord = "Pass" if is_pass_move(node_move) else self.board_ref.to_gtp_coord(node_move[0], node_move[1])
-                    self.create_text(x, y - 4, text=str(move_no), fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
-                    self.create_text(x, y + 6, text=coord, fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
+                    if is_pass_move(node_move):
+                        coord = t("branch.pass") 
+                        self.create_text(x, y - 4, text=str(move_no), fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
+                        self.create_text(x, y + 6, text=coord, fill=text_color, font=("Microsoft JhengHei", 8, "bold"), tags=(node_id,))
+                    else:
+                        coord = self.board_ref.to_gtp_coord(node_move[0], node_move[1])
+                        self.create_text(x, y - 4, text=str(move_no), fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
+                        self.create_text(x, y + 6, text=coord, fill=text_color, font=("Arial", 7, "bold"), tags=(node_id,))
 
                 if id(node) in self.collapsed_nodes:
                     hidden_count = self._count_descendants(node)
