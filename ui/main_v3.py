@@ -426,6 +426,8 @@ from services.ollama_manager import (
     OLLAMA_RECOMMENDED_LOCAL_MODELS,
     get_ollama_manager,
 )
+from services.katago_model_manager import KataGoModelManager, KataGoModel
+from ui.katago_model_browser import KataGoModelBrowserWindow
 import threading  
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -959,6 +961,31 @@ def get_config_display_name():
     if config_path_mode_var.get() == "default":
         return t("label.path_default")
     return os.path.basename(config_path_var.get().strip()) or t("label.path_custom")
+
+
+def show_katago_online_models_dialog(parent=None):
+    """Open the CustomTkinter KataGo Training API model browser."""
+    owner = parent or root
+    model_dir = ensure_runtime_dir("runtime", "online_models")
+    manager = KataGoModelManager(model_dir)
+
+    def apply_model(model: KataGoModel, path):
+        model_path_mode_var.set("custom")
+        model_path_var.set(str(path))
+        config_service.set_setting("model_path_mode", "custom")
+        config_service.set_katago_online_model_name(model.name)
+        config_service.set_katago_online_model_path(str(path))
+        config_service.save()
+        reinitialize_analyzer()
+
+    window = KataGoModelBrowserWindow(
+        owner,
+        manager,
+        translator=t,
+        on_apply=apply_model,
+    )
+    window.focus_force()
+    return window
 
 
 winrate_display_state = {"key": "analysis.not_analyzed", "kwargs": {}}
@@ -9247,6 +9274,11 @@ def show_settings_dialog():
     tip_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
     ttk.Label(tip_frame, text=t("label.settings_tip"), 
               font=("Microsoft JhengHei", 9), foreground="#666").pack(anchor="w")
+    ttk.Button(
+        tip_frame,
+        text=t("button.browse_online_models"),
+        command=lambda: show_katago_online_models_dialog(settings_win),
+    ).pack(anchor="w", pady=(8, 0))
 
     # 按鈕框架
     btn_frame = ttk.Frame(main_frame)
@@ -9614,7 +9646,7 @@ katago_path_mode_var = tk.StringVar(value=config_service.get_setting("katago_pat
 model_path_mode_var = tk.StringVar(value=config_service.get_setting("model_path_mode", "standard"))
 config_path_mode_var = tk.StringVar(value=config_service.get_setting("config_path_mode", "default"))
 katago_path_var = tk.StringVar(value="")
-model_path_var = tk.StringVar(value="")
+model_path_var = tk.StringVar(value=config_service.get_katago_online_model_path(""))
 config_path_var = tk.StringVar(value="")
 
 data_filter = GoDataFilter(winrate_threshold=0.05, score_threshold=2.0)

@@ -41,6 +41,18 @@ class ConfigService:
         from services.rules import validate_komi
         self.set_setting("analysis_komi", validate_komi(komi))
 
+    def get_katago_online_model_name(self, default=""):
+        return self.get_setting("katago_online_model_name", default) or ""
+
+    def set_katago_online_model_name(self, name):
+        self.set_setting("katago_online_model_name", name or "")
+
+    def get_katago_online_model_path(self, default=""):
+        return self.get_setting("katago_online_model_path", default) or ""
+
+    def set_katago_online_model_path(self, path):
+        self.set_setting("katago_online_model_path", path or "")
+
     def get_show_teacher(self, default=True):
         return bool(self.get_setting("show_teacher", default))
 

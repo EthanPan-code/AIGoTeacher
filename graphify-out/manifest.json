@@ -1,14 +1,14 @@
 {
   "i18n/en.json": {
-    "mtime": 1792283564.9704416,
-    "seen": 1792502745.48968,
-    "ast_hash": "c5ea4ef25ee1c0b5409b8da0dc0bfcbb",
+    "mtime": 1792752233.503793,
+    "seen": 1792752585.3303306,
+    "ast_hash": "de4e6a40643d81a83e81aeef6b00b327",
     "semantic_hash": ""
   },
   "i18n/zh_TW.json": {
-    "mtime": 1792283554.6242154,
-    "seen": 1792502745.4896934,
-    "ast_hash": "c41d2dcafd071c01664840fe3968dd1d",
+    "mtime": 1792752233.4854069,
+    "seen": 1792752585.3303368,
+    "ast_hash": "69cfa3680e9d479232c6a2ae0e215aa5",
     "semantic_hash": ""
   },
   "providers/__init__.py": {
@@ -54,9 +54,9 @@
     "semantic_hash": "e5990bc0490845ed7dee4025ee285350"
   },
   "services/config_service.py": {
-    "mtime": 1792283554.568547,
-    "seen": 1792502745.4897351,
-    "ast_hash": "ecf73283ce072a2fcb767f0e1b197aea",
+    "mtime": 1792752233.47233,
+    "seen": 1792752585.3303573,
+    "ast_hash": "1a9b50fd07eb790938e948b9fc4a3423",
     "semantic_hash": ""
   },
   "services/keyring_service.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1792284520.9056914,
-    "seen": 1792502745.489772,
-    "ast_hash": "c7d0e968af0a6618458c48dc4a35218f",
+    "mtime": 1792752233.4934807,
+    "seen": 1792752585.3303783,
+    "ast_hash": "d44c4441f8b6b4ce3806c5eae9dd3d82",
     "semantic_hash": ""
   },
   "version.py": {
@@ -369,6 +369,18 @@
     "mtime": 1792502485.702924,
     "seen": 1792502745.4898677,
     "ast_hash": "c388a4f2d647cda66ac8b457410fc717",
+    "semantic_hash": ""
+  },
+  "services/katago_model_manager.py": {
+    "mtime": 1792752233.4656234,
+    "seen": 1792752585.3303618,
+    "ast_hash": "9f356361482e82d44bd428e34db1d587",
+    "semantic_hash": ""
+  },
+  "ui/katago_model_browser.py": {
+    "mtime": 1792752233.4733367,
+    "seen": 1792752585.3303766,
+    "ast_hash": "1a1bbfa4e2f6a07b63e1827946b1ed76",
     "semantic_hash": ""
   }
 }
