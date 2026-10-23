@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import os
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from urllib.parse import unquote, urlparse
 
 import requests
 
 
 API_BASE_URL = "https://katagotraining.org/api"
 NETWORKS_URL = f"{API_BASE_URL}/networks/"
+NETWORKS_JSON_URL = f"{API_BASE_URL}/networks/?format=json"
 
 
 class KataGoModelError(RuntimeError):
@@ -27,6 +30,14 @@ class KataGoModelFormatError(KataGoModelError):
 
 class KataGoModelChecksumError(KataGoModelError):
     """Raised when a downloaded model does not match its advertised hash."""
+
+
+class KataGoModelNetworkError(KataGoModelError):
+    """Raised when the model API cannot be reached."""
+
+
+class KataGoModelHTTPError(KataGoModelError):
+    """Raised when the model API returns an HTTP error."""
 
 
 class KataGoModelCancelled(KataGoModelError):
@@ -102,6 +113,35 @@ class DownloadProgress:
 ProgressCallback = Callable[[DownloadProgress], None]
 
 
+def migrate_mislabeled_text_model(
+    path: str | os.PathLike[str],
+    model_name: str,
+) -> Path:
+    """Repair an older download incorrectly saved with a .bin.gz suffix."""
+    model_path = Path(path)
+    if not model_path.is_file() or not model_path.name.lower().endswith(".bin.gz"):
+        return model_path
+
+    try:
+        with gzip.open(model_path, "rb") as source:
+            header = source.readline(256).decode("ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return model_path
+
+    expected_headers = {model_name}
+    if model_name.startswith("kata1-"):
+        expected_headers.add(model_name[len("kata1-") :])
+    if header not in expected_headers:
+        return model_path
+
+    repaired_path = model_path.with_name(
+        f"{model_path.name[:-len('.bin.gz')]}.txt.gz"
+    )
+    if not repaired_path.exists():
+        os.replace(model_path, repaired_path)
+    return repaired_path
+
+
 class KataGoModelManager:
     """Fetch and safely download models from katagotraining.org."""
 
@@ -127,8 +167,15 @@ class KataGoModelManager:
         return self._download_lock.locked()
 
     def fetch_page(self, url: str = NETWORKS_URL) -> KataGoModelPage:
-        response = self.session.get(url, timeout=self.api_timeout)
-        response.raise_for_status()
+        try:
+            response = self.session.get(url, timeout=self.api_timeout)
+            response.raise_for_status()
+        except requests.Timeout as exc:
+            raise KataGoModelNetworkError("The model service timed out") from exc
+        except requests.ConnectionError as exc:
+            raise KataGoModelNetworkError("The model service is unavailable") from exc
+        except requests.HTTPError as exc:
+            raise KataGoModelHTTPError("The model service returned an HTTP error") from exc
         try:
             payload = response.json()
         except (TypeError, ValueError) as exc:
@@ -150,6 +197,16 @@ class KataGoModelManager:
             url=url,
         )
 
+    def fetch_all_models(self) -> tuple[KataGoModel, ...]:
+        """Fetch every paginated model page for local search and filtering."""
+        models: list[KataGoModel] = []
+        next_url: str | None = NETWORKS_JSON_URL
+        while next_url:
+            page = self.fetch_page(next_url)
+            models.extend(page.results)
+            next_url = page.next_url
+        return tuple(models)
+
     def cancel_download(self) -> None:
         self._cancel_event.set()
 
@@ -167,12 +224,19 @@ class KataGoModelManager:
         final_path = self._final_path(model)
         try:
             self.download_dir.mkdir(parents=True, exist_ok=True)
-            response = self.session.get(
-                model.model_file,
-                stream=True,
-                timeout=self.download_timeout,
-            )
-            response.raise_for_status()
+            try:
+                response = self.session.get(
+                    model.model_file,
+                    stream=True,
+                    timeout=self.download_timeout,
+                )
+                response.raise_for_status()
+            except requests.Timeout as exc:
+                raise KataGoModelNetworkError("The model download timed out") from exc
+            except requests.ConnectionError as exc:
+                raise KataGoModelNetworkError("The model download was interrupted") from exc
+            except requests.HTTPError as exc:
+                raise KataGoModelHTTPError("The model download returned an HTTP error") from exc
             total_bytes = model.model_file_bytes
             digest = hashlib.sha256()
             downloaded_bytes = 0
@@ -215,10 +279,22 @@ class KataGoModelManager:
         yield from response.iter_content(chunk_size=self.chunk_size)
 
     def _final_path(self, model: KataGoModel) -> Path:
-        return self.download_dir / f"{self._safe_name(model.name)}.bin.gz"
+        return self.download_dir / f"{self._safe_name(model.name)}{self._model_suffix(model)}"
 
     def _temporary_path(self, model: KataGoModel) -> Path:
-        return self.download_dir / f".{self._safe_name(model.name)}.bin.gz.part"
+        return self.download_dir / f".{self._safe_name(model.name)}{self._model_suffix(model)}.part"
+
+    @staticmethod
+    def _model_suffix(model: KataGoModel) -> str:
+        """Preserve KataGo's model format from the API download filename."""
+        filename = Path(unquote(urlparse(model.model_file).path)).name.lower()
+        if filename.endswith(".txt.gz"):
+            return ".txt.gz"
+        if filename.endswith(".bin.gz"):
+            return ".bin.gz"
+        raise KataGoModelFormatError(
+            "Unsupported model format; expected a .txt.gz or .bin.gz download"
+        )
 
     @staticmethod
     def _safe_name(name: str) -> str:

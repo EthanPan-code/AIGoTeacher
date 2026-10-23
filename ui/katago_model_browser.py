@@ -10,9 +10,9 @@ import customtkinter as ctk
 
 from services.katago_model_manager import (
     KataGoModel,
-    KataGoModelError,
+    KataGoModelHTTPError,
     KataGoModelManager,
-    KataGoModelPage,
+    KataGoModelNetworkError,
     DownloadProgress,
 )
 
@@ -33,12 +33,19 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
         self.manager = manager
         self.translate = translator
         self.on_apply = on_apply
-        self.page: KataGoModelPage | None = None
+        self.models: tuple[KataGoModel, ...] = ()
         self._closed = False
-        self._page_loading = False
+        self._models_loading = False
         self._row_widgets: list[ctk.CTkFrame] = []
         self._download_model: KataGoModel | None = None
         self._download_path: Path | None = None
+        self._filtered_models: tuple[KataGoModel, ...] = ()
+        self._local_page = 0
+        self._local_page_size = 50
+        self._search_after_id = None
+        self._ui_generation = 0
+        self.search_var = ctk.StringVar(value="")
+        self.category_var = ctk.StringVar(value="")
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -65,39 +72,51 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
         )
         self.refresh_button.grid(row=0, column=1, rowspan=2, padx=(12, 0))
 
-        self.tab_view = ctk.CTkTabview(self)
-        self.tab_view.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 8))
-        self.tab_view.add(self.translate("tab.katago_models"))
-        self.tab_view.set(self.translate("tab.katago_models"))
-        model_tab = self.tab_view.tab(self.translate("tab.katago_models"))
-        model_tab.grid_columnconfigure(0, weight=1)
+        filters = ctk.CTkFrame(self, fg_color="transparent")
+        filters.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 8))
+        filters.grid_columnconfigure(0, weight=1)
+        self.search_entry = ctk.CTkEntry(
+            filters,
+            textvariable=self.search_var,
+            placeholder_text=self.translate("placeholder.katago_model_search"),
+        )
+        self.search_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.search_entry.bind("<KeyRelease>", lambda _event: self._schedule_search())
+        self.category_menu = ctk.CTkOptionMenu(
+            filters,
+            variable=self.category_var,
+            values=[self.translate("filter.all_models")],
+            command=lambda _value: self._render_filtered_models(reset_page=True),
+            width=190,
+        )
+        self.category_menu.grid(row=0, column=1, sticky="e")
 
         self.list_frame = ctk.CTkScrollableFrame(
-            model_tab,
+            self,
             label_text=self.translate("label.katago_model_list"),
         )
         self.list_frame.grid(row=2, column=0, sticky="nsew", padx=18, pady=(0, 8))
         self.list_frame.grid_columnconfigure(0, weight=1)
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 18))
-        footer.grid_columnconfigure(1, weight=1)
-        self.previous_button = ctk.CTkButton(
-            footer,
+        self.local_pagination = ctk.CTkFrame(self, fg_color="transparent")
+        self.local_pagination.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 4))
+        self.local_pagination.grid_columnconfigure(1, weight=1)
+        self.local_previous_button = ctk.CTkButton(
+            self.local_pagination,
             text=self.translate("button.previous"),
-            width=110,
-            command=self.previous_page,
+            width=100,
+            command=self._previous_local_page,
         )
-        self.previous_button.grid(row=0, column=0, sticky="w")
-        self.page_label = ctk.CTkLabel(footer, text="", anchor="center")
-        self.page_label.grid(row=0, column=1, sticky="ew", padx=12)
-        self.next_button = ctk.CTkButton(
-            footer,
+        self.local_previous_button.grid(row=0, column=0, sticky="w")
+        self.local_page_label = ctk.CTkLabel(self.local_pagination, text="", anchor="center")
+        self.local_page_label.grid(row=0, column=1, sticky="ew", padx=10)
+        self.local_next_button = ctk.CTkButton(
+            self.local_pagination,
             text=self.translate("button.next"),
-            width=110,
-            command=self.next_page,
+            width=100,
+            command=self._next_local_page,
         )
-        self.next_button.grid(row=0, column=2, sticky="e")
+        self.local_next_button.grid(row=0, column=2, sticky="e")
 
         self.download_status = ctk.CTkLabel(self, text="", anchor="w")
         self.download_status.grid(row=4, column=0, sticky="ew", padx=18)
@@ -122,62 +141,108 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
         self.apply_button.grid_remove()
 
     def refresh(self) -> None:
-        self._load_page(self.page.url if self.page else None)
-
-    def next_page(self) -> None:
-        if self.page and self.page.next_url:
-            self._load_page(self.page.next_url)
-
-    def previous_page(self) -> None:
-        if self.page and self.page.previous_url:
-            self._load_page(self.page.previous_url)
-
-    def _load_page(self, url: str | None) -> None:
-        if self._page_loading:
+        if self._models_loading:
             return
-        self._page_loading = True
+        self._models_loading = True
         self.refresh_button.configure(state="disabled")
         self.status_label.configure(text=self.translate("status.katago_models_loading"))
         threading.Thread(
-            target=self._load_page_worker,
-            args=(url,),
+            target=self._load_models_worker,
             daemon=True,
         ).start()
 
-    def _load_page_worker(self, url: str | None) -> None:
+    def _load_models_worker(self) -> None:
         try:
-            page = self.manager.fetch_page(url) if url else self.manager.fetch_page()
+            models = self.manager.fetch_all_models()
         except Exception as exc:
-            self._run_on_ui(self._show_page_error, exc)
+            self._run_on_ui(self._show_models_error, exc)
             return
-        self._run_on_ui(self._show_page, page)
+        self._run_on_ui(self._show_models, models)
 
-    def _show_page(self, page: KataGoModelPage) -> None:
-        self._page_loading = False
-        self.page = page
+    def _show_models(self, models: tuple[KataGoModel, ...]) -> None:
+        self._models_loading = False
+        self.models = models
         self.refresh_button.configure(state="normal")
         self.status_label.configure(
-            text=self.translate("status.katago_models_count", count=page.count)
+            text=self.translate("status.katago_models_count", count=len(models))
         )
-        self.page_label.configure(
-            text=self.translate(
-                "status.katago_models_page",
-                current=self._page_number(page.url),
-                total=max(1, (page.count + len(page.results) - 1) // max(1, len(page.results))),
+        categories = sorted({model.network_size for model in models})
+        all_label = self.translate("filter.all_models")
+        self.category_menu.configure(values=[all_label, *categories])
+        self.category_var.set(all_label)
+        self._render_filtered_models(reset_page=True)
+
+    def _show_models_error(self, error: Exception) -> None:
+        self._models_loading = False
+        self.refresh_button.configure(state="normal")
+        if isinstance(error, KataGoModelNetworkError):
+            message_key = "status.katago_model_network_error"
+        elif isinstance(error, KataGoModelHTTPError):
+            message_key = "status.katago_model_http_error"
+        else:
+            message_key = "status.katago_models_error"
+        self.status_label.configure(
+            text=self.translate(message_key)
+        )
+
+    def _schedule_search(self) -> None:
+        if self._search_after_id is not None:
+            try:
+                self.after_cancel(self._search_after_id)
+            except (RuntimeError, Exception):
+                pass
+        self._search_after_id = self.after(180, self._apply_scheduled_search)
+
+    def _apply_scheduled_search(self) -> None:
+        self._search_after_id = None
+        self._render_filtered_models(reset_page=True)
+
+    def _render_filtered_models(self, *, reset_page: bool = False) -> None:
+        if reset_page:
+            self._local_page = 0
+        query = self.search_var.get().strip().lower()
+        all_label = self.translate("filter.all_models")
+        category = self.category_var.get() or all_label
+        self._filtered_models = tuple(
+            model
+            for model in self.models
+            if (category == all_label or model.network_size == category)
+            and (
+                not query
+                or query in model.name.lower()
+                or query in model.network_size.lower()
+                or query in model.notes.lower()
             )
         )
-        self.previous_button.configure(
-            state="normal" if page.previous_url else "disabled"
+        page_start = self._local_page * self._local_page_size
+        page_end = page_start + self._local_page_size
+        self._render_models(self._filtered_models[page_start:page_end])
+        total_pages = max(1, (len(self._filtered_models) + self._local_page_size - 1) // self._local_page_size)
+        self.local_page_label.configure(
+            text=self.translate(
+                "status.katago_models_page",
+                current=self._local_page + 1,
+                total=total_pages,
+            )
         )
-        self.next_button.configure(state="normal" if page.next_url else "disabled")
-        self._render_models(page.results)
+        self.local_previous_button.configure(
+            state="normal" if self._local_page > 0 else "disabled"
+        )
+        self.local_next_button.configure(
+            state="normal" if self._local_page + 1 < total_pages else "disabled"
+        )
+        if not self._filtered_models and self.models:
+            self.download_status.configure(text=self.translate("status.katago_models_no_match"))
 
-    def _show_page_error(self, error: Exception) -> None:
-        self._page_loading = False
-        self.refresh_button.configure(state="normal")
-        self.status_label.configure(
-            text=self.translate("status.katago_models_error", error=str(error))
-        )
+    def _previous_local_page(self) -> None:
+        if self._local_page > 0:
+            self._local_page -= 1
+            self._render_filtered_models()
+
+    def _next_local_page(self) -> None:
+        if (self._local_page + 1) * self._local_page_size < len(self._filtered_models):
+            self._local_page += 1
+            self._render_filtered_models()
 
     def _render_models(self, models: tuple[KataGoModel, ...]) -> None:
         for widget in self._row_widgets:
@@ -261,6 +326,16 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
 
     def _show_download_error(self, error: Exception) -> None:
         self.cancel_button.grid_remove()
+        if isinstance(error, KataGoModelNetworkError):
+            self.download_status.configure(
+                text=self.translate("status.katago_model_network_error")
+            )
+            return
+        if isinstance(error, KataGoModelHTTPError):
+            self.download_status.configure(
+                text=self.translate("status.katago_model_http_error")
+            )
+            return
         self.download_status.configure(
             text=self.translate("status.katago_model_download_error", error=str(error))
         )
@@ -275,12 +350,29 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
 
     def close(self) -> None:
         self._closed = True
+        self._ui_generation += 1
+        if self._search_after_id is not None:
+            try:
+                self.after_cancel(self._search_after_id)
+            except (RuntimeError, Exception):
+                pass
+            self._search_after_id = None
         self.manager.cancel_download()
         self.destroy()
 
     def _run_on_ui(self, callback, *args) -> None:
-        if not self._closed and self.winfo_exists():
-            self.after(0, callback, *args)
+        if self._closed:
+            return
+        generation = self._ui_generation
+        try:
+            self.after(0, self._invoke_if_alive, generation, callback, args)
+        except Exception:
+            return
+
+    def _invoke_if_alive(self, generation, callback, args) -> None:
+        if self._closed or generation != self._ui_generation or not self.winfo_exists():
+            return
+        callback(*args)
 
     @staticmethod
     def _format_bytes(value: int) -> str:

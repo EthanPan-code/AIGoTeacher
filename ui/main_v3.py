@@ -426,7 +426,11 @@ from services.ollama_manager import (
     OLLAMA_RECOMMENDED_LOCAL_MODELS,
     get_ollama_manager,
 )
-from services.katago_model_manager import KataGoModelManager, KataGoModel
+from services.katago_model_manager import (
+    KataGoModelManager,
+    KataGoModel,
+    migrate_mislabeled_text_model,
+)
 from ui.katago_model_browser import KataGoModelBrowserWindow
 import threading  
 
@@ -939,7 +943,16 @@ def get_model_path():
         return materialize_bundled_runtime_file(MODEL_STANDARD_PATH)
     if mode == "fast":
         return materialize_bundled_runtime_file(MODEL_FAST_PATH)
-    return model_path_var.get().strip()
+    model_path = model_path_var.get().strip()
+    online_model_name = config_service.get_katago_online_model_name("")
+    if online_model_name:
+        repaired_path = migrate_mislabeled_text_model(model_path, online_model_name)
+        if str(repaired_path) != model_path:
+            model_path_var.set(str(repaired_path))
+            config_service.set_katago_online_model_path(str(repaired_path))
+            config_service.save()
+        return str(repaired_path)
+    return model_path
 
 
 def get_config_path():
