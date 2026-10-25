@@ -8379,12 +8379,10 @@ def show_analysis_log_dialog():
 
     v_scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
     v_scrollbar.grid(row=0, column=1, sticky="ns")
-    h_scrollbar = ttk.Scrollbar(text_frame, orient="horizontal")
-    h_scrollbar.grid(row=1, column=0, sticky="ew")
 
     text = tk.Text(
         text_frame,
-        wrap="none",
+        wrap="char",
         font=("Consolas", 10),
         bg="#1e1e1e",
         fg="#d4d4d4",
@@ -8392,13 +8390,11 @@ def show_analysis_log_dialog():
         padx=10,
         pady=10,
         undo=False,
-        yscrollcommand=v_scrollbar.set,
-        xscrollcommand=h_scrollbar.set
+        yscrollcommand=v_scrollbar.set
     )
     text.grid(row=0, column=0, sticky="nsew")
     
     v_scrollbar.config(command=text.yview)
-    h_scrollbar.config(command=text.xview)
     
     # --- 配置語法高亮的顏色樣式 ---
     text.tag_config("ERROR", foreground="#f44336", font=("Consolas", 10, "bold"))  # 明亮紅 + 粗體

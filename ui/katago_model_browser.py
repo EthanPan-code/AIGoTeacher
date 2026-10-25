@@ -255,14 +255,19 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
             ctk.CTkLabel(
                 frame,
                 text=model.name,
-                font=("Segoe UI", 13, "bold"),
+                font=("Microsoft JhengHei", 13, "bold"),
                 anchor="w",
             ).grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+            date = model.created_at[:10]
+            # 民國紀年
+            # date = date.split("-")
+            # date[0] = str(int(date[0])-1911)
+            # date = "-".join(date)
             details = self.translate(
                 "status.katago_model_details",
                 network_size=model.network_size,
                 size=self._format_bytes(model.model_file_bytes),
-                created=model.created_at[:10],
+                created=date,
             )
             ctk.CTkLabel(frame, text=details, anchor="w").grid(
                 row=1, column=0, sticky="ew", padx=12, pady=(0, 8)
@@ -412,7 +417,6 @@ class KataGoModelBrowserWindow(ctk.CTkToplevel):
         )
         self.browser.grid(row=0, column=0, sticky="nsew")
         self.protocol("WM_DELETE_WINDOW", self._close)
-        self.transient(master)
         self.grab_set()
 
     def _close(self) -> None:
