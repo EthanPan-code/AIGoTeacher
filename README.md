@@ -79,13 +79,13 @@ cd AIGoTeacher
 pip install -r requirements.txt
 
 # 3. Run the application
-python ui/main_v3.py
+py ui/main_v3.py
 ```
 
 You can also open an SGF directly by passing its path:
 
 ```bash
-python ui/main_v3.py path/to/game.sgf
+py ui/main_v3.py path/to/game.sgf
 ```
 
 In the packaged Windows version, use File Explorer's **Open with** option on
@@ -152,6 +152,13 @@ api key：
 ```
 nvapi-xxxxx
 ```
+**OpenRouter**
+ 
+api key：
+ 
+```
+sk-or-v1-xxxxx
+```
 
 ### Custom Teaching Tones
 The LLM commentary feature supports multiple tone templates, allowing the depth and style of explanations to be adjusted based on the learner's skill level.
@@ -190,9 +197,10 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 
 <a id="Chinese"></a>
 
-**AI 圍棋老師 v1.3.0** 是一個互動式圍棋教學系統，由 **KataGo v1.18.1** 神經網路引擎驅動，結合 Python Tkinter 圖形介面與多提供商 LLM 評論功能。
-
+**AI 圍棋老師 v1.3.0** 是一套互動式圍棋教學系統，以 **KataGo v1.18.1** 神經網路引擎為核心，結合 Python Tkinter 圖形介面，並支援多家 LLM 提供商的 AI 評論功能。
+ 
 ## 目錄
+ 
 - 功能特色
 - 快速開始
 - 下載執行檔
@@ -200,114 +208,109 @@ This project is licensed under the MIT License. See the [LICENSE](../LICENSE) fi
 - LLM 整合
 - i18n
 - 開發指令
-
----
-
+* * *
+ 
 ## 功能特色
-
+ 
 ### 核心功能
-
-| 功能 | 說明 |
-|------|------|
-| **互動棋盤** | Tkinter 視覺化棋盤，支援點擊下棋、拖曳、縮放 |
-| **即時分析** | 同步顯示 AI 推薦手、勝率、預測變化 |
-| **全局分析** | 整盤棋局勝率曲線圖 |
-| **SGF 支援** | 匯入/匯出棋譜，支援分支導航 |
-| **LLM 評論** | 多提供商 AI 圍棋解說 |
-
-### LLM 提供商支援
-
-| 提供商 | 類型 | 預設模型 |
-|--------|------|----------|
-| **Ollama** | 本機 / 雲端 API | `qwen2.5:3b` |
-| **NVIDIA NIM** | 雲端 API | `meta/llama-3.1-8b-instruct` |
-| **OpenRouter** | 雲端 API | `openai/gpt-4o-mini` |
-
----
-
+ 
+| 功能         | 說明                                   |
+|------------|--------------------------------------|
+| **互動棋盤**   | 以 Tkinter 打造的視覺化棋盤，支援點擊落子、拖曳與縮放       |
+| **即時分析**   | 同步顯示 AI 推薦手、勝率與預測變化                  |
+| **全局分析**   | 繪製整盤棋的勝率曲線圖                          |
+| **SGF 支援** | 匯入／匯出棋譜（SGF），並支援分支瀏覽                 |
+| **LLM 評論** | 支援多家提供商的 AI 圍棋講解                     |
+ 
+### 支援的 LLM 提供商
+ 
+| 提供商            | 類型          | 預設模型                         |
+|----------------|-------------|------------------------------|
+| **Ollama**     | 本機 / 雲端 API | `qwen2.5:3b`                 |
+| **NVIDIA NIM** | 雲端 API      | `meta/llama-3.1-8b-instruct` |
+| **OpenRouter** | 雲端 API      | `openai/gpt-4o-mini`         |
+ 
+* * *
+ 
 ## 快速開始
-
+ 
 ### 下載執行檔（Windows）
-
-如果只想直接使用 AI 圍棋老師，不需要安裝 Python 或自行設定開發環境，可以從 [GitHub Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 下載預先打包好的 Windows 執行版本：
-
-1. 開啟 [Releases](https://github.com/EthanPan-code/AIGoTeacher/releases)，選擇要使用的版本。標示 **Pre-release** 的版本代表預發布測試版。
-2. 展開該版本的 **Assets**，下載打包好的執行檔，通常是 `.exe` 檔案。除非要從原始碼執行，否則不要下載 **Source code (zip)** 或 **Source code (tar.gz)**。
-3. 雙擊 `AIGoTeacher_vX.X.X.exe` 啟動程式。
-
-第一次啟動時，程式可能需要較長時間初始化內含元件。如果 Windows Defender 顯示警告，請先確認檔案確實來自官方的 [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 頁面，再點選 **更多資訊** > **仍要執行**。
-
-> 若要修改原始碼或自行開發，請改參考下方的原始碼安裝步驟。
-
----
-
+ 
+如果只想直接使用 AI 圍棋老師，不必安裝 Python，也不用自行設定開發環境，可以從 [GitHub Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 下載已打包好的 Windows 執行檔：
+ 
+1. 開啟 [Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 頁面，選擇想使用的版本。標示 **Pre-release** 的版本為預發布測試版。
+2. 展開該版本的 **Assets**，下載打包好的執行檔（通常為 `.exe` 檔）。除非打算從原始碼執行，否則請勿下載 **Source code (zip)** 或 **Source code (tar.gz)**。
+3. 連按兩下 `AIGoTeacher_vX.X.X.exe` 即可啟動程式。
+首次啟動時，程式需要初始化內建元件，可能會花較長的時間。若 Windows Defender 跳出警告，請先確認檔案確實來自官方的 [EthanPan-code/AIGoTeacher Releases](https://github.com/EthanPan-code/AIGoTeacher/releases) 頁面，再依序點選 **更多資訊** > **仍要執行**。
+ 
+> 若想修改原始碼或自行開發，請改照下方的安裝步驟操作。
+ 
+* * *
+ 
 ### 前置需求
-
+ 
 - Windows 作業系統
-- Python 3.14+
-
+- Python 3.14 以上
 ### 安裝步驟
-
-```bash
+ 
+```
 # 1. 複製專案
 git clone https://github.com/EthanPan-code/AIGoTeacher.git
 cd AIGoTeacher
-
+ 
 # 2. 安裝套件
 pip install -r requirements.txt
-
+ 
 # 3. 執行
 py ui/main_v3.py
 ```
-
----
-
-你也可以直接傳入 SGF 的路徑來開啟 SGF：
-
-```bash
+ 
+也可以直接傳入 SGF 檔案的路徑來開啟棋譜：
+ 
+```
 python ui/main_v3.py path/to/game.sgf
 ```
-
-在封裝好的 Windows 版本中，可以在 `.sgf` 檔案上使用檔案總管的 **「開啟檔案方式」** 選項，然後選擇 `AIGoTeacher.exe`。應用程式會將該棋局直接載入第一個分頁中。
-
----
-
+ 
+在打包好的 Windows 版本中，可以對 `.sgf` 檔案按右鍵，使用檔案總管的 **「開啟檔案方式」**，再選擇 `AIGoTeacher.exe`，程式會將該棋局直接載入第一個分頁。
+ 
+* * *
+ 
 ## 技術架構
+ 
 ### 圍棋引擎
-
-| 技術                 | 說明                    |
-| ------------------ | --------------------- |
-| **KataGo v1.18.1** | 頂尖神經網路圍棋引擎            |
-| **神經網路權重模型**       | 支援 GPU／CPU 加速的策略與價值網路 |
+ 
+| 技術                 | 說明                       |
+|--------------------|--------------------------|
+| **KataGo v1.18.1** | 最先進的神經網路圍棋引擎             |
+| **神經網路權重模型**       | 策略網路與價值網路，支援 GPU／CPU 加速  |
+ 
 ### 前端與應用程式層
-
-| 技術                | 用途          |
-| ----------------- | ----------- |
-| **Python 3.14**   | 主要開發語言      |
-| **Python 3.13 & PyInstaller**   |  打包成單一執行檔  |
-| **Tkinter / ttk** | 跨平台桌面圖形介面框架 |
-| **Matplotlib**    | 勝率與目差圖表視覺化  |
-| **Pillow (PIL)**  | 棋盤材質與圖片資源處理 |
-
-
+ 
+| 技術                            | 用途               |
+|-------------------------------|------------------|
+| **Python 3.14**               | 主要開發語言           |
+| **Python 3.13 & PyInstaller** | 打包成單一執行檔         |
+| **Tkinter / ttk**             | 跨平台桌面圖形介面框架      |
+| **Matplotlib**                | 繪製勝率與目差圖表        |
+| **Pillow (PIL)**              | 處理棋盤材質與圖片資源      |
+ 
 ### 核心模組
-
-| 模組 | 職責 |
-|------|------|
-| `main_v3.py` | 主程式：棋盤渲染、分析引擎、事件處理 |
-| `providers/*.py` | LLM 提供商實作（Ollama/NVIDIA/OpenRouter） |
-| `services/` | 設定管理、API 金鑰安全儲存 |
-| `i18n.py` | 國際化系統 |
-
+ 
+| 模組               | 職責                                  |
+|------------------|-------------------------------------|
+| `main_v3.py`     | 主程式：負責棋盤繪製、分析引擎整合與事件處理              |
+| `providers/*.py` | LLM 提供商的實作（Ollama／NVIDIA／OpenRouter） |
+| `services/`      | 設定管理與 API 金鑰的安全儲存                   |
+| `i18n.py`        | 國際化（i18n）系統                         |
+ 
 ### 通訊協定
-
-- **非同步 JSON 協定**：透過 stdin/stdout 與 KataGo 引擎溝通
-- **響應匹配**：使用 unique `id` 欄位匹配請求與回應
-- **執行緒安全**：使用 `queue.Queue` 進行執行緒間通訊
-
+ 
+- **非同步 JSON 協定**：透過 stdin/stdout 與 KataGo 引擎通訊
+- **回應對應**：以唯一的 `id` 欄位將請求與回應配對
+- **執行緒安全**：使用 `queue.Queue` 在執行緒間安全傳遞資料
 ## Python 相依套件
-
-```text
+ 
+```
 python-dotenv
 keyring
 pywin32-ctypes
@@ -323,71 +326,73 @@ requests
 certifi
 pywinstyles
 ```
-
----
-
+ 
+* * *
+ 
 ## LLM 整合
-
+ 
 ### 設定 API 金鑰
-
+ 
 **Ollama（本機／雲端）**
-```bash
-# 本機模型透過 Ollama 服務執行；雲端模型需具備 Ollama 帳號權限
+ 
+```
+# 本機模型透過 Ollama 服務執行；雲端模型則需要 Ollama 帳號的存取權限
 ollama pull qwen2.5:3b
 ```
-
+ 
 **NVIDIA NIM**
-
-api key：
+ 
+API 金鑰格式：
+ 
 ```
 nvapi-xxxxx
 ```
-
+ 
 **OpenRouter**
-
-api key：
+ 
+API 金鑰格式：
+ 
 ```
 sk-or-v1-xxxxx
 ```
-
-
+ 
 ### 自訂教學語氣
-
-LLM 評論支援多種語氣模板，可根據學習者程度調整解說深度。
-
----
-
+ 
+LLM 評論支援多種語氣模板，可依學習者的程度調整講解的深度與風格。
+ 
+* * *
+ 
 ## i18n
-
-| 語言 | 檔案 |
-|------|------|
-| 繁體中文 | zh_TW.json |
-| English | en.json |
-
-**切換語言**：透過 UI 選單 `設定` > `語言` 即時切換
-
----
-
+ 
+| 語言      | 檔案         |
+|---------|------------|
+| 繁體中文    | zh_TW.json |
+| English | en.json    |
+ 
+**切換語言**：透過選單 `設定` > `語言`，即可即時切換。
+ 
+* * *
+ 
 ## 開發指令
-
+ 
 ### KataGo 引擎指令
-
-| 指令 | 用途 |
-|------|------|
-| `katago.exe benchmark -model <model>.bin.gz` | 測試 GPU 效能 |
-| `katago.exe analysis -model <model>.bin.gz -config analysis.cfg` | 啟動分析模式 |
-| `katago.exe gtp -model <model>.bin.gz -config gtp.cfg` | 啟動 GTP 模式 |
-
+ 
+| 指令                                                               | 用途        |
+|------------------------------------------------------------------|-----------|
+| `katago.exe benchmark -model <model>.bin.gz`                     | 測試 GPU 效能 |
+| `katago.exe analysis -model <model>.bin.gz -config analysis.cfg` | 啟動分析模式    |
+| `katago.exe gtp -model <model>.bin.gz -config gtp.cfg`           | 啟動 GTP 模式 |
+ 
 ### Python 指令
-
-```bash
-py ui/main_v3.py           # 啟動主程式
-py version.py 1.0.0   # 更新版本號
+ 
 ```
-
----
-
+py ui/main_v3.py           # 啟動主程式
+py version.py 1.0.0        # 更新版本號
+```
+ 
+* * *
+ 
 ## 授權
-
-本專案採用 MIT 授權條款。詳見 [LICENSE](LICENSE) 檔案。
+ 
+本專案採用 MIT 授權條款，詳見 [LICENSE](https://github.com/EthanPan-code/AIGoTeacher/blob/main/LICENSE) 檔案。
 

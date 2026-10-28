@@ -111,6 +111,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 
-    icon='image/logo.ico',
+    icon='image/logo/logo.ico',
     version='version_info.txt',
 )
