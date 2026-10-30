@@ -1252,6 +1252,139 @@ def add_full_game_commentary_to_cache(cache_key, text):
 # 【Phase 1】全域狀態追蹤 — 追蹤當前正在生成的解說
 current_critical_event = None  # 當前正在生成解說的 critical_event
 current_generated_commentary = ""  # 累積生成的解說文本
+latest_teacher_analysis = None  # 目前分頁可供手動解說的最新分析結果
+teacher_generate_image = None
+btn_teacher_generate = None
+teacher_generate_button_state = None
+
+
+def _get_valid_teacher_analysis():
+    """只回傳仍對應目前分頁與棋盤的 KataGo 分析結果。"""
+    snapshot = latest_teacher_analysis
+    active_session = tab_manager.active_session
+    if not snapshot or active_session is None:
+        return None
+    if snapshot["session_id"] != active_session.session_id:
+        return None
+    if snapshot["turn"] != len(board.stones):
+        return None
+    try:
+        current_hash = analyzer.get_board_hash(list(board.stones))
+    except Exception:
+        return None
+    if snapshot["board_hash"] != current_hash:
+        return None
+    return snapshot["result"]
+
+
+def update_teacher_generate_button():
+    """分析完成後啟用教師解說按鈕，生成中或資料過期時停用。"""
+    global teacher_generate_button_state
+    if threading.current_thread() is not threading.main_thread():
+        try:
+            root.after(0, update_teacher_generate_button)
+        except (NameError, tk.TclError):
+            pass
+        return
+    button = globals().get("btn_teacher_generate")
+    if button is None:
+        return
+    analysis_ready = _get_valid_teacher_analysis() is not None
+    generation_busy = current_critical_event is not None
+    next_state = "normal" if analysis_ready and not generation_busy else "disabled"
+    # poll_ai 會定期呼叫此函式；只有狀態真的改變時才 configure，
+    # 避免 CustomTkinter 每 200ms 重繪按鈕造成視覺抖動。
+    if next_state == teacher_generate_button_state:
+        return
+    teacher_generate_button_state = next_state
+    try:
+        button.configure(state=next_state)
+    except (NameError, tk.TclError):
+        pass
+
+
+def invalidate_teacher_analysis():
+    """棋盤或分頁改變時，清除不能再使用的分析結果。"""
+    global latest_teacher_analysis
+    latest_teacher_analysis = None
+    update_teacher_generate_button()
+
+
+def _build_manual_teacher_event(result):
+    """把一般分析結果轉成教師解說 provider 可用的手動 payload。"""
+    from services.llm_game_context import serialize_game_context
+
+    current_turn = len(board.stones)
+    last_move = "Pass"
+    last_player = "Black" if current_turn % 2 else "White"
+    if board.stones:
+        x, y, color = board.stones[-1]
+        last_player = "Black" if color == "black" else "White"
+        if x is not None and y is not None:
+            last_move = board.to_gtp_coord(x, y)
+
+    root_info = result.get("rootInfo") or {}
+    recommendations = [
+        {
+            "move": info.get("move"),
+            "winrate": info.get("winrate"),
+            "scoreLead": info.get("scoreLead"),
+        }
+        for info in (result.get("moveInfos") or [])[:3]
+    ]
+    game_context = serialize_game_context(
+        list(board.stones),
+        current_stones=list(board.stones),
+        after_stones=list(board.stones),
+        after_analysis=result,
+    )
+    if i18n.language == "en":
+        position_prompt = (
+            f"Analyze the current position after move {current_turn}. "
+            f"The last move was {last_move} by {last_player}. "
+            f"KataGo's top candidate moves are {recommendations}. "
+            "Explain the most useful teaching point from this position. "
+            "Use only the supplied analysis and do not invent variations."
+        )
+    else:
+        position_prompt = (
+            f"請分析第 {current_turn} 手後的目前局面。最後一手是 {last_player} 的 {last_move}，"
+            f"KataGo 的前三個候選手為 {recommendations}。"
+            "請指出目前最值得學習的教學重點，只使用提供的分析資料，不要捏造變化。"
+        )
+
+    return {
+        "full_prompt": "\n\n".join((current_llm_worker.get_prompt_template(), position_prompt, game_context)),
+        "thinking_text": t("teacher.thinking"),
+        "turn": current_turn,
+        "user_move": last_move,
+        "player": last_player,
+        "winrate_drop": 0,
+        "game_hash": analyzer.get_board_hash(list(board.stones)),
+        "post_mistake_opponent_best_moves": recommendations,
+    }
+
+
+def on_teacher_generate_click():
+    """按下教師按鈕後，根據最近完成的分析生成一次解說。"""
+    global current_critical_event, current_generated_commentary
+    result = _get_valid_teacher_analysis()
+    if result is None or current_critical_event is not None:
+        update_teacher_generate_button()
+        return
+
+    event = _build_manual_teacher_event(result)
+    cached_commentary = get_commentary_from_cache(
+        event["turn"], event["user_move"], event["game_hash"]
+    )
+    if cached_commentary:
+        render_teacher_ui(cached_commentary)
+        return
+
+    current_critical_event = event
+    current_generated_commentary = ""
+    update_teacher_generate_button()
+    current_llm_worker.start_commentary(event)
 
 # 【修復】回放模式旗標 — 當為 True 時，auto_analyze 不觸發新的 LLM 解說，
 # 只更新勝率/AI 建議點；解說文字由 jump_to_specific_move 負責從快取顯示。
@@ -3149,6 +3282,7 @@ def plot_window(winrates, scoreLeads):
 
 def update_ui_with_data(result):
     """直接使用記憶體中的數據更新 UI，並將所有分析結果保存到快取以供後續比較使用"""
+    global latest_teacher_analysis
     try:
         if is_markup_node_active():
             board.clear_blue_point()
@@ -3191,45 +3325,15 @@ def update_ui_with_data(result):
         else:
             board.clear_blue_point()
 
-        # ====== 教學觸發邏輯 (原本的邏輯搬過來) ======
-        # 持續回報每秒更新棋盤資訊，但不能每秒重複觸發 LLM 解說。
-        if result.get("continuous_analysis"):
-            return
-
-        if not show_teacher_var.get():
-            return
-
-        last_move_gtp = "Pass"
-        if board.stones:
-            last_x, last_y, _ = board.stones[-1]
-            if last_x is not None and last_y is not None:
-                last_move_gtp = board.to_gtp_coord(last_x, last_y)
-
-        # 檢查是否需要叫老師出來說話
-        critical_event = data_filter.process_analysis(
-            current_turn, result, last_move_gtp, is_playback=is_playback_mode, stones=list(board.stones)
-        )
-        if critical_event:
-            # 【Phase 1】檢查是否已有快取的解說，若有則直接顯示，否則呼叫 LLM 生成新的
-            cached_commentary = get_commentary_from_cache(
-                critical_event["turn"], critical_event["user_move"], critical_event.get("game_hash")
-            )
-            if cached_commentary:
-                logger.debug(f"快取命中：第 {critical_event['turn']} 手 ({critical_event['user_move']}) 已有解說，直接顯示")
-                render_teacher_ui(cached_commentary)
-            else:
-                logger.debug(f"快取未命中：第 {critical_event['turn']} 手 ({critical_event['user_move']})，呼叫 LLM 生成")
-                # 【Phase 1】設置全域狀態，準備快取生成的解說
-                global current_critical_event, current_generated_commentary
-                current_critical_event = critical_event
-                current_generated_commentary = ""
-                # 呼叫 LLM 生成解說
-                current_llm_worker.start_commentary(critical_event)
-        else:
-            # 【修復】沒有失誤時，清空舊解說（僅在非回放模式下）
-            # 回放模式下解說由 jump_to_specific_move 負責，這裡不覆蓋
-            if not is_playback_mode:
-                render_teacher_ui("")
+        active_session = tab_manager.active_session
+        if active_session is not None:
+            latest_teacher_analysis = {
+                "session_id": active_session.session_id,
+                "turn": current_turn,
+                "board_hash": analyzer.get_board_hash(list(board.stones)),
+                "result": result,
+            }
+            update_teacher_generate_button()
 
     except KeyError as e:
         logger.warning("UI 更新失敗，分析結果缺少必要欄位: missing=%s result=%s", e, result)
@@ -4262,6 +4366,7 @@ class GoBoard(tk.Canvas):
 
     def on_state_change(self, structure_changed=False):
         global score_estimate_pending_start
+        invalidate_teacher_analysis()
         markup_active = is_markup_node(self.current_node)
         score_estimate_pending_start = False if markup_active else score_estimate_pending_start
         if continuous_analysis_enabled:
@@ -5931,7 +6036,13 @@ def update_llm_model_label(provider=None, model=None):
         model = ProviderFactory.get_configured_model(config_service, provider)
     provider_name = ProviderFactory.get_display_name(provider)
     model_display = ProviderFactory.get_model_display_name(provider, model)
-    llm_model_var.set(f"{model_display}")
+    # 教師標題列使用固定寬度；截斷超長模型名稱，避免切換模型時
+    # 右側面板請求寬度改變，進而觸發全域響應式重排與畫面抖動。
+    max_chars = 18
+    display_text = str(model_display)
+    if len(display_text) > max_chars:
+        display_text = display_text[:max_chars - 1] + "…"
+    llm_model_var.set(display_text)
 
 
 # ============== Ollama 模型管理輔助函數 ==============
@@ -10620,6 +10731,25 @@ teacher_title_label = tk.Label(
     pady=0
 )
 teacher_title_label.pack(side="left")
+teacher_theme = "dark" if UI_BG == PALETTES["dark"]["UI_BG"] else "light"
+teacher_generate_image_path = resource_path(
+    f"image/buttons/generate_{teacher_theme}.png"
+)
+if os.path.exists(teacher_generate_image_path):
+    teacher_generate_image = load_ctk_image(teacher_generate_image_path, size=(20, 20))
+btn_teacher_generate = ctk.CTkButton(
+    teacher_header,
+    text="",
+    image=teacher_generate_image,
+    width=30,
+    height=28,
+    corner_radius=6,
+    fg_color=ACCENT,
+    hover_color=ACCENT_DARK,
+    command=on_teacher_generate_click,
+    state="disabled",
+)
+btn_teacher_generate.pack(side="right", padx=(6, 0))
 teacher_model_label = tk.Label(
     teacher_header,
     textvariable=llm_model_var,
@@ -10628,7 +10758,10 @@ teacher_model_label = tk.Label(
     font=("Microsoft JhengHei", 10),
     bd=0,
     padx=0,
-    pady=0
+    pady=0,
+    # 固定字元寬度：模型名稱改變時不影響右側面板寬度與版面重排。
+    width=18,
+    anchor="e",
 )
 teacher_model_label.pack(side="right")
 teacher_text = tk.Text(
@@ -10996,6 +11129,7 @@ def on_commentary_generation_complete():
         finally:
             current_critical_event = None
             current_generated_commentary = ""
+            update_teacher_generate_button()
 
 
 def rebuild_menu_bar():
@@ -11004,7 +11138,7 @@ def rebuild_menu_bar():
 
 def apply_theme(theme_name, persist=True):
     """Apply a configured theme to existing widgets without restarting."""
-    global ACTIVE_THEME, configured_theme
+    global ACTIVE_THEME, configured_theme, teacher_generate_image
     previous = {name: globals().get(name) for name in PALETTES["light"]}
     configured_theme, palette = resolve_theme(theme_name)
     _set_theme_palette(palette)
@@ -11166,6 +11300,17 @@ def apply_theme(theme_name, persist=True):
                 hover_color=BLUE_BUTTON_DARK,
                 text_color=STONE_WHITE,
             )
+        teacher_theme = "dark" if UI_BG == PALETTES["dark"]["UI_BG"] else "light"
+        teacher_image_path = resource_path(f"image/buttons/generate_{teacher_theme}.png")
+        if os.path.exists(teacher_image_path):
+            teacher_generate_image = load_ctk_image(teacher_image_path, size=(20, 20))
+            btn_teacher_generate.configure(image=teacher_generate_image)
+        btn_teacher_generate.configure(
+            bg_color=PANEL_BG,
+            fg_color=ACCENT,
+            hover_color=ACCENT_DARK,
+        )
+        update_teacher_generate_button()
         markup_toolbar.refresh_theme()
         # Refresh classic Tk widgets in the right panel explicitly. They do
         # not inherit ttk styles and their Canvas text is drawn separately.
@@ -11318,6 +11463,8 @@ def poll_ai():
             update_ui_with_data(result)
         else:
             logger.debug("略過非 active session 的分析結果: result_session=%s active=%s", result_session_id, active.session_id if active else None)
+
+    update_teacher_generate_button()
 
     try:
         root.after(UI_POLL_INTERVAL_MS, poll_ai)
