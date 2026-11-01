@@ -1254,8 +1254,54 @@ current_critical_event = None  # 當前正在生成解說的 critical_event
 current_generated_commentary = ""  # 累積生成的解說文本
 latest_teacher_analysis = None  # 目前分頁可供手動解說的最新分析結果
 teacher_generate_image = None
+teacher_generate_disabled_image = None
 btn_teacher_generate = None
 teacher_generate_button_state = None
+
+
+def _load_teacher_generate_images():
+    """載入教師解說按鈕的正常與停用狀態圖示。"""
+    global teacher_generate_image, teacher_generate_disabled_image
+    if not Image:
+        teacher_generate_image = None
+        teacher_generate_disabled_image = None
+        return
+
+    teacher_theme = "dark" if UI_BG == PALETTES["dark"]["UI_BG"] else "light"
+    image_path = resource_path(f"image/buttons/generate_{teacher_theme}.png")
+    if not os.path.exists(image_path):
+        teacher_generate_image = None
+        teacher_generate_disabled_image = None
+        return
+
+    try:
+        with Image.open(image_path) as raw_img:
+            raw_img = ImageOps.exif_transpose(raw_img)
+            if raw_img.mode != "RGBA":
+                raw_img = raw_img.convert("RGBA")
+            normal_img = raw_img.copy()
+            normal_img.thumbnail((20, 20), Image.Resampling.LANCZOS)
+
+            # 停用圖示：將圖示著色為 TEXT_MUTED 並降低透明度
+            muted_hex = TEXT_MUTED.lstrip("#")
+            muted_rgb = tuple(int(muted_hex[i:i + 2], 16) for i in (0, 2, 4))
+            r, g, b, a = normal_img.split()
+            r = r.point(lambda _: muted_rgb[0])
+            g = g.point(lambda _: muted_rgb[1])
+            b = b.point(lambda _: muted_rgb[2])
+            a = a.point(lambda p: int(p * 0.7))
+            disabled_img = Image.merge("RGBA", (r, g, b, a))
+
+        teacher_generate_image = ctk.CTkImage(
+            light_image=normal_img, dark_image=normal_img, size=(20, 20)
+        )
+        teacher_generate_disabled_image = ctk.CTkImage(
+            light_image=disabled_img, dark_image=disabled_img, size=(20, 20)
+        )
+    except Exception as exc:
+        logger.warning("載入教師解說按鈕圖示失敗: %s", exc)
+        teacher_generate_image = None
+        teacher_generate_disabled_image = None
 
 
 def _get_valid_teacher_analysis():
@@ -1298,7 +1344,20 @@ def update_teacher_generate_button():
         return
     teacher_generate_button_state = next_state
     try:
-        button.configure(state=next_state)
+        if next_state == "normal":
+            button.configure(
+                state="normal",
+                fg_color=ACCENT,
+                hover_color=ACCENT_DARK,
+                image=teacher_generate_image,
+            )
+        else:
+            button.configure(
+                state="disabled",
+                fg_color=PANEL_BORDER,
+                hover_color=PANEL_BORDER,
+                image=teacher_generate_disabled_image or teacher_generate_image,
+            )
     except (NameError, tk.TclError):
         pass
 
@@ -10731,24 +10790,21 @@ teacher_title_label = tk.Label(
     pady=0
 )
 teacher_title_label.pack(side="left")
-teacher_theme = "dark" if UI_BG == PALETTES["dark"]["UI_BG"] else "light"
-teacher_generate_image_path = resource_path(
-    f"image/buttons/generate_{teacher_theme}.png"
-)
-if os.path.exists(teacher_generate_image_path):
-    teacher_generate_image = load_ctk_image(teacher_generate_image_path, size=(20, 20))
+_load_teacher_generate_images()
 btn_teacher_generate = ctk.CTkButton(
     teacher_header,
     text="",
-    image=teacher_generate_image,
+    image=teacher_generate_disabled_image or teacher_generate_image,
     width=30,
     height=28,
     corner_radius=6,
-    fg_color=ACCENT,
-    hover_color=ACCENT_DARK,
+    bg_color=PANEL_BG,
+    fg_color=PANEL_BORDER,
+    hover_color=PANEL_BORDER,
     command=on_teacher_generate_click,
     state="disabled",
 )
+teacher_generate_button_state = "disabled"
 btn_teacher_generate.pack(side="right", padx=(6, 0))
 teacher_model_label = tk.Label(
     teacher_header,
@@ -11138,7 +11194,7 @@ def rebuild_menu_bar():
 
 def apply_theme(theme_name, persist=True):
     """Apply a configured theme to existing widgets without restarting."""
-    global ACTIVE_THEME, configured_theme, teacher_generate_image
+    global ACTIVE_THEME, configured_theme, teacher_generate_image, teacher_generate_disabled_image
     previous = {name: globals().get(name) for name in PALETTES["light"]}
     configured_theme, palette = resolve_theme(theme_name)
     _set_theme_palette(palette)
@@ -11300,16 +11356,9 @@ def apply_theme(theme_name, persist=True):
                 hover_color=BLUE_BUTTON_DARK,
                 text_color=STONE_WHITE,
             )
-        teacher_theme = "dark" if UI_BG == PALETTES["dark"]["UI_BG"] else "light"
-        teacher_image_path = resource_path(f"image/buttons/generate_{teacher_theme}.png")
-        if os.path.exists(teacher_image_path):
-            teacher_generate_image = load_ctk_image(teacher_image_path, size=(20, 20))
-            btn_teacher_generate.configure(image=teacher_generate_image)
-        btn_teacher_generate.configure(
-            bg_color=PANEL_BG,
-            fg_color=ACCENT,
-            hover_color=ACCENT_DARK,
-        )
+        _load_teacher_generate_images()
+        teacher_generate_button_state = None
+        btn_teacher_generate.configure(bg_color=PANEL_BG)
         update_teacher_generate_button()
         markup_toolbar.refresh_theme()
         # Refresh classic Tk widgets in the right panel explicitly. They do

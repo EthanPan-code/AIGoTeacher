@@ -248,7 +248,7 @@
   "branch.turn_branches": "Move {move_count} branches",
   "branch.pass": "Pass", 
   "branch.markup": "Markup",
-  "teacher.default_message": "AI teacher commentary will appear when a key mistake is detected.",
+  "teacher.default_message": "AI teacher commentary will appear when press the button",
   "teacher.thinking": "Teacher is thinking...\n(calling Ollama)",
   "teacher.best_unknown": "Unknown",
   "teacher.nvidia_thinking": "Teacher is thinking...\n(calling NVIDIA)",
