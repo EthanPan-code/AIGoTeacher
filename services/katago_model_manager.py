@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import gzip
+import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -161,6 +163,8 @@ class KataGoModelManager:
         self.chunk_size = chunk_size
         self._download_lock = threading.Lock()
         self._cancel_event = threading.Event()
+        self._catalog_cache_path = self.download_dir / ".katago_model_catalog.json"
+        self._catalog_cache_lock = threading.Lock()
 
     @property
     def is_downloading(self) -> bool:
@@ -206,6 +210,103 @@ class KataGoModelManager:
             models.extend(page.results)
             next_url = page.next_url
         return tuple(models)
+
+    def load_cached_models(self) -> tuple[KataGoModel, ...]:
+        """Load the last catalog without contacting the network.
+
+        A damaged or old cache is treated as empty so opening the browser can
+        still fall back to a normal network refresh.
+        """
+        try:
+            with self._catalog_cache_path.open("r", encoding="utf-8") as source:
+                payload = json.load(source)
+            if not isinstance(payload, list):
+                return ()
+            return tuple(KataGoModel.from_api_data(item) for item in payload)
+        except (OSError, TypeError, ValueError, KataGoModelError):
+            return ()
+
+    def fetch_models_incremental(
+        self,
+        cached_models: tuple[KataGoModel, ...] = (),
+        *,
+        on_batch: Callable[[tuple[KataGoModel, ...], int], None] | None = None,
+    ) -> tuple[KataGoModel, ...]:
+        """Refresh the catalog while reusing the local cache.
+
+        Page 1 is always the only validation request when the cache is current
+        or only a few models behind.  A large cache miss fetches the remaining
+        pages with four workers.  ``on_batch`` receives the merged catalog
+        after every page, allowing the UI and disk cache to update immediately.
+        """
+        first_page = self.fetch_page(NETWORKS_JSON_URL)
+        count = max(0, first_page.count)
+        models = self._merge_models(cached_models, first_page.results)
+        self._save_cached_models(models)
+        if on_batch:
+            on_batch(models, count)
+
+        missing = max(0, count - len(cached_models))
+        page_size = len(first_page.results)
+        if not first_page.next_url or page_size <= 0 or missing <= page_size:
+            return models
+
+        total_pages = (count + page_size - 1) // page_size
+        page_urls = [
+            f"{NETWORKS_JSON_URL}&page={page_number}"
+            for page_number in range(2, total_pages + 1)
+        ]
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="katago-models") as pool:
+            futures = [pool.submit(self.fetch_page, url) for url in page_urls]
+            for future in as_completed(futures):
+                page = future.result()
+                models = self._merge_models(models, page.results)
+                self._save_cached_models(models)
+                if on_batch:
+                    on_batch(models, count)
+        return models
+
+    @staticmethod
+    def _merge_models(
+        existing: tuple[KataGoModel, ...] | list[KataGoModel],
+        incoming: tuple[KataGoModel, ...],
+    ) -> tuple[KataGoModel, ...]:
+        by_name = {model.name: model for model in existing}
+        for model in incoming:
+            by_name[model.name] = model
+        return tuple(
+            sorted(
+                by_name.values(),
+                key=lambda model: (model.created_at, model.name),
+                reverse=True,
+            )
+        )
+
+    def _save_cached_models(self, models: tuple[KataGoModel, ...]) -> None:
+        """Atomically persist catalog progress; a partial write never becomes cache."""
+        payload = [
+            {
+                "name": model.name,
+                "created_at": model.created_at,
+                "network_size": model.network_size,
+                "model_file": model.model_file,
+                "model_file_bytes": model.model_file_bytes,
+                "model_file_sha256": model.model_file_sha256,
+                "training_games_enabled": model.training_games_enabled,
+                "rating_games_enabled": model.rating_games_enabled,
+                "notes": model.notes,
+            }
+            for model in models
+        ]
+        temporary_path = self._catalog_cache_path.with_suffix(".tmp")
+        try:
+            self._catalog_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._catalog_cache_lock:
+                with temporary_path.open("w", encoding="utf-8") as target:
+                    json.dump(payload, target, ensure_ascii=False)
+                os.replace(temporary_path, self._catalog_cache_path)
+        except OSError:
+            temporary_path.unlink(missing_ok=True)
 
     def cancel_download(self) -> None:
         self._cancel_event.set()

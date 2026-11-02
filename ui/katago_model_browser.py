@@ -146,31 +146,52 @@ class KataGoModelBrowserFrame(ctk.CTkFrame):
         self._models_loading = True
         self.refresh_button.configure(state="disabled")
         self.status_label.configure(text=self.translate("status.katago_models_loading"))
+        cached_models = self.manager.load_cached_models()
+        if cached_models:
+            # The catalog is local and cheap to read: show it before the
+            # network validation request completes.
+            self._show_models(cached_models, reset_page=True, loading_complete=False)
         threading.Thread(
             target=self._load_models_worker,
+            args=(cached_models,),
             daemon=True,
         ).start()
 
-    def _load_models_worker(self) -> None:
+    def _load_models_worker(self, cached_models: tuple[KataGoModel, ...]) -> None:
         try:
-            models = self.manager.fetch_all_models()
+            models = self.manager.fetch_models_incremental(
+                cached_models,
+                on_batch=lambda batch, _count: self._run_on_ui(
+                    self._show_models,
+                    batch,
+                    False,
+                    False,
+                ),
+            )
         except Exception as exc:
             self._run_on_ui(self._show_models_error, exc)
             return
-        self._run_on_ui(self._show_models, models)
+        self._run_on_ui(self._show_models, models, False, True)
 
-    def _show_models(self, models: tuple[KataGoModel, ...]) -> None:
-        self._models_loading = False
+    def _show_models(
+        self,
+        models: tuple[KataGoModel, ...],
+        reset_page: bool = False,
+        loading_complete: bool = True,
+    ) -> None:
         self.models = models
-        self.refresh_button.configure(state="normal")
+        if loading_complete:
+            self._models_loading = False
+            self.refresh_button.configure(state="normal")
         self.status_label.configure(
             text=self.translate("status.katago_models_count", count=len(models))
         )
         categories = sorted({model.network_size for model in models})
         all_label = self.translate("filter.all_models")
         self.category_menu.configure(values=[all_label, *categories])
-        self.category_var.set(all_label)
-        self._render_filtered_models(reset_page=True)
+        if self.category_var.get() not in {all_label, *categories}:
+            self.category_var.set(all_label)
+        self._render_filtered_models(reset_page=reset_page)
 
     def _show_models_error(self, error: Exception) -> None:
         self._models_loading = False
