@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import threading
+import threading, sys, os
 from pathlib import Path
 from typing import Callable
 
@@ -16,6 +16,16 @@ from services.katago_model_manager import (
     DownloadProgress,
 )
 
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+
+    # ✅ exe 模式（onedir）
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), relative_path)
+
+    # 開發模式
+    return os.path.join(os.path.abspath('.'), relative_path)
 
 class KataGoModelBrowserFrame(ctk.CTkFrame):
     """Browse, download, and apply KataGo neural-network models."""
@@ -430,6 +440,7 @@ class KataGoModelBrowserWindow(ctk.CTkToplevel):
         self.minsize(760, 520)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
+        self.iconbitmap(resource_path("image/logo/logo.ico"))
         self.browser = KataGoModelBrowserFrame(
             self,
             manager,

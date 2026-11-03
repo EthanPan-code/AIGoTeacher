@@ -2439,7 +2439,7 @@ class BranchTreeView(tk.Canvas):
                         x,
                         y+6,
                         text=t("branch.markup"),
-                        fill=TEXT_MAIN,
+                        fill="#fff6e8",
                         font=("Microsoft JhengHei", 8, "bold"),
                         tags=(node_id,),
                     )

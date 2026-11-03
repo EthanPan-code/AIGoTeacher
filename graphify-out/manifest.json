@@ -96,9 +96,9 @@
     "semantic_hash": "d4273b04e6c5e874badf4155390a31a6"
   },
   "ui/main_v3.py": {
-    "mtime": 1793510648.0571775,
-    "seen": 1793511506.563332,
-    "ast_hash": "dff445f360fd0482b17fa8d9cb962828",
+    "mtime": 1793628096.760487,
+    "seen": 1793713469.2823563,
+    "ast_hash": "daa1317d1833404bc8a73025da3d3e8a",
     "semantic_hash": ""
   },
   "version.py": {
@@ -372,15 +372,15 @@
     "semantic_hash": ""
   },
   "services/katago_model_manager.py": {
-    "mtime": 1792755281.4897294,
-    "seen": 1792976246.664042,
-    "ast_hash": "76a5d96b9a568f74dd68c4bacf802521",
+    "mtime": 1793626709.4519277,
+    "seen": 1793713469.2823193,
+    "ast_hash": "851eddf771ef9958a8a5c1ebe4219ead",
     "semantic_hash": ""
   },
   "ui/katago_model_browser.py": {
-    "mtime": 1792758688.3277745,
-    "seen": 1792976246.664078,
-    "ast_hash": "35b3bfc03dffc3701135f7dba1d0ee0b",
+    "mtime": 1793627470.1972458,
+    "seen": 1793713469.282353,
+    "ast_hash": "1deb844e1c0fb9bc0eaa7c69bec8c21f",
     "semantic_hash": ""
   },
   "image/buttons/generate_dark.png": {
